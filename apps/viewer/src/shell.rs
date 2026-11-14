@@ -496,6 +496,36 @@ impl Shell {
                 devices.key(code, down == "1");
                 self.pad = false;
             }
+            // The controls drawn on a screen that is touched: steering, and the pedals.
+            ["touch", x, y] => {
+                if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
+                    devices.touch_stick(x, y);
+                    self.pad = false;
+                }
+            }
+            // The screen was touched while a controller was the one in use: the controls
+            // drawn on it are wanted back.
+            ["touched"] => self.pad = false,
+            // A controller, where the game cannot read one itself and whoever holds the
+            // page reads it for it (a phone: `MainActivity.java`). One plugged in is taken
+            // to be the one in use, and so is one that is pressed or pushed.
+            ["pad", "here"] => self.pad = true,
+            ["pad", "gone"] => {
+                self.pad = false;
+                devices.release_all();
+            }
+            ["pad", "button", name, value] => {
+                if let Ok(value) = value.parse::<f32>() {
+                    devices.gamepad_button(name, value);
+                    self.pad |= value > 0.5;
+                }
+            }
+            ["pad", "axis", name, value] => {
+                if let Ok(value) = value.parse::<f32>() {
+                    devices.gamepad_axis(name, value);
+                    self.pad |= value.abs() > 0.5;
+                }
+            }
             ["mouse", x, y] => {
                 if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
                     devices.mouse_motion(x, y);

@@ -5,8 +5,9 @@
 - `target/release-pack/AussieOutback4x4-windows.zip`: the game's program, its pages, its
   sounds, the two runtime files the program needs from Microsoft's Visual C++ runtime, a
   `game.txt` that says what the program does when it is opened, and the credits. About 40 MB.
-  The program is the engine's viewer, marked as a program with a window and no console; with
-  `game.txt` beside it, opening it is starting the game (apps/viewer/src/game.rs).
+  The program is the engine's viewer as built with a window and no console
+  (`viewer-windowed`, apps/viewer/src/windowed.rs); with `game.txt` beside it, opening it is
+  starting the game (apps/viewer/src/game.rs).
 - `target/release-pack/maps.txt`: the game's maps, each with a version, which is the start of
   its file's SHA-256. The maps are not in the zip: the game fetches them from the site the
   first time it is opened, in its own window (apps/viewer/src/fetch.rs), and again when a
@@ -91,24 +92,6 @@ its licence allows.
 """
 
 
-def windowed(program):
-    """A program's bytes, marked as a program with a window: opened with a double click, it is
-    given no console. Which it is, is one number in the file's header, the Subsystem (2 with
-    a window, 3 with a console), and nothing else about the program differs: it is what
-    Microsoft's `editbin /SUBSYSTEM:WINDOWS` changes. The engine's viewer stays a console
-    program, as its other uses want; the game is the same file with this set."""
-    data = bytearray(program)
-    header = int.from_bytes(data[0x3C:0x40], "little")
-    if data[header : header + 4] != b"PE\0\0":
-        sys.exit("the program is not a Windows program")
-    # After the signature (4) and the file header (20), 68 bytes into the optional header.
-    at = header + 4 + 20 + 68
-    if int.from_bytes(data[at : at + 2], "little") != 3:
-        sys.exit("the program is not a console program to begin with")
-    data[at : at + 2] = (2).to_bytes(2, "little")
-    return bytes(data)
-
-
 def main():
     files = []  # (path on disk, or its contents; name in the zip; stored without squeezing)
 
@@ -117,10 +100,7 @@ def main():
             sys.exit(f"{source} is missing")
         files.append((source, f"{NAME}/{name}", stored))
 
-    program = ROOT / "target" / "release" / "viewer.exe"
-    if not program.exists():
-        sys.exit(f"{program} is missing")
-    add(windowed(program.read_bytes()), "AussieOutback4x4.exe")
+    add(ROOT / "target" / "release" / "viewer-windowed.exe", "AussieOutback4x4.exe")
     system = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
     for runtime in ["vcruntime140.dll", "vcruntime140_1.dll"]:
         add(system / runtime, runtime)

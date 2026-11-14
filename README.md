@@ -29,6 +29,7 @@ its sound in [docs/sound.md](docs/sound.md).
 | `bake.bat` | Build the programs and the four maps (about 3 minutes a map), and take their pictures |
 | `play.bat` | Play: the title, then the hub, in fair weather |
 | `python scripts/package-release.py` | Pack the game for Windows: a zip whose program is opened to play, and which fetches its own maps (docs/hosting.md) |
+| `python scripts/package-android.py` | Build the Android app, `target/android-pack/AussieOutback4x4.apk` (docs/android.md) |
 | `play-wet.bat` | The same after 15 minutes of storm: greasy clay, deep mud, full puddles |
 
 Extra viewer options go after the script name, for example `play --time 17:30 --weather broken`,

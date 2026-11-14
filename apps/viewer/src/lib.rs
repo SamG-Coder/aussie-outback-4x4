@@ -1,8 +1,43 @@
-//! Shared parts of the viewer. The native window and the browser page are thin shells
-//! around [`FlyCamera`] and the renderer.
+//! The viewer: what is shared ([`FlyCamera`], the game's shell and sound), and its fronts, the
+//! desktop's window ([`desktop`]) and the browser's page.
+
+// The desktop's code names this crate as the programs built on it do.
+extern crate self as solstice_viewer;
 
 pub mod bob;
 pub mod camera_path;
+#[cfg(all(target_os = "android", feature = "gameplay"))]
+mod android;
+#[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
+pub mod desktop;
+// On a phone the parts of these two that are a console's, or a desktop's, go unused.
+#[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
+#[cfg_attr(target_os = "android", allow(dead_code))]
+mod fetch;
+#[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
+#[cfg_attr(target_os = "android", allow(dead_code))]
+mod game;
+// The pages over the game: a web view of the desktop's, or of the phone's.
+#[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
+#[cfg_attr(target_os = "android", path = "overlay_android.rs")]
+mod overlay;
+#[cfg(all(not(any(target_arch = "wasm32", target_os = "android")), feature = "gameplay"))]
+mod sony;
+// A phone has no controller of that kind plugged into it.
+#[cfg(all(target_os = "android", feature = "gameplay"))]
+mod sony {
+    pub struct SonyPad;
+
+    impl SonyPad {
+        pub fn new() -> Option<Self> {
+            None
+        }
+
+        pub fn read(&mut self, _: &mut solstice_game::Devices, _: f32) -> bool {
+            false
+        }
+    }
+}
 #[cfg(feature = "gameplay")]
 pub mod play;
 #[cfg(feature = "gameplay")]

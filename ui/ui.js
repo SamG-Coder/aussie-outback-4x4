@@ -275,7 +275,8 @@ function instruments() {
   if (near && near.inside) {
     setText("banner-title", near.title);
     setText("banner-key", state.pad ? "✕" : "Enter");
-    setText("banner-words", state.pad ? "Hold to enter" : "Hold to enter, or click here");
+    el("banner-key").hidden = touched && !state.pad;
+    setText("banner-words", state.pad ? "Hold to enter" : touched ? "Touch here to enter" : "Hold to enter, or click here");
     el("banner-hold").style.width = `${Math.round((near.hold || 0) * 100)}%`;
   }
 }
@@ -373,6 +374,73 @@ function passOn() {
   requestAnimationFrame(passOn);
 }
 requestAnimationFrame(passOn);
+
+// ---- Touch. A screen that is touched and has no mouse, a phone or a tablet, has the truck's
+// controls drawn on it (`#touch`). Steering and the pedals are the game's touch stick, which
+// it is told of as `touch X Y`, each from -1 to 1: right, and braking, above zero. The rest
+// are keys, held as long as they are touched.
+const touched = new URLSearchParams(location.search).has("touch")
+  || (navigator.maxTouchPoints > 0 && matchMedia("(pointer: coarse)").matches);
+if (touched) body.classList.add("touch");
+// With a controller in use the controls are not drawn: a touch anywhere asks for them back.
+addEventListener("touchstart", () => { if (touched && state.pad) say("touched"); }, { capture: true, passive: true });
+const stick = { x: 0, gas: 0, brake: 0, said: "touch 0.00 0.00" };
+function sayStick() {
+  const line = `touch ${stick.x.toFixed(2)} ${(stick.brake - stick.gas).toFixed(2)}`;
+  if (line !== stick.said) { stick.said = line; say(line); }
+}
+// Hears a control: `down` when a finger lands on it, `slid` as that finger moves, `up` when
+// it goes. Each control follows its own finger, so that one may steer while another brakes.
+function touchable(control, down, slid, up) {
+  let finger = null;
+  const mine = (event) => [...event.changedTouches].find((touch) => touch.identifier === finger);
+  control.addEventListener("touchstart", (event) => {
+    event.preventDefault();
+    if (finger !== null) return;
+    finger = event.changedTouches[0].identifier;
+    control.classList.add("down");
+    down(event.changedTouches[0]);
+  }, { passive: false });
+  control.addEventListener("touchmove", (event) => {
+    event.preventDefault();
+    const touch = mine(event);
+    if (touch && slid) slid(touch);
+  }, { passive: false });
+  const gone = (event) => {
+    if (!mine(event)) return;
+    finger = null;
+    control.classList.remove("down");
+    up();
+  };
+  control.addEventListener("touchend", gone);
+  control.addEventListener("touchcancel", gone);
+}
+{
+  const pad = el("touch-steer"), knob = pad.querySelector("i");
+  let from = 0;
+  const steer = (touch) => {
+    // Full lock is a third of the pad's width from where the thumb came down.
+    const reach = pad.clientWidth / 3;
+    stick.x = Math.max(-1, Math.min(1, (touch.clientX - from) / reach));
+    knob.style.transform = `translateX(${stick.x * reach}px)`;
+    sayStick();
+  };
+  touchable(pad, (touch) => { from = touch.clientX; steer(touch); }, steer, () => {
+    stick.x = 0;
+    knob.style.transform = "";
+    sayStick();
+  });
+  for (const pedal of document.querySelectorAll("#touch [data-pedal]")) {
+    const press = (much) => { stick[pedal.dataset.pedal] = much; sayStick(); };
+    touchable(pedal, () => press(1), null, () => press(0));
+  }
+  for (const tap of document.querySelectorAll("#touch [data-key]")) {
+    touchable(tap, () => say(`key ${tap.dataset.key} 1`), null, () => say(`key ${tap.dataset.key} 0`));
+  }
+  for (const tap of document.querySelectorAll("#touch [data-say]")) {
+    touchable(tap, () => say(tap.dataset.say), null, () => {});
+  }
+}
 
 // ---- With no game: made-up readings, and menus that go where they would.
 function pretend(line) {

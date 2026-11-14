@@ -128,6 +128,10 @@ ahead in degrees, whether the truck is in its ring, and how far through holding 
 | `set time N` / `set weather N` | Which time of day, and which weather, the next track is driven in. |
 | `log TEXT` | Something for the game's log: a mistake in the page. |
 | `grab` | On the desktop: pressed where there is nothing, while driving. Take hold of the mouse, to look round with. |
+| `touch X Y` | The controls drawn on a screen that is touched: steering, and the pedals, each from -1 to 1 (right, and braking, above zero). |
+| `touched` | The screen was touched while a controller was in use: draw the controls on it again. |
+| `pad here` / `pad gone` | A controller was plugged in, or the last one taken out. |
+| `pad button NAME V` / `pad axis NAME V` | A controller, where the game cannot read one itself and the page's host reads it for it (a phone, docs/android.md). |
 
 Who has the keys and the mouse is not the same in the two places.
 
@@ -144,6 +148,13 @@ game says to the page what the mouse did: `ui.pointer("move" | "down" | "up", x,
 finds the button under it, takes it in hand as the mouse passes, and chooses it when the
 mouse is pressed and let go on it. Pressed on nothing while driving, it says `grab`, and the
 game takes hold of the mouse; Escape lets it go. A controller is read by the game itself.
+
+On a screen that is touched and has no mouse, a phone or a tablet, in a browser or as the
+Android app, the page draws the truck's controls on itself (`body.touch`, `#touch`): a pad
+that steers, the pedals, and buttons for the rest. While a controller is the one in use
+(`pad` in what the page is told) they are not drawn, and the screen is as on a desk. A screen
+that is short, a phone on its side, has everything set a little larger for its height and
+closer together (`@media (max-height: 560px)` in `ui.css`).
 
 ## Before there is a map: a game that was downloaded
 

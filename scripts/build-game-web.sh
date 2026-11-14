@@ -64,6 +64,10 @@ pack=target/release-pack/AussieOutback4x4-windows.zip
 if [ -e "$pack" ]; then
   size=$(python -c "import os, sys; print(f'{os.path.getsize(sys.argv[1]) / 1e6:.0f} MB')" "$pack")
   sed -i "s|<span data-size>About 40 MB</span>|<span data-size>$size</span>|g" dist/index.html
+  # And which build it is, in the link: a copy of an older one, kept somewhere on the way,
+  # is then not what is asked for.
+  build=$(python -c "import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest()[:10])" "$pack")
+  sed -i "s|download/AussieOutback4x4-windows.zip\"|download/AussieOutback4x4-windows.zip?v=$build\"|g" dist/index.html
 fi
 
 if [ -z "$hosted" ]; then

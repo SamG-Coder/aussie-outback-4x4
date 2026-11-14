@@ -5274,6 +5274,7 @@ dependencies = [
  "gilrs",
  "glam 0.33.12",
  "hidapi",
+ "jni 0.21.1",
  "js-sys",
  "log",
  "png 0.17.16",

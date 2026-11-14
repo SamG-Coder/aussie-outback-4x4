@@ -1,0 +1,12 @@
+# Aussie Outback 4x4 on Android: what the app does when it is opened. The app's library reads
+# this as it starts (apps/viewer/src/game.rs and android.rs in the engine).
+title Aussie Outback 4x4
+
+# What it is run with. A map is read from its file a part at a time, as it is driven through,
+# and not all at once: a phone has not the memory a desktop has.
+run --world scenes/outback.world --ui ui --stream --time 10:00 --weather fair
+
+# Where its maps are fetched from, the first that answers. They are not in the app: the game
+# fetches them into the app's folder the first time it is opened, and afterwards only the
+# pieces of a map that have changed.
+maps https://rust4x4.com https://rust4x4.pages.dev

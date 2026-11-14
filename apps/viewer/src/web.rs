@@ -419,6 +419,8 @@ impl WebViewer {
                 }
                 for order in shell.take_orders() {
                     self.orders.push(match order {
+                        // The desktop's: in a browser the page takes hold of the mouse itself.
+                        Order::Look => continue,
                         Order::Quit => "quit".to_owned(),
                         Order::Load { map, scene, sky } => format!(
                             "load {map} {scene} {} {}",

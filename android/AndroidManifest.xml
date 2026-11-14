@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Aussie Outback 4x4 as an Android app (docs/android.md). The app is one activity, a
+     NativeActivity: the game is its native library, the engine's viewer, and draws on the
+     activity's window with Vulkan. scripts/package-android.py fills in the version. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.rust4x4.outback">
+
+    <!-- The game's maps are fetched from its site. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.vulkan.level" android:version="0" android:required="true" />
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x401000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+
+    <application
+        android:label="Aussie Outback 4x4"
+        android:hasCode="true"
+        android:isGame="true"
+        android:extractNativeLibs="true"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+        <!-- Kept through a turn of the phone and anything plugged in: the game is not started
+             again for them. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
+            <!-- The library that is the game: libsolstice_viewer.so. -->
+            <meta-data android:name="android.app.lib_name" android:value="solstice_viewer" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

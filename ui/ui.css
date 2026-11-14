@@ -14,6 +14,11 @@
   --text: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
   font-size: clamp(11px, 1.48vh, 22px);
 }
+/* A phone held on its side is a wide, short screen, close to the eye: everything is a larger
+   share of its height than on a desk, and is laid out to fit (the rules marked short below). */
+@media (max-height: 560px) {
+  :root { font-size: 2.15vh; }
+}
 
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
@@ -125,6 +130,12 @@ body.still * { animation: none !important; transition: none !important; }
 }
 body.pad .hints span[data-hint]::before { border-radius: 50%; padding: 0; }
 .hints .build { margin-left: auto; opacity: 0.6; }
+/* Touched, a menu is worked by touching it: there are no keys to name. */
+body.touch:not(.pad) .hints span[data-hint] { display: none; }
+@media (max-height: 560px) {
+  .wordmark { font-size: 5.2rem; margin: 0.8rem 0 1.8rem; }
+  .hints { bottom: 2rem; }
+}
 
 /* ---- Driving: panels in the corners, nothing in the middle of the road. */
 .panel { background: var(--panel); border-left: 0.3rem solid var(--ochre); }
@@ -197,6 +208,39 @@ body.pad .banner kbd { border-radius: 50%; padding: 0; }
   color: rgba(242, 234, 219, 0.24); border: 1px solid var(--line); }
 .driveline .lock.on { color: var(--ink); background: var(--gum); border-color: var(--gum); }
 
+/* ---- Driving by touch. Shown only on a screen that is touched, and not while a controller
+   is the one in use: the instruments move to the top, out of the thumbs' way, and the
+   controls take the bottom corners. With a controller in hand the screen is as on a desk. */
+.thumbs { display: none; }
+body.touch:not(.pad) .thumbs { display: block; position: absolute; inset: 0; pointer-events: none;
+  font: 700 1.25rem/1.1 var(--sign); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone);
+  user-select: none; -webkit-user-select: none; }
+body.touch, body.touch button { -webkit-tap-highlight-color: transparent; touch-action: none; }
+.thumbs > *, .thumbs b { pointer-events: auto; touch-action: none; }
+.thumbs b { display: grid; place-items: center; text-align: center; background: var(--panel); border: 1px solid var(--line); }
+.thumbs b.down { background: rgba(229, 138, 46, 0.85); color: var(--ink); border-color: var(--ochre); }
+/* Steering: a wide pad, with a knob that follows the thumb. */
+.thumbs .steer { position: absolute; left: 2.6rem; bottom: 2.4rem; width: 30rem; height: 13rem; border-radius: 1.2rem;
+  background: rgba(21, 15, 11, 0.42); border: 1px solid var(--line); display: grid; place-items: center; }
+.thumbs .steer span { color: rgba(242, 234, 219, 0.35); font-size: 1rem; letter-spacing: 0.3em; transform: translateY(4.4rem); }
+.thumbs .steer i { position: absolute; left: 50%; top: 50%; width: 7rem; height: 7rem; margin: -3.5rem 0 0 -3.5rem; border-radius: 50%;
+  background: rgba(242, 234, 219, 0.2); border: 0.2rem solid var(--bone); }
+.thumbs .steer.down i { background: rgba(229, 138, 46, 0.6); border-color: var(--ochre); }
+/* The pedals. */
+.thumbs .pedals { position: absolute; right: 2.6rem; bottom: 2.4rem; display: flex; gap: 1.2rem; align-items: flex-end; }
+.thumbs .pedal { width: 11rem; border-radius: 1rem; }
+.thumbs .pedal.brake { height: 11rem; }
+.thumbs .pedal.gas { height: 16rem; }
+/* The rest: small, in a column up each side above them. */
+.thumbs .taps { position: absolute; display: flex; gap: 0.8rem; }
+.thumbs .taps b { width: 6.6rem; height: 5rem; border-radius: 0.7rem; font-size: 1rem; }
+.thumbs .taps.left { left: 2.6rem; bottom: 17rem; }
+.thumbs .taps.right { right: 2.6rem; bottom: 20rem; }
+/* The instruments, out of the way: the dashboard small in the top right corner, and the
+   inclinometer beside it. */
+body.touch:not(.pad) .dash { top: 2.4rem; bottom: auto; transform: scale(0.62); transform-origin: top right; }
+body.touch:not(.pad) .tilt { left: auto; right: 22rem; top: 2.4rem; bottom: auto; transform: scale(0.6); transform-origin: top right; }
+
 /* ---- Cards: the trailhead's offer, and the controls. */
 .card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(58rem, 88vw);
   padding: 2.2rem 3rem 2rem; background: rgba(17, 13, 10, 0.92); border-top: 0.35rem solid var(--ochre); }
@@ -204,6 +248,11 @@ body.pad .banner kbd { border-radius: 50%; padding: 0; }
 .card .art { display: block; width: calc(100% + 6rem); height: 13rem; margin: -2.2rem -3rem 1.6rem; object-fit: cover; }
 .art.none { display: none; }
 .card.wide { width: min(64rem, 92vw); }
+/* Short: a card is all of the screen's height, so it goes without its picture, and is wide. */
+@media (max-height: 560px) {
+  .card, .card.wide { width: min(86rem, 92vw); padding: 1.4rem 2.4rem 1.3rem; }
+  .card .art { display: none; }
+}
 .about { margin-top: 1rem; max-width: 46rem; font-size: 1.2rem; color: var(--dust); }
 .facts { display: flex; gap: 3rem; margin-top: 1.7rem; padding: 1.1rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .facts dt { font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
@@ -254,3 +303,14 @@ kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem
 #loading.stuck .tread { visibility: hidden; }
 .tip { margin-top: 2rem; max-width: 34rem; padding-left: 1.1rem; border-left: 0.2rem solid var(--ochre); font-size: 1.15rem; color: var(--bone); }
 .tip b { display: block; margin-bottom: 0.3rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ochre); }
+
+/* Short: the controls are a long list, and are set closer to fit. */
+@media (max-height: 560px) {
+  #controls .kicker { display: none; }
+  #controls .heading { font-size: 2.8rem; }
+  #controls table { margin-top: 0.5rem; font-size: 1rem; }
+  #controls th { padding-bottom: 0.3rem; }
+  #controls td { padding: 0.1rem 0; }
+  #controls kbd { height: 1.45rem; min-width: 1.7rem; font-size: 0.85em; }
+  #controls .menu.small { margin-top: 0.5rem; }
+}

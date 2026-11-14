@@ -170,6 +170,17 @@ pub trait Wire {
     fn download(&self, url: &str, to: &Path) -> Result<(), String>;
 }
 
+/// What fetches things here: `curl` on the desktop, the system's own web client on a phone.
+#[cfg(not(target_os = "android"))]
+pub fn wire() -> impl Wire {
+    Curl
+}
+
+#[cfg(target_os = "android")]
+pub fn wire() -> impl Wire {
+    crate::android::Http
+}
+
 /// The system's `curl`.
 pub struct Curl;
 

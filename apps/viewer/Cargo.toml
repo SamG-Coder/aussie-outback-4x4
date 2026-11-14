@@ -15,6 +15,12 @@ name = "viewer"
 path = "src/main.rs"
 required-features = ["gameplay"]
 
+# The same with a window and no console: a downloaded game's program (`src/windowed.rs`).
+[[bin]]
+name = "viewer-windowed"
+path = "src/windowed.rs"
+required-features = ["gameplay"]
+
 # Play mode: a scene's game, with scripts. On by default; the plain web viewer is built without
 # it, so a page that only looks at scenes downloads none of it (docs/gameplay.md, Viewers).
 [features]
@@ -34,22 +40,34 @@ glam.workspace = true
 log.workspace = true
 wgpu.workspace = true
 
+# Wherever the viewer is a program of its own, the desktop or a phone, and not a page.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-# Sound, natively (`src/sound.rs`).
+# Sound (`src/sound.rs`).
 cpal = "0.18"
-env_logger = "0.11"
-# Gamepads, natively: the browser build reads them from the page (docs/gameplay.md).
+# Gamepads on the desktop: the browser build reads them from the page (docs/gameplay.md), and
+# on a phone it finds none.
 gilrs = "0.11"
-# PlayStation controllers, which Windows shows only as bare HID devices (`src/sony.rs`).
-hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 png = "0.17"
 # The hash a piece of a map is known by, when a game's maps are fetched (`src/fetch.rs`).
 sha2 = "0.10"
 pollster.workspace = true
+# The window, and what is typed and clicked in it (`src/desktop.rs`).
 winit = "0.30"
-# The game's menus and instruments, natively: the same pages the browser shows, in a web view
-# laid over the window (`src/overlay.rs`).
+
+# The desktop alone.
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+env_logger = "0.11"
+# PlayStation controllers, which Windows shows only as bare HID devices (`src/sony.rs`).
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
+# The game's menus and instruments: the same pages the browser shows, in a web view laid over
+# the window (`src/overlay.rs`).
 wry = "0.57"
+
+# A phone (`src/android.rs`): the window is an activity's, and the rest of the system is
+# reached through Java.
+[target.'cfg(target_os = "android")'.dependencies]
+winit = { version = "0.30", features = ["android-native-activity"] }
+jni = "0.21"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"

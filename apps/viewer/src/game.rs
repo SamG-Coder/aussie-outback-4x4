@@ -88,11 +88,30 @@ impl Game {
     }
 }
 
-/// Says that the game cannot go on, in a box of its own, to somebody who opened it with a
-/// double click and has no console to read it on. Nothing, unless a game is being run.
+/// Whether the program has a console to say things on. One opened with a double click that
+/// was built to have a window has none.
+pub fn has_console() -> bool {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetConsoleWindow() -> isize;
+        }
+        // SAFETY: it takes nothing and gives back a handle, or none.
+        unsafe { GetConsoleWindow() != 0 }
+    }
+    #[cfg(not(windows))]
+    true
+}
+
+/// Says that the program cannot go on, in a box of its own, to somebody who opened it with a
+/// double click and has no console to read it on. Nothing, where there is a console and no
+/// game is being run: there it has been said already.
 pub fn alert(text: &str) {
-    let Some(title) = TITLE.get() else {
-        return;
+    let title = match TITLE.get() {
+        Some(title) => title.as_str(),
+        None if !has_console() => "Solstice",
+        None => return,
     };
     #[cfg(windows)]
     {

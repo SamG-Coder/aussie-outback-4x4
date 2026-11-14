@@ -494,6 +494,15 @@ impl PlayMode {
         });
     }
 
+    /// Stops everything that is heard, until the next frame asks for it again: for when
+    /// the game is not being looked at, as on a phone when another app is in front.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn hush(&mut self) {
+        if let Some(sound) = &mut self.sound {
+            sound.sounds.frame(|_| {});
+        }
+    }
+
     /// In a browser: from now on what should be heard is kept for the page to take, each
     /// frame, with [`PlayMode::sound_asks`], and play.
     #[cfg(target_arch = "wasm32")]
