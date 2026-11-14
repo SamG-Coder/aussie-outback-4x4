@@ -18,6 +18,9 @@
   html, body { height: 100%; margin: 0; background: #0b0908; color: var(--ink);
     font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
+  /* A game's own pages (game.js), laid over the scene: nothing else of this page is shown. */
+  #ui { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; }
+  body.game > :not(#view):not(#ui) { display: none !important; }
 
   .panel { position: fixed; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); padding: 12px 14px; }
@@ -248,6 +251,25 @@
 
 <script type="module">
 const params = new URLSearchParams(location.search);
+// A site that is one game says so in the page itself, so that its address needs nothing after
+// it: <meta name="solstice-world" content="outback.world">, and, if its scenes are served from
+// somewhere else, <meta name="solstice-scenes" content="/scenes/">.
+const said = (name) => document.querySelector(`meta[name="solstice-${name}"]`)?.content;
+// Whatever else the address says: going from map to map names a scene, and is still the game.
+if (said("world") && !params.has("world")) params.set("world", said("world"));
+if (said("scenes") && !params.has("scenes")) params.set("scenes", said("scenes"));
+// ?world=FILE plays a game of several maps (docs/ui.md): its pages go over this one, the
+// scene is the map the address names or else the game's hub, and it is played.
+const outback = params.has("world") ? await (await import("./game.js")).prepare(params) : null;
+if (outback) {
+  if (!params.has("scene")) params.set("scene", outback.scene);
+  params.set("play", "");
+  // A game's maps are big, and are looked at close to: more of each is kept than a scene
+  // that is only looked at is given. And its hub has the weather it is started in.
+  for (const [name, value] of [["geometry-mb", "2048"], ["texture-mb", "1024"], ["time", "10:00"], ["weather", "fair"]]) {
+    if (!params.has(name)) params.set(name, value);
+  }
+}
 // ?play loads the gameplay build, which can run a scene's game. Scenes that are only looked at
 // load the plain build, which is smaller and knows nothing of games.
 const playing = params.has("play");
@@ -289,6 +311,9 @@ const el = (id) => document.getElementById(id);
 const canvas = el("view");
 
 function fail(text) {
+  // A game's pages are over this one: what went wrong is said under them.
+  document.body.classList.remove("game");
+  el("ui")?.remove();
   el("overlay").hidden = false;
   el("progress").hidden = true;
   el("message").textContent = text;
@@ -365,14 +390,16 @@ async function main() {
       workers: Number(params.get("workers")) || 0,
       pagesPerRequest: Number(params.get("batch")) || 0,
     },
-    onStage: (text) => { el("message").textContent = text; },
+    onStage: (text) => { el("message").textContent = text; outback?.progress(text); },
     onDownload: (received, total) => {
       el("progress").hidden = received === null || total === 0;
+      if (received !== null) outback?.progress("Downloading map", received, total);
       if (received === null) return;
       if (total) el("progress").value = received / total;
       el("message").textContent = `Downloading scene: ${(received / 1e6).toFixed(0)} MB`;
     },
     onTablesProgress: (done, total) => {
+      outback?.progress("Downloading map", done, total);
       el("progress").hidden = done >= total;
       el("progress").value = done / total;
       el("message").textContent =
@@ -637,6 +664,8 @@ async function main() {
   });
 
   const game = await startGame(viewer, file);
+  const outbackGame = outback && game ? (await import("./game.js")).attach(viewer, params, outback, file) : null;
+  if (outback && !game) fail("This map's game could not be started.");
   const axis = (positive, negative) => (keys.has(positive) ? 1 : 0) - (keys.has(negative) ? 1 : 0);
 
   // Touch, where no game takes it: a stick under the left thumb flies, as a game's does, and
@@ -729,6 +758,7 @@ async function main() {
     );
     lookYaw = 0;
     lookPitch = 0;
+    outbackGame?.tick();
 
     // The moments the first image was submitted, and what it took, for measuring load times.
     const heard = viewer.take_thunder();

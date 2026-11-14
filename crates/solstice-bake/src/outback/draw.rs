@@ -13,7 +13,7 @@
 //! * **In pieces.** The land is built as meshes 128 m square. A mesh keeps its points to a
 //!   65,535th of its size, which over a whole kilometre is coarser than a rut's edge.
 
-use super::terrain::{Cover, Plan, TREAD};
+use super::terrain::{Cover, Plan};
 use glam::{Mat4, Vec2, Vec3};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -115,7 +115,7 @@ pub fn land(plan: &Plan, half: f32) -> Vec<(usize, Mesh)> {
                     let by_track = plan
                         .trail
                         .near(x + SPACING * 0.5, z + SPACING * 0.5)
-                        .is_some_and(|near| near.offset.abs() < TREAD + 1.9);
+                        .is_some_and(|near| near.offset.abs() < plan.tread + 1.9);
                     let any = |of: &dyn Fn(&Cover) -> f32| corners.iter().any(|c| of(c) > 0.02);
                     let (muddy, rocky) = (any(&|c| c.mud), any(&|c| c.rock));
                     let tracked = by_track || any(&|c| c.clay);

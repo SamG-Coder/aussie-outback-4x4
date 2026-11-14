@@ -150,6 +150,36 @@ for m in bpy.data.materials:
         bsdf.inputs["Alpha"].default_value = 1.0
         m.blend_method = "OPAQUE"
 
+# The lamps are one material front and rear, and the game lights the tail lamps apart from the
+# headlamps: give the faces of every glowing material that lie well behind the car's middle a
+# copy of it, which the scene then draws as a part of its own. The car faces +Y here.
+body = joined["body"]
+lo, hi = bounds([body])
+behind = (lo.y + hi.y) * 0.5 - 1.5
+tails = 0
+for index, m in list(enumerate(body.data.materials)):
+    bsdf = m.node_tree.nodes.get("Principled BSDF") if m and m.node_tree else None
+    if not bsdf:
+        continue
+    glow = bsdf.inputs.get("Emission Color") or bsdf.inputs.get("Emission")
+    strength = bsdf.inputs.get("Emission Strength")
+    lit = glow is not None and (glow.is_linked or max(glow.default_value[:3]) > 0.0)
+    if not lit or (strength is not None and strength.default_value <= 0.0):
+        continue
+    rear = [p for p in body.data.polygons if p.material_index == index and p.center.y < behind]
+    if not rear:
+        continue
+    tail = m.copy()
+    tail.name = m.name + "_tail"
+    # Not quite the same, so that nothing takes the two for one material.
+    tail.node_tree.nodes["Principled BSDF"].inputs["Roughness"].default_value = 0.31
+    body.data.materials.append(tail)
+    for p in rear:
+        p.material_index = len(body.data.materials) - 1
+    tails += len(rear)
+    print(f"tail lamps: {len(rear)} faces of {m.name}")
+report["tail_faces"] = tails
+
 # Drop the empties.
 for obj in list(bpy.context.scene.objects):
     if obj.type != "MESH":

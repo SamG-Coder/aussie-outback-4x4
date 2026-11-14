@@ -47,7 +47,7 @@ pub mod vg;
 pub mod wind;
 
 pub use clouds::{Observation, Weather, WeatherCycle};
-pub use frame::{Camera, DebugView, Environment};
+pub use frame::{Camera, DebugView, Environment, Lamp};
 pub use gpu::{Fallbacks, Gpu, GpuError};
 pub use lightning::Thunder;
 pub use ocean::{Ocean, Pond, Swell};

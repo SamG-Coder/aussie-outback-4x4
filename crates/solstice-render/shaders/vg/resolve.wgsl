@@ -440,13 +440,17 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let current_ndc = current_clip.xy / current_clip.w;
     let motion = (prev_ndc - current_ndc) * vec2f(0.5, -0.5);
 
-    var emissive = material.emissive * instance.glow;
+    var emissive = material.emissive * abs(instance.glow);
     // glow:begin
     let glow_layer = material.flags >> MATERIAL_GLOW_SHIFT;
     if glow_layer != 0u {
         emissive *= textureSampleGrad(glow_maps, material_sampler, uv, i32(glow_layer - 1u), duv_dx * frame.mip_scale, duv_dy * frame.mip_scale).rgb / MATERIAL_GLOW_AVERAGE;
     }
     // glow:end
+    // A lamp behind red glass: an instance told to glow less than nothing.
+    if instance.glow < 0.0 {
+        emissive = dot(emissive, vec3f(0.6)) * vec3f(1.0, 0.035, 0.012);
+    }
 
     switch frame.debug_mode {
         case DEBUG_CLUSTERS: {

@@ -60,6 +60,14 @@ pub struct WebViewer {
     instance_poses: Vec<u32>,
     #[cfg(feature = "gameplay")]
     play: Option<crate::play::PlayMode>,
+    /// The game round the driving, if the scene is one map of a game (`ui_start`), what it
+    /// last had to tell its pages, and what it has asked of the page that holds them.
+    #[cfg(feature = "gameplay")]
+    shell: Option<crate::shell::Shell>,
+    #[cfg(feature = "gameplay")]
+    told: String,
+    #[cfg(feature = "gameplay")]
+    orders: Vec<String>,
     /// See [`WebViewer::external_tables`].
     external_tables: Option<Vec<f64>>,
     pinned_sizes: Vec<u32>,
@@ -210,6 +218,12 @@ impl WebViewer {
             instance_poses: scene.instance_poses,
             #[cfg(feature = "gameplay")]
             play: None,
+            #[cfg(feature = "gameplay")]
+            shell: None,
+            #[cfg(feature = "gameplay")]
+            told: String::new(),
+            #[cfg(feature = "gameplay")]
+            orders: Vec::new(),
             #[cfg(feature = "gameplay")]
             messages: Vec::new(),
             #[cfg(feature = "editor")]
@@ -375,9 +389,47 @@ impl WebViewer {
                 delta_seconds,
             );
         }
+        let environment = self.clock.tick(delta_seconds);
+        #[cfg(feature = "gameplay")]
+        let environment = crate::night_eyes(environment, self.shell.is_some());
         #[cfg(feature = "gameplay")]
         if let Some(play) = &mut self.play {
-            let messages = play.frame(&mut self.renderer, &mut self.camera.camera, delta_seconds);
+            use crate::shell::{Order, Step};
+            // By dark, measured before eyes are opened to it, the lamps are on.
+            play.lamps = crate::is_dark(&self.clock.environment());
+            let step = match &mut self.shell {
+                Some(shell) => shell.before(&mut play.devices, delta_seconds),
+                None => Step::Play,
+            };
+            let camera = &mut self.camera.camera;
+            let messages = match step {
+                Step::Play => play.frame(&mut self.renderer, camera, delta_seconds),
+                Step::Unattended(orbit) => {
+                    play.frame_unattended(&mut self.renderer, camera, delta_seconds, orbit)
+                }
+                Step::Held => {
+                    play.frame_held(&self.renderer, delta_seconds);
+                    Vec::new()
+                }
+            };
+            if let Some(shell) = &mut self.shell {
+                shell.after(play.play.hud());
+                if let Some(told) = shell.tell(play.play.hud(), delta_seconds) {
+                    self.told = told;
+                }
+                for order in shell.take_orders() {
+                    self.orders.push(match order {
+                        Order::Quit => "quit".to_owned(),
+                        Order::Load { map, scene, sky } => format!(
+                            "load {map} {scene} {} {}",
+                            shell.mode_name(),
+                            sky.map_or("-".to_owned(), |(hours, weather, soaked)| format!(
+                                "{hours} {weather} {soaked}"
+                            ))
+                        ),
+                    });
+                }
+            }
             self.messages.extend(messages);
             // Kept for the page to take; a page that never does still holds only the newest.
             let excess = self
@@ -396,7 +448,6 @@ impl WebViewer {
             _ => return,
         };
         let view = texture.texture.create_view(&Default::default());
-        let environment = self.clock.tick(delta_seconds);
         self.renderer.render(
             &self.gpu,
             &self.camera.camera,
@@ -732,6 +783,85 @@ impl WebViewer {
         .map_err(|errors| JsValue::from_str(&errors.join("\n")))?;
         self.play = Some(play);
         Ok(())
+    }
+
+    /// Makes the scene being played one map of a game: `world` is the game's maps
+    /// (`shell::World`), `kept` what it kept from before (its best laps), and `map` which of
+    /// them this scene is, the hub if empty. `driving` takes the game up where another page
+    /// left it, driving this map for `mode` (`roam` or `laps`), rather than at its title.
+    /// Call after `play`. Rejects with what is wrong in `world`.
+    pub fn ui_start(
+        &mut self,
+        world: &str,
+        kept: &str,
+        map: &str,
+        mode: &str,
+        driving: bool,
+    ) -> Result<(), JsValue> {
+        let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
+        let mut shell = crate::shell::Shell::new(world, kept);
+        if !map.is_empty() {
+            shell.start_in(map);
+        }
+        if driving {
+            shell.resume(mode);
+        }
+        shell.enter(&self.gameplay);
+        self.shell = Some(shell);
+        Ok(())
+    }
+
+    /// Takes in a line the game's pages said (docs/ui.md).
+    pub fn ui_say(&mut self, line: &str) {
+        if let (Some(shell), Some(play)) = (&mut self.shell, &mut self.play) {
+            shell.hear(line, &mut play.devices);
+        }
+    }
+
+    /// What the game's pages should be told, as JSON, if there is anything since this was
+    /// last asked; otherwise nothing.
+    pub fn ui_told(&mut self) -> String {
+        std::mem::take(&mut self.told)
+    }
+
+    /// What the game asks of the page that holds it, a line each: `quit`, or
+    /// `load MAP SCENE MODE -`, or `load MAP SCENE MODE HOURS WEATHER SOAKED` when the map is
+    /// to be driven at an hour, in a weather, after so many seconds of it.
+    pub fn ui_orders(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.orders)
+    }
+
+    /// What the game wants kept until it is next played, if that has changed; otherwise
+    /// nothing.
+    pub fn ui_keep(&mut self) -> String {
+        self.shell
+            .as_mut()
+            .and_then(|shell| shell.to_keep())
+            .unwrap_or_default()
+    }
+
+    /// From now on what should be heard is kept for the page to take with `sound_asks`: call
+    /// once the page can play it. Nothing happens if no game is running.
+    pub fn sound_start(&mut self) {
+        if let Some(play) = &mut self.play {
+            play.with_web_sound();
+        }
+    }
+
+    /// What the page is to play, as JSON: `loops`, each `[name, volume, pitch]`, which stand
+    /// until asked for otherwise, and `shots`, the same, each to be played once, now. Nothing
+    /// before `sound_start`.
+    pub fn sound_asks(&mut self) -> String {
+        self.play
+            .as_mut()
+            .map(|play| play.sound_asks())
+            .unwrap_or_default()
+    }
+
+    /// Lets the weather there is have gone on for this many seconds already: a storm's
+    /// ground is soaked from the start.
+    pub fn soak(&mut self, seconds: f32) {
+        self.renderer.advance_weather(seconds);
     }
 
     /// Whether a game is running with someone in it to play, who has the camera unless the

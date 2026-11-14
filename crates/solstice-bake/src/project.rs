@@ -466,7 +466,7 @@ fn to_entity(scene: &mut Scene, command: Command, id: String) -> Result<Option<E
             scene.game.circuit = Some(size);
             return Ok(None);
         }
-        Command::Outback(_) => {
+        Command::Outback(..) => {
             return Err("a project has no `outback` yet: bake the scene's text instead".into());
         }
         Command::Model {

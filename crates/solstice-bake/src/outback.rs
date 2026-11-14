@@ -17,14 +17,16 @@ mod draw;
 mod flora;
 pub mod terrain;
 
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use rayon::prelude::*;
-use solstice_asset::{Heightfield, Material, SceneAsset};
+use solstice_asset::{Heightfield, Instance, Material, SceneAsset};
+use solstice_builder::{build_virtual_mesh, BuildOptions, Mesh, Vertex};
 use solstice_game::track::Sample;
 use solstice_game::{Blocker, SurfaceMap, Track};
 use solstice_procgen::surface::TILE_METRES;
 use solstice_vehicle::Surface;
-use terrain::{Plan, TREAD};
+pub use terrain::Country;
+use terrain::{Plan, RING};
 
 /// How far beyond the square that is driven on the fine land is drawn, in metres, and how far
 /// the coarse country beyond that reaches.
@@ -48,6 +50,9 @@ pub struct Built {
     /// The plants a car flattens, as a file's text: a line each, `X Y Z REACH INSTANCE`,
     /// the last being the first of the plant's two instances.
     pub plants: String,
+    /// A hub's trailheads, as a `.places` file's text: a line each, `place MAP X Y Z RADIUS`.
+    /// Empty for a track.
+    pub places: String,
 }
 
 /// A ground material over a texture layer, darkened as it is seen in the field.
@@ -92,10 +97,142 @@ fn surface_at(plan: &Plan, x: f32, z: f32) -> Surface {
     }
 }
 
-/// Builds the bush into the scene: the land `size` metres across, centred on the origin.
-pub fn build(scene: &mut SceneAsset, size: f32) -> Result<Built, String> {
-    println!("outback: {size:.0} m of bush");
-    let plan = Plan::new(size);
+/// The glow of a trailhead's ring, as radiance: ochre, and bright enough to be seen by day.
+const RING_GLOW: [f32; 3] = [3.0, 1.0, 0.1];
+
+/// A box, added to a mesh: its middle, and half its width, height and depth.
+fn boxed(mesh: &mut Mesh, centre: Vec3, half: Vec3) {
+    for (normal, across, up) in [
+        (Vec3::X, Vec3::NEG_Z, Vec3::Y),
+        (Vec3::NEG_X, Vec3::Z, Vec3::Y),
+        (Vec3::Y, Vec3::X, Vec3::NEG_Z),
+        (Vec3::NEG_Y, Vec3::X, Vec3::Z),
+        (Vec3::Z, Vec3::X, Vec3::Y),
+        (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
+    ] {
+        let first = mesh.vertices.len() as u32;
+        for (a, u) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            mesh.vertices.push(Vertex {
+                position: centre + (normal + across * a + up * u) * half,
+                normal,
+                uv: glam::Vec2::new(a * 0.5 + 0.5, u * 0.5 + 0.5),
+            });
+        }
+        mesh.indices
+            .extend([0, 1, 2, 0, 2, 3].map(|corner| first + corner));
+    }
+}
+
+/// Marks the trailheads: at each a ring on the ground, glowing, to drive into, and round it
+/// short posts with a glowing cap, left out where the road comes through. Returns the
+/// trailheads as a `.places` file's text, each leading to the map of its name.
+fn trailheads(scene: &mut SceneAsset, plan: &Plan, leads: &[String]) -> String {
+    use std::fmt::Write as _;
+    let glow = scene.materials.len() as u32;
+    scene.materials.push(Material {
+        base_color: [0.9, 0.42, 0.1, 1.0],
+        emissive: RING_GLOW,
+        roughness: 0.5,
+        ..Default::default()
+    });
+    scene.materials.push(Material {
+        base_color: [0.16, 0.12, 0.09, 1.0],
+        roughness: 0.9,
+        ..Default::default()
+    });
+    let mut text = String::from("# MAP X Y Z RADIUS: the rings that lead to other maps\n");
+    for (place, map) in plan.places.iter().zip(leads) {
+        let centre = Vec3::new(place.x, plan.height(place.x, place.y), place.y);
+        let _ = writeln!(
+            text,
+            "place {map} {:.2} {:.2} {:.2} {RING}",
+            centre.x, centre.y, centre.z
+        );
+        // The ring: a low kerb that follows the ground, wheel ruts and all.
+        let mut ring = Mesh::default();
+        const AROUND: u32 = 160;
+        const WIDE: f32 = 0.42;
+        for step in 0..AROUND {
+            let angle = step as f32 / AROUND as f32 * std::f32::consts::TAU;
+            let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+            for (radius, lift, normal) in [
+                (RING - WIDE, -0.25, -out),
+                (RING - WIDE, 0.09, Vec3::Y),
+                (RING, 0.09, Vec3::Y),
+                (RING, -0.25, out),
+            ] {
+                let at = centre + out * radius;
+                ring.vertices.push(Vertex {
+                    position: Vec3::new(at.x, plan.height(at.x, at.z) + lift, at.z),
+                    normal,
+                    uv: glam::Vec2::new(step as f32 / 8.0, radius),
+                });
+            }
+            let (here, next) = (step * 4, (step + 1) % AROUND * 4);
+            for side in 0..3 {
+                ring.indices.extend([
+                    here + side,
+                    next + side,
+                    next + side + 1,
+                    here + side,
+                    next + side + 1,
+                    here + side + 1,
+                ]);
+            }
+        }
+        // The posts, a pace outside it.
+        let mut posts = Mesh::default();
+        const POSTS: u32 = 14;
+        for step in 0..POSTS {
+            let angle = (step as f32 + 0.5) / POSTS as f32 * std::f32::consts::TAU;
+            let at = centre + Vec3::new(angle.cos(), 0.0, angle.sin()) * (RING + 0.9);
+            let on_road = plan
+                .trail
+                .near(at.x, at.z)
+                .is_some_and(|near| near.offset.abs() < plan.tread + 1.6);
+            if on_road {
+                continue;
+            }
+            let foot = plan.height(at.x, at.z);
+            boxed(
+                &mut posts,
+                Vec3::new(at.x, foot + 0.4, at.z),
+                Vec3::new(0.07, 0.6, 0.07),
+            );
+            boxed(
+                &mut ring,
+                Vec3::new(at.x, foot + 1.06, at.z),
+                Vec3::new(0.085, 0.07, 0.085),
+            );
+        }
+        for (mesh, material) in [(ring, glow), (posts, glow + 1)] {
+            if mesh.indices.is_empty() {
+                continue;
+            }
+            scene.instances.push(Instance {
+                mesh: scene.meshes.len() as u32,
+                material,
+                transform: Mat4::IDENTITY,
+            });
+            scene
+                .meshes
+                .push(build_virtual_mesh(&mesh, &BuildOptions::default()));
+        }
+    }
+    text
+}
+
+/// Builds the bush into the scene: the land `size` metres across, centred on the origin, of the
+/// country asked for. A hub has a road round it, and on the road a trailhead for each of the
+/// maps `leads` names, in the order they are come to.
+pub fn build(
+    scene: &mut SceneAsset,
+    size: f32,
+    country: Country,
+    leads: &[String],
+) -> Result<Built, String> {
+    println!("outback: {size:.0} m of bush: {}", country.name);
+    let plan = Plan::new(size, country, leads.len());
     let half = size * 0.5;
     let drawn = half + BEYOND;
 
@@ -155,6 +292,11 @@ pub fn build(scene: &mut SceneAsset, size: f32) -> Result<Built, String> {
         );
     }
     println!("    {} of them a car can flatten", breakables.len());
+    let places = if leads.is_empty() {
+        String::new()
+    } else {
+        trailheads(scene, &plan, leads)
+    };
 
     // For finding what a car has run into: `OUTBACK_NEAR=x,z` lists what stops one there.
     if let Some(near) = std::env::var("OUTBACK_NEAR").ok().and_then(|text| {
@@ -227,14 +369,14 @@ pub fn build(scene: &mut SceneAsset, size: f32) -> Result<Built, String> {
         .map(|point| Sample {
             position: Vec3::new(point.at.x, plan.height(point.at.x, point.at.y), point.at.y),
             left: Vec3::new(point.forward.y, 0.0, -point.forward.x),
-            half_left: TREAD,
-            half_right: TREAD,
+            half_left: plan.tread,
+            half_right: plan.tread,
             left_bands: Vec::new(),
             right_bands: Vec::new(),
         })
         .collect();
     let sectors = vec![samples.len() / 3, samples.len() * 2 / 3];
-    let track = Track::new("Wombat Creek Track", samples, sectors)?;
+    let track = Track::new(country.name, samples, sectors)?;
 
     // A wall at each edge of the square, well above and below the land.
     let middle = plan.height(0.0, 0.0);
@@ -270,6 +412,7 @@ pub fn build(scene: &mut SceneAsset, size: f32) -> Result<Built, String> {
         start: plan.start(),
         ponds,
         plants,
+        places,
     })
 }
 
@@ -281,7 +424,12 @@ mod tests {
     #[test]
     #[ignore]
     fn draw_the_plan() {
-        let plan = Plan::new(1000.0);
+        // `OUTBACK_COUNTRY=hub`, `rock` or `mud` draws that design in place of the track's.
+        let country = std::env::var("OUTBACK_COUNTRY")
+            .ok()
+            .and_then(|name| super::Country::named(&name))
+            .unwrap_or(super::Country::TRACK);
+        let plan = Plan::new(1000.0, country, if country.hub { 3 } else { 0 });
         let (start, yaw) = plan.start();
         println!("start {start} yaw {yaw}");
         let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/outback");

@@ -34,6 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+mod overlay;
+#[cfg(not(target_arch = "wasm32"))]
 mod sony;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,8 +50,10 @@ mod native {
     };
     use solstice_viewer::bob::Bobbing;
     use solstice_viewer::play::PlayMode;
+    use solstice_viewer::shell::{Order, Screen, Shell, Step};
     use solstice_viewer::{
-        default_environment, initial_camera, parse_time, CameraInput, DayClock, FlyCamera,
+        default_environment, initial_camera, is_dark, night_eyes, parse_time, CameraInput,
+        DayClock, FlyCamera,
     };
     use std::collections::HashSet;
     use std::io::{Read, Seek, SeekFrom};
@@ -318,6 +322,19 @@ mod native {
         /// Where the scene's scripts are on disk, by the names the scene gives them, to reload
         /// them when they change.
         scripts: PathBuf,
+        /// The folder of pages to lay over the window: the game's menus and instruments.
+        ui: Option<PathBuf>,
+        /// The game's maps and which is its hub (`solstice_viewer::shell::World`): with it
+        /// the scene is one map of a game, with a title, a pause menu and trailheads.
+        world: Option<PathBuf>,
+        /// Whether night is shown as eyes used to the dark see it, so that it can be driven in.
+        night_eyes: bool,
+        /// Whether a scene was named, rather than left to be the game's hub.
+        scene_named: bool,
+        /// For trying the menus with no hand on anything: scripts to run in the pages, and
+        /// controls to press (`key:Enter`, `gamepad:south`), each with the second to do it at.
+        ui_runs: Vec<(String, f32)>,
+        taps: Vec<(String, f32)>,
         /// Actions to press in a capture, and the frame to press each in.
         presses: Vec<(String, u32)>,
         /// Keys to hold in a capture, by their `KeyboardEvent.code`, and from which frame to
@@ -379,6 +396,39 @@ mod native {
         }
         match PlayMode::start(renderer, files, collision.as_ref(), &scene.animation()) {
             Ok(mut play) => {
+                // Which parts of what moves are lamps: whatever glows. The game lights them
+                // as it is driven.
+                if let Source::Loaded(loaded) = scene {
+                    let (mut tail, mut head) = (Vec::new(), Vec::new());
+                    for id in play.play.instances() {
+                        let glow = loaded
+                            .scene
+                            .instances
+                            .get(id as usize)
+                            .and_then(|instance| {
+                                loaded.scene.materials.get(instance.material as usize)
+                            })
+                            .map_or([0.0; 3], |material| material.emissive);
+                        if !glow.iter().any(|&channel| channel > 0.0) {
+                            continue;
+                        }
+                        // A lamp that is all behind the middle of the car is a tail lamp:
+                        // a car's nose is along -z.
+                        let instance = &loaded.scene.instances[id as usize];
+                        let behind = loaded
+                            .scene
+                            .meshes
+                            .get(instance.mesh as usize)
+                            .is_some_and(|mesh| mesh.quant_origin.z > 1.0);
+                        if behind {
+                            tail.push(id);
+                        } else {
+                            head.push(id);
+                        }
+                    }
+                    log::info!("lamps: {} behind, {} in front", tail.len(), head.len());
+                    play.set_lamps(tail, head);
+                }
                 log::info!(
                     "playing: {} instances move, scripts {}",
                     play.play.instances().count(),
@@ -493,6 +543,19 @@ mod native {
         }
     }
 
+    /// A scene's gameplay files, and with them a trailhead wherever `SOLSTICE_PLACE` says
+    /// (`MAP X Y Z RADIUS`): for trying what a trailhead does without driving to one.
+    fn with_trial_place(files: &[solstice_asset::GameFile]) -> Vec<solstice_asset::GameFile> {
+        let mut files = files.to_vec();
+        if let Ok(place) = std::env::var("SOLSTICE_PLACE") {
+            files.push(solstice_asset::GameFile {
+                name: "trial.places".to_owned(),
+                text: format!("place {place}\n"),
+            });
+        }
+        files
+    }
+
     fn parse_args() -> Result<Options, String> {
         let mut options = Options {
             stream: false,
@@ -525,12 +588,18 @@ mod native {
             fly: false,
             instances_near: None,
             scripts: PathBuf::from("scenes"),
+            ui: None,
+            world: None,
+            night_eyes: false,
+            scene_named: false,
+            ui_runs: Vec::new(),
+            taps: Vec::new(),
             presses: Vec::new(),
             holds: Vec::new(),
             mouse_moves: Vec::new(),
         };
         // The time of day, built up from its options and made at the end.
-        let (mut time, mut day_seconds, mut latitude) = (None, 0.0, None);
+        let (mut time, mut day_seconds, mut latitude) = (None, None, None);
         let mut day = TimeOfDay::default().day;
         let floats = |text: &str| -> Result<Vec<f32>, String> {
             text.split(',')
@@ -590,7 +659,7 @@ mod native {
                     latitude = Some(value()?.parse().map_err(|e| format!("--latitude: {e}"))?);
                 }
                 "--day-length" => {
-                    day_seconds = value()?.parse().map_err(|e| format!("--day-length: {e}"))?;
+                    day_seconds = Some(value()?.parse().map_err(|e| format!("--day-length: {e}"))?);
                 }
                 "--ocean" => {
                     let name = value()?;
@@ -694,6 +763,25 @@ mod native {
                     );
                 }
                 "--scripts" => options.scripts = PathBuf::from(value()?),
+                "--ui" => options.ui = Some(PathBuf::from(value()?)),
+                "--ui-run" | "--tap" => {
+                    let text = value()?;
+                    let (what, at) = text
+                        .rsplit_once('@')
+                        .and_then(|(what, at)| Some((what.to_owned(), at.parse().ok()?)))
+                        .ok_or(format!("{arg} expects WHAT@SECONDS"))?;
+                    if arg == "--tap" {
+                        options.taps.push((what, at));
+                    } else {
+                        options.ui_runs.push((what, at));
+                    }
+                }
+                "--night-eyes" => options.night_eyes = true,
+                "--world" => {
+                    options.world = Some(PathBuf::from(value()?));
+                    options.play = true;
+                    options.night_eyes = true;
+                }
                 "--press" => {
                     let text = value()?;
                     let (action, frame) = text
@@ -767,10 +855,19 @@ mod native {
                     options.settings.lod_threshold =
                         value()?.parse().map_err(|e| format!("--lod: {e}"))?;
                 }
-                other if !other.starts_with('-') => options.scene = PathBuf::from(other),
+                other if !other.starts_with('-') => {
+                    options.scene = PathBuf::from(other);
+                    options.scene_named = true;
+                }
                 other => return Err(format!("unknown argument: {other}")),
             }
         }
+        // A game has a clock, and its time passes as it does, a minute in a minute: driven on
+        // into the evening, it gets dark. Anything else stands still unless it is told how
+        // long its day is.
+        let game = options.world.is_some();
+        let time = time.or(game.then_some(10.0));
+        let day_seconds = day_seconds.unwrap_or(if game { 86_400.0 } else { 0.0 });
         if let Some(hours) = time {
             let mut clock = DayClock::new(TimeOfDay { day, hours }, day_seconds);
             if let Some(latitude) = latitude {
@@ -800,7 +897,36 @@ mod native {
             env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
         )
         .init();
-        let options = parse_args()?;
+        let mut options = parse_args()?;
+        let shell = match &options.world {
+            None => None,
+            Some(path) => {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let world = solstice_viewer::shell::World::parse(&text)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let kept = std::fs::read_to_string(SAVE_FILE).unwrap_or_default();
+                let mut shell = Shell::new(world, &kept);
+                // A game starts in its hub, unless a scene of it was asked for.
+                let named = shell
+                    .world()
+                    .maps
+                    .iter()
+                    .find(|map| Path::new(&map.scene) == options.scene)
+                    .map(|map| map.name.clone());
+                match (options.scene_named, named) {
+                    (true, Some(name)) => shell.start_in(&name),
+                    (true, None) => {}
+                    (false, _) => {
+                        let hub = shell.world().hub.clone();
+                        if let Some(map) = shell.world().map(&hub) {
+                            options.scene = PathBuf::from(&map.scene);
+                        }
+                    }
+                }
+                Some(shell)
+            }
+        };
         let scene = if options.stream {
             Source::Streamed(read_manifest(&options.scene)?)
         } else {
@@ -819,6 +945,11 @@ mod native {
             capture(&options, &scene)
         } else {
             let event_loop = EventLoop::new()?;
+            let started = (
+                options.clock.as_ref().map(|clock| clock.time.hours),
+                options.weather,
+                options.weathered,
+            );
             let mut app = App {
                 options,
                 scene,
@@ -836,6 +967,10 @@ mod native {
                     }
                 },
                 sony: crate::sony::SonyPad::new(),
+                shell,
+                loading: None,
+                quit: false,
+                started,
             };
             event_loop.run_app(&mut app)?;
             Ok(())
@@ -917,10 +1052,13 @@ mod native {
                 reader.pump(&mut renderer);
             }
             let environment = light(&mut clock, options.environment, 1.0 / 60.0);
+            let dark = is_dark(&environment);
+            let environment = night_eyes(environment, options.night_eyes);
             if let Some(bob) = &mut bob {
                 bob.advance(&mut renderer, 1.0 / 60.0);
             }
             if let Some(play) = &mut play {
+                play.lamps = dark;
                 for (action, at) in &options.presses {
                     if *at == frame {
                         play.play.press(action);
@@ -1433,6 +1571,9 @@ mod native {
     }
 
     struct WindowState {
+        /// The menus and instruments, laid over the window. Before the window, so that it
+        /// goes first when both go.
+        overlay: Option<crate::overlay::Overlay>,
         window: Arc<Window>,
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
@@ -1445,12 +1586,29 @@ mod native {
         last_frame: Instant,
         title_timer: f32,
         frames_since_title: u32,
+        /// Seconds since the window opened.
+        age: f32,
         /// Frames a second, as last measured, and how long since the dashboard was written.
         fps: f32,
         hud_timer: f32,
     }
 
+    /// The hour, the weather's name and how many seconds of it there have been already, for a
+    /// map to be played in.
+    type Sky = (f32, &'static str, f32);
+
+    /// Where what a game keeps from one run to the next is written.
+    const SAVE_FILE: &str = "save/profile.txt";
+
     struct App {
+        /// The game round the driving, if the scene is one map of a game.
+        shell: Option<Shell>,
+        /// The scene to read next, and when it was asked for: a moment is left for the pages
+        /// to say so before the window stops answering to read it.
+        loading: Option<(String, Option<Sky>, Instant)>,
+        /// The hour and the weather the game was started in, which the hub is always in.
+        started: (Option<f32>, Weather, f32),
+        quit: bool,
         options: Options,
         scene: Source,
         state: Option<WindowState>,
@@ -1513,16 +1671,22 @@ mod native {
             &self,
             event_loop: &ActiveEventLoop,
         ) -> Result<WindowState, Box<dyn std::error::Error>> {
-            let window = Arc::new(
-                event_loop.create_window(
-                    Window::default_attributes()
-                        .with_title("Solstice")
-                        .with_inner_size(PhysicalSize::new(
-                            self.options.size.0,
-                            self.options.size.1,
-                        )),
-                )?,
-            );
+            let attributes = Window::default_attributes()
+                .with_title("Solstice")
+                .with_inner_size(PhysicalSize::new(self.options.size.0, self.options.size.1));
+            // The menus are a window inside this one, and see-through: what is drawn here has
+            // to be drawn under them too.
+            #[cfg(windows)]
+            let attributes = {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                attributes.with_clip_children(self.options.ui.is_none())
+            };
+            let window = Arc::new(event_loop.create_window(attributes)?);
+            let overlay = self
+                .options
+                .ui
+                .as_ref()
+                .and_then(|folder| crate::overlay::Overlay::new(&window, folder));
             let instance = create_instance();
             let surface = instance.create_surface(window.clone())?;
             let gpu = pollster::block_on(Gpu::request_within(
@@ -1542,11 +1706,14 @@ mod native {
 
             let (mut renderer, reader) = self.scene.renderer(&gpu, config.format, &self.options);
             let bob = bobbing(&self.options, &mut renderer);
-            let play = start_play(&self.options, &self.scene, &mut renderer).map(|play| {
+            let play = start_play(&self.options, &self.scene, &mut renderer).map(|mut play| {
+                // A game in a window is heard: its sounds are beside the scenes.
+                play.with_sound(std::path::Path::new("assets/sounds"));
                 let watch = ScriptWatch::new(&play, &self.options.scripts);
                 (play, watch)
             });
             Ok(WindowState {
+                overlay,
                 bob,
                 play,
                 reader,
@@ -1563,9 +1730,72 @@ mod native {
                 last_frame: Instant::now(),
                 title_timer: 0.0,
                 frames_since_title: 0,
+                age: 0.0,
                 fps: 0.0,
                 hud_timer: 0.0,
             })
+        }
+
+        /// Leaves the scene being played for another: reads it, and starts its game in the
+        /// same window, with the same sound.
+        fn go_to(
+            &mut self,
+            scene: &str,
+            sky: Option<Sky>,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            // The hour and the weather asked for, or the ones the game was started in.
+            let (hours, weather, weathered) = match sky {
+                Some((hours, name, weathered)) => (
+                    Some(hours),
+                    Weather::by_name(name).unwrap_or(self.started.1),
+                    weathered,
+                ),
+                None => self.started,
+            };
+            self.options.weather = weather;
+            self.options.weathered = weathered;
+            if let (Some(hours), Some(clock)) = (hours, &mut self.options.clock) {
+                clock.time.hours = hours;
+            }
+            let path = PathBuf::from(scene);
+            let source = if self.options.stream {
+                Source::Streamed(read_manifest(&path)?)
+            } else {
+                Source::Loaded(load_scene(&path)?)
+            };
+            self.options.scene = path;
+            self.scene = source;
+            let Some(state) = self.state.as_mut() else {
+                return Ok(());
+            };
+            let sound = state.play.as_mut().and_then(|(play, _)| play.take_sound());
+            state.play = None;
+            state.bob = None;
+            let (mut renderer, reader) =
+                self.scene
+                    .renderer(&state.gpu, state.config.format, &self.options);
+            state.bob = bobbing(&self.options, &mut renderer);
+            state.play = start_play(&self.options, &self.scene, &mut renderer).map(|mut play| {
+                match sound {
+                    Some(sound) => play.give_sound(sound),
+                    None => play.with_sound(Path::new("assets/sounds")),
+                }
+                let watch = ScriptWatch::new(&play, &self.options.scripts);
+                (play, watch)
+            });
+            state.renderer = renderer;
+            state.reader = reader;
+            state.camera = FlyCamera::new(
+                self.options
+                    .camera
+                    .unwrap_or_else(|| initial_camera(self.scene.viewpoint())),
+            );
+            // The time it took to read is not a frame's worth of driving.
+            state.last_frame = Instant::now();
+            if let Some(shell) = &mut self.shell {
+                shell.enter(&with_trial_place(self.scene.gameplay()));
+            }
+            Ok(())
         }
 
         fn axis(&self, positive: KeyCode, negative: KeyCode) -> f32 {
@@ -1579,6 +1809,7 @@ mod native {
             let up = self.axis(KeyCode::KeyE, KeyCode::KeyQ);
             let fast = self.keys.contains(&KeyCode::ShiftLeft);
             let look = std::mem::take(&mut self.input);
+            let night_eyes = self.options.night_eyes;
             let (fixed, clock) = (self.options.environment, &mut self.options.clock);
             let Some(state) = self.state.as_mut() else {
                 return;
@@ -1592,6 +1823,8 @@ mod native {
             let delta = (now - state.last_frame).as_secs_f32();
             state.last_frame = now;
             let environment = light(clock, fixed, delta);
+            let dark = is_dark(&environment);
+            let environment = self::night_eyes(environment, night_eyes);
             if let Some(bob) = &mut state.bob {
                 bob.advance(&mut state.renderer, delta);
             }
@@ -1614,16 +1847,100 @@ mod native {
                 );
             }
             let mut driving = false;
+            // What the pages say: the keys and the mouse they were given, and what was chosen
+            // in a menu.
+            let said = state.overlay.as_mut().map(|o| o.take()).unwrap_or_default();
             if let Some((play, watch)) = &mut state.play {
                 watch.check(play, delta);
-                if let Some(pads) = &mut self.pads {
-                    read_pads(pads, &mut play.devices);
+                play.lamps = dark;
+                for line in &said {
+                    match &mut self.shell {
+                        Some(shell) => shell.hear(line, &mut play.devices),
+                        None => {
+                            let words: Vec<&str> = line.split_whitespace().collect();
+                            if let ["key", code, down] = words[..] {
+                                play.devices.key(code, down == "1");
+                            }
+                        }
+                    }
                 }
-                // A PlayStation controller, if there is one, has the last word.
-                if let Some(sony) = &mut self.sony {
-                    sony.read(&mut play.devices, delta);
+                // What a trial asks for: scripts run in the pages, and controls pressed for a
+                // moment. While one is pressed the real pads are not read, which would let it
+                // go again.
+                let (before, now) = (state.age, state.age + delta);
+                state.age = now;
+                for (script, at) in &self.options.ui_runs {
+                    if (before..now).contains(at) {
+                        if let Some(overlay) = &state.overlay {
+                            overlay.run(script);
+                        }
+                    }
                 }
-                log_messages(play.frame(&mut state.renderer, &mut state.camera.camera, delta));
+                let mut tapping = false;
+                for (control, at) in &self.options.taps {
+                    let (down, up) = (*at, *at + 0.15);
+                    let Some((device, control)) = control.split_once(':') else {
+                        continue;
+                    };
+                    let held = (down..up).contains(&now);
+                    tapping |= held;
+                    if held || (before..now).contains(&up) {
+                        match device {
+                            "key" => play.devices.key(control, held),
+                            _ => play
+                                .devices
+                                .gamepad_button(control, f32::from(u8::from(held))),
+                        }
+                    }
+                }
+                if !tapping {
+                    if let Some(pads) = &mut self.pads {
+                        read_pads(pads, &mut play.devices);
+                    }
+                    // A PlayStation controller, if there is one, has the last word.
+                    if let Some(sony) = &mut self.sony {
+                        sony.read(&mut play.devices, delta);
+                    }
+                }
+                let step = match &mut self.shell {
+                    Some(shell) => shell.before(&mut play.devices, delta),
+                    None => Step::Play,
+                };
+                let camera = &mut state.camera.camera;
+                match step {
+                    Step::Play => log_messages(play.frame(&mut state.renderer, camera, delta)),
+                    Step::Unattended(orbit) => log_messages(play.frame_unattended(
+                        &mut state.renderer,
+                        camera,
+                        delta,
+                        orbit,
+                    )),
+                    Step::Held => play.frame_held(&state.renderer, delta),
+                }
+                if let Some(shell) = &mut self.shell {
+                    shell.after(play.play.hud());
+                    if let (Some(told), Some(overlay)) =
+                        (shell.tell(play.play.hud(), delta), &state.overlay)
+                    {
+                        overlay.show(&told);
+                    }
+                    if let Some(kept) = shell.to_keep() {
+                        let saved = std::fs::create_dir_all("save")
+                            .and_then(|()| std::fs::write(SAVE_FILE, kept));
+                        if let Err(error) = saved {
+                            log::warn!("{SAVE_FILE}: {error}");
+                        }
+                    }
+                    for order in shell.take_orders() {
+                        match order {
+                            Order::Quit => self.quit = true,
+                            Order::Load { map, scene, sky } => {
+                                log::info!("going to {map}: {scene}");
+                                self.loading = Some((scene, sky, Instant::now()));
+                            }
+                        }
+                    }
+                }
                 // Driving, the title is the dashboard: speed, gear, revs and lap times.
                 if let Some(hud) = play.play.hud() {
                     driving = true;
@@ -1686,7 +2003,12 @@ mod native {
                 return;
             }
             match self.create_state(event_loop) {
-                Ok(state) => self.state = Some(state),
+                Ok(state) => {
+                    self.state = Some(state);
+                    if let Some(shell) = &mut self.shell {
+                        shell.enter(&with_trial_place(self.scene.gameplay()));
+                    }
+                }
                 Err(error) => {
                     log::error!("{error}");
                     event_loop.exit();
@@ -1703,6 +2025,9 @@ mod native {
                             state.config.width = size.width;
                             state.config.height = size.height;
                             state.surface.configure(&state.gpu.device, &state.config);
+                            if let Some(overlay) = &state.overlay {
+                                overlay.resize(&state.window);
+                            }
                         }
                     }
                 }
@@ -1770,7 +2095,13 @@ mod native {
                                 .mouse_button(name, state == ElementState::Pressed);
                         }
                     }
-                    if state == ElementState::Pressed && button == MouseButton::Left {
+                    // A click takes hold of the mouse to look round with: in a game with
+                    // menus, only while driving, or it would be taken from the menus.
+                    let driving = self
+                        .shell
+                        .as_ref()
+                        .is_none_or(|shell| shell.screen() == Screen::Drive);
+                    if state == ElementState::Pressed && button == MouseButton::Left && driving {
                         self.set_mouse_capture(true);
                     }
                 }
@@ -1782,6 +2113,34 @@ mod native {
                 }
                 WindowEvent::RedrawRequested => {
                     self.draw();
+                    if self.quit {
+                        event_loop.exit();
+                        return;
+                    }
+                    // A menu has the mouse back.
+                    if self.captured_mouse
+                        && self
+                            .shell
+                            .as_ref()
+                            .is_some_and(|shell| shell.screen() != Screen::Drive)
+                    {
+                        self.set_mouse_capture(false);
+                    }
+                    // A few frames after it was asked for, so that the pages are showing that
+                    // a map is being read before the window stops to read it.
+                    if self
+                        .loading
+                        .as_ref()
+                        .is_some_and(|(_, _, since)| since.elapsed().as_secs_f32() > 0.4)
+                    {
+                        let (scene, sky, _) = self.loading.take().expect("just seen");
+                        if let Err(error) = self.go_to(&scene, sky) {
+                            log::error!("{scene}: {error}");
+                            if let Some(shell) = &mut self.shell {
+                                shell.stay();
+                            }
+                        }
+                    }
                     if let Some(state) = &self.state {
                         state.window.request_redraw();
                     }

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aussie Outback 4x4</title>
+<meta name="theme-color" content="#0f0c0a">
+<style>
+  html, body { height: 100%; margin: 0; background: #0f0c0a; overflow: hidden; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+</style>
+
+<!-- The page the game is played in (docs/ui.md). A browser reads one map a page, so going
+     from map to map loads a page again: this one stays, and the page that plays, game.html, is
+     inside it. What has to last from map to map is kept here: the sound, which a browser lets
+     start only once something has been pressed, and which would otherwise stop and need
+     pressing for again at every map. -->
+<iframe id="game" allow="fullscreen; gamepad; autoplay" title="Aussie Outback 4x4"></iframe>
+
+<script type="module">
+  import { makeSound } from "./sound.js";
+
+  // The game's sound, for the page inside to wake and to ask things of (game.js).
+  window.outbackSound = makeSound("sounds/");
+
+  const game = document.getElementById("game");
+  // Whatever the address says after this page's name is the game's to read.
+  game.src = `game.html${location.search}`;
+  // The keys are the game's: each map's page is given them as it arrives.
+  game.addEventListener("load", () => game.contentWindow.focus());
+  addEventListener("focus", () => game.contentWindow.focus());
+</script>
+</html>

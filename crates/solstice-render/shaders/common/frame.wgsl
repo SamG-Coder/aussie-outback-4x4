@@ -42,6 +42,15 @@ struct Frame {
     sea_level: f32,
     moon_disc: vec3f,
     _pad2: f32,
+    // The lamps of whatever is driven, as one beam: where it shines from and how far it
+    // reaches (no lamp when that is 0), the way it points and the cosine of half its spread,
+    // and how bright it is.
+    lamp_position: vec3f,
+    lamp_range: f32,
+    lamp_direction: vec3f,
+    lamp_spread: f32,
+    lamp_intensity: vec3f,
+    _pad3: f32,
 }
 
 const DEBUG_NONE: u32 = 0u;

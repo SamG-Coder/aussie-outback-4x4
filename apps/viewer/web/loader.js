@@ -79,8 +79,211 @@ export class SceneFile {
     return file;
   }
 
+  /// What has been read of the file is kept by the browser, so that it is downloaded once: the
+  /// next visit, and the next time a map is gone back to, reads it from the disk. It is kept
+  /// in pieces; a read is made of the pieces it touches, and those not kept yet are fetched, a
+  /// run of them at a time, and kept. `null` where there is nowhere to keep it, or the server
+  /// does not say what it has.
+  ///
+  /// **What the pieces are.** Beside a scene file there may be `FILE.chunks`
+  /// (tools/hosting/chunks.py): the file cut where its own bytes say to, a line a piece,
+  /// `OFFSET LENGTH HASH`. Scenes of one game have a good deal in common, the same truck and
+  /// textures and trees, each file with its own copy at its own place; cut this way the
+  /// same bytes are the same pieces in every file, and a piece is kept by its hash. So what
+  /// one map has brought down, the next does not ask for again. Each piece that comes is
+  /// checked against its hash: a list that does not match its file is not trusted, and the
+  /// file is then read plainly.
+  ///
+  /// With no such list the file is cut into blocks of 2 MB, kept under its own name and
+  /// version (its ETag), and shared with nothing.
+  ///
+  /// Either way the pieces are big, a megabyte or two: every request is one more for the
+  /// server to answer, and a server may count them, so a file is asked for in few large
+  /// pieces and not many small ones.
+  static BLOCK_BYTES = 2 * 1024 * 1024;
+  /// The most that is asked for in one request, when pieces side by side are all wanted.
+  static RUN_BYTES = 16 * 1024 * 1024;
+  #kept = undefined;
+  /// Pieces being fetched now, by their number: a second read that wants one waits for it.
+  #coming = new Map();
+  bytesKept = 0;
+  /// How many requests have been made of the server, and how many are being answered now.
+  requests = 0;
+  reading = 0;
+  /// How much of the file was already here when it was first wanted, from an earlier visit or
+  /// from another file with the same pieces: bytes that were not asked for.
+  bytesShared = 0;
+  /// The pieces used lately, in memory, the latest last: a piece is read from many times
+  /// over, and each time from the disk would be slow. No more than `RECENT_BYTES` of them.
+  static RECENT_BYTES = 128 * 1024 * 1024;
+  #recent = new Map();
+  #recentBytes = 0;
+  /// The pieces counted in `bytesShared`.
+  #spared = new Set();
+
+  #remember(piece, bytes) {
+    if (this.#recent.has(piece)) {
+      this.#recent.delete(piece);
+    } else {
+      this.#recentBytes += bytes.length;
+    }
+    this.#recent.set(piece, bytes);
+    for (const [oldest, held] of this.#recent) {
+      if (this.#recentBytes <= SceneFile.RECENT_BYTES) break;
+      this.#recent.delete(oldest);
+      this.#recentBytes -= held.length;
+    }
+    return bytes;
+  }
+
+  async #keeping() {
+    if (this.#kept !== undefined) return this.#kept;
+    this.#kept = null;
+    try {
+      if (!("caches" in globalThis) || this.#url === "memory") return null;
+      const [said, listed] = await Promise.all([
+        fetch(this.#url, { method: "HEAD" }),
+        fetch(`${this.#url}.chunks`, { cache: "no-cache" }).catch(() => null),
+      ]);
+      const etag = said.headers.get("etag");
+      const size = Number(said.headers.get("content-length"));
+      if (!said.ok || !etag || !size || said.headers.get("accept-ranges") !== "bytes") return null;
+      const where = new URL(this.#url, location.href);
+      // Each piece: where it starts, how long it is, and what it is kept as.
+      const starts = [], lengths = [], keys = [];
+      let hashed = false;
+      if (listed?.ok) {
+        for (const line of (await listed.text()).split("\n")) {
+          const [offset, length, hash] = line.trim().split(" ");
+          if (!hash) continue;
+          starts.push(Number(offset));
+          lengths.push(Number(length));
+          keys.push(hash);
+        }
+        // A list for another version of the file is no use.
+        const end = starts.length ? starts[starts.length - 1] + lengths[lengths.length - 1] : 0;
+        hashed = end === size;
+        if (!hashed) console.warn(`${this.#url}.chunks is not this file's: read in blocks instead`);
+      }
+      if (!hashed) {
+        starts.length = lengths.length = keys.length = 0;
+        const version = encodeURIComponent(etag);
+        for (let at = 0; at < size; at += SceneFile.BLOCK_BYTES) {
+          starts.push(at);
+          lengths.push(Math.min(SceneFile.BLOCK_BYTES, size - at));
+          keys.push(`${where.pathname}/${version}/${at}`);
+        }
+      }
+      const cache = await caches.open("solstice-pieces-1");
+      this.#kept = { cache, base: `${where.origin}/__piece/`, starts, lengths, keys, hashed };
+    } catch (error) {
+      console.warn(`not keeping ${this.#url}: ${error.message ?? error}`);
+    }
+    return this.#kept;
+  }
+
+  /// The piece a place in the file is in.
+  static #pieceAt(starts, at) {
+    let low = 0, high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= at) low = middle;
+      else high = middle - 1;
+    }
+    return low;
+  }
+
   async read(start, end, signal) {
     if (this.#whole) return this.#whole.subarray(start, end);
+    const kept = await this.#keeping();
+    if (!kept) return this.#fetch(start, end, signal);
+    const { cache, base, starts, lengths, keys } = kept;
+    const first = SceneFile.#pieceAt(starts, start);
+    const count = SceneFile.#pieceAt(starts, end - 1) - first + 1;
+    // Each piece: in memory, or being fetched already, or kept, or none of these.
+    const pieces = await Promise.all(Array.from({ length: count }, (_, i) => {
+      const piece = first + i;
+      const recent = this.#recent.get(piece);
+      if (recent) return this.#remember(piece, recent);
+      return this.#coming.get(piece)
+        ?? cache.match(base + keys[piece])
+          .then((found) => found?.arrayBuffer())
+          .then((bytes) => {
+            if (!bytes || bytes.byteLength !== lengths[piece]) return null;
+            // Counted the once: it is in memory from here on, or was counted when it left.
+            if (!this.#spared.has(piece)) {
+              this.#spared.add(piece);
+              this.bytesShared += bytes.byteLength;
+            }
+            return this.#remember(piece, new Uint8Array(bytes));
+          })
+          .catch(() => null);
+    }));
+    // What is neither, a run of pieces at a time, all runs at once.
+    const runs = [];
+    for (let i = 0; i < count; i++) {
+      if (pieces[i]) continue;
+      // Where this run begins and ends: `i` moves on before the run has come.
+      const begin = i;
+      let run = i;
+      while (run + 1 < count && !pieces[run + 1]
+        && starts[first + run + 1] + lengths[first + run + 1] - starts[first + begin] <= SceneFile.RUN_BYTES) run++;
+      const from = starts[first + begin];
+      // Its own time to answer in, as other reads may be waiting on it too.
+      const whole = this.#fetch(from, starts[first + run] + lengths[first + run], AbortSignal.timeout(READ_TIMEOUT_MS));
+      for (let k = begin; k <= run; k++) {
+        const piece = first + k;
+        const part = whole.then((bytes) => this.#checked(kept, piece, bytes.subarray(starts[piece] - from, starts[piece] - from + lengths[piece])));
+        this.#coming.set(piece, part);
+        // Kept in its own time: nothing waits for the disk. Not kept if the server turned
+        // out not to do ranges, when what came is the whole file.
+        part.then((bytes) => {
+          if (!this.#whole && this.#kept) return cache.put(base + keys[piece], new Response(bytes.slice()));
+        }).catch(() => {}).finally(() => this.#coming.delete(piece));
+        runs.push(part.then((bytes) => { pieces[k] = this.#remember(piece, bytes); }));
+      }
+      i = run;
+    }
+    await Promise.all(runs);
+    if (this.#whole) return this.#whole.subarray(start, end);
+    // The list of pieces turned out not to be this file's: read as it was before there were lists.
+    if (!this.#kept) return this.#fetch(start, end, signal);
+    const out = new Uint8Array(end - start);
+    for (let i = 0; i < count; i++) {
+      const at = starts[first + i];
+      const from = Math.max(start, at);
+      const to = Math.min(end, at + pieces[i].length);
+      out.set(pieces[i].subarray(from - at, to - at), from - start);
+    }
+    this.bytesKept += out.length;
+    return out;
+  }
+
+  /// A piece that has just come, once it is seen to be the piece the list says: by its hash,
+  /// when the list has hashes. One that is not means the list is stale, and nothing more is
+  /// kept or taken from what is kept.
+  async #checked(kept, piece, bytes) {
+    if (!kept.hashed || this.#whole) return bytes;
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const hash = Array.from(digest.subarray(0, 12), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (hash !== kept.keys[piece] && this.#kept) {
+      console.warn(`${this.#url}.chunks does not match its file: reading it plainly`);
+      this.#kept = null;
+    }
+    return bytes;
+  }
+
+  async #fetch(start, end, signal) {
+    this.requests++;
+    this.reading++;
+    try {
+      return await this.#answered(start, end, signal);
+    } finally {
+      this.reading--;
+    }
+  }
+
+  async #answered(start, end, signal) {
     const response = await fetch(this.#url, { headers: { Range: `bytes=${start}-${end - 1}` }, signal });
     if (!response.ok) {
       throw new Error(`Could not load ${this.#url} (HTTP ${response.status}).`);

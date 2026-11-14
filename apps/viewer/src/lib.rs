@@ -5,6 +5,16 @@ pub mod bob;
 pub mod camera_path;
 #[cfg(feature = "gameplay")]
 pub mod play;
+#[cfg(feature = "gameplay")]
+pub mod shell;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sound;
+pub mod sound_table;
+// In a browser the page plays the sounds, and the game's sound is what it asks of the page.
+#[cfg(feature = "gameplay")]
+pub mod sound_web;
+#[cfg(all(target_arch = "wasm32", feature = "gameplay"))]
+pub use sound_web as sound;
 #[cfg(target_arch = "wasm32")]
 mod web;
 
@@ -70,6 +80,29 @@ pub fn initial_camera(viewpoint: Option<Viewpoint>) -> Camera {
 }
 
 /// Late-afternoon sun, low enough for long shadows.
+/// Whether it is dark enough to drive with the lamps on: the sun well down.
+pub fn is_dark(environment: &Environment) -> bool {
+    environment.sun_illuminance < environment.daylight() * 0.05
+}
+
+/// The light as eyes used to the dark see it. The renderer holds its exposure to daylight, so
+/// that night is as dark on the screen as it is beside the day, which is too dark to drive
+/// in. With this the exposure follows the light there is instead: under the moon, or the
+/// stars alone, the bush is dim and blue but can be seen. By day it changes nothing.
+pub fn night_eyes(mut environment: Environment, on: bool) -> Environment {
+    let day = environment.daylight_illuminance;
+    if !on || day <= 0.0 {
+        return environment;
+    }
+    // How much brighter than the light there is the exposure is set for, and the least
+    // light it is ever set for, as a share of daylight.
+    const GAIN: f32 = 9.0;
+    const FLOOR: f32 = 0.012;
+    let lit = environment.sun_illuminance.max(day * FLOOR);
+    environment.daylight_illuminance = (lit * GAIN).min(day);
+    environment
+}
+
 pub fn default_environment() -> Environment {
     Environment {
         sun_direction: Vec3::new(0.62, 0.42, 0.5).normalize(),

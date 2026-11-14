@@ -131,7 +131,9 @@ pub(crate) enum Command {
     /// The land round the scene's track, this many metres across.
     Circuit(f32),
     /// A square of bush this many metres across, with its own track (`outback.rs`).
-    Outback(f32),
+    /// A square of bush this many metres across, of some country, and for a hub the names of
+    /// the maps its trailheads lead to.
+    Outback(f32, crate::outback::Country, Vec<String>),
 }
 
 pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
@@ -342,14 +344,32 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
             Command::Track(values[0].to_string())
         }
         "outback" => {
-            expect(1)?;
             let size = number(0)?;
             if !(200.0..=2000.0).contains(&size) {
                 return Err(format!(
                     "a square of bush is 200 to 2000 metres across, not {size}"
                 ));
             }
-            Command::Outback(size)
+            // `outback SIZE` is Wombat Creek's country; `outback SIZE rock` and `mud` are
+            // others; `outback SIZE hub MAP...` is a road with a trailhead for each map.
+            use crate::outback::Country;
+            let (country, leads) = match &values[1..] {
+                [] => (Country::TRACK, Vec::new()),
+                [hub, maps @ ..] if *hub == "hub" && (1..=6).contains(&maps.len()) => (
+                    Country::HUB,
+                    maps.iter().map(|map| map.to_string()).collect(),
+                ),
+                [kind] if *kind != "hub" && Country::named(kind).is_some() => {
+                    (Country::named(kind).expect("just seen"), Vec::new())
+                }
+                _ => {
+                    return Err(
+                        "'outback' takes a size, then nothing, `rock`, `mud`, or `hub` and one to six maps' names"
+                            .to_owned(),
+                    )
+                }
+            };
+            Command::Outback(size, country, leads)
         }
         "circuit" => {
             expect(1)?;
@@ -893,6 +913,8 @@ const OUTBACK_TRACK: &str = "outback.track";
 const OUTBACK_SURFACES: &str = "outback.surfaces";
 /// And the list of the plants a car flattens, which a viewer reads (`apps/viewer/src/play.rs`).
 const OUTBACK_PLANTS: &str = "outback.plants";
+/// A hub's trailheads: where each ring is, and the map it leads to.
+const OUTBACK_PLACES: &str = "outback.places";
 
 /// Builds a scene from its commands, with files named relative to `base`. Returns it with any
 /// import warnings. Commands from a project are mapped to the instances they made.
@@ -944,7 +966,7 @@ pub(crate) fn build_commands(
             Command::Water { .. } => Some("water"),
             _ => None,
         };
-        let circuits = matches!(command, Command::Circuit(_) | Command::Outback(_));
+        let circuits = matches!(command, Command::Circuit(_) | Command::Outback(..));
         has_land |= land.is_some();
         has_circuit |= circuits;
         if (land.is_some() || circuits) && has_land && has_circuit {
@@ -1108,7 +1130,7 @@ pub(crate) fn build_commands(
             Some(Command::Input(input)) => gameplay.set_input(base, &input).map_err(at)?,
             Some(Command::Track(track)) => gameplay.set_track(base, &track).map_err(at)?,
             Some(Command::Circuit(size)) => circuit = Some(size),
-            Some(Command::Outback(size)) => outback = Some(size),
+            Some(Command::Outback(size, country, leads)) => outback = Some((size, country, leads)),
         }
     }
 
@@ -1245,13 +1267,13 @@ pub(crate) fn build_commands(
     }
     // A square of bush builds its own land, track and planting, and from the same design the
     // ground to drive on, the map of what it is made of, and the track's line.
-    if let Some(size) = outback {
+    if let Some((size, country, leads)) = outback {
         if gameplay.game.track.is_some() {
             return Err("`outback` finds its own track: leave out the `track` line".into());
         }
         scene.collide.resize(scene.instances.len(), Collide::Auto);
         let first = scene.instances.len() as u32;
-        let built = crate::outback::build(&mut scene, size)?;
+        let built = crate::outback::build(&mut scene, size, country, &leads)?;
         scene.collide.resize(scene.instances.len(), Collide::None);
         if mapped {
             scene.sources.push(Source {
@@ -1266,7 +1288,12 @@ pub(crate) fn build_commands(
             (OUTBACK_TRACK, built.track),
             (OUTBACK_SURFACES, built.surfaces),
             (OUTBACK_PLANTS, built.plants),
+            (OUTBACK_PLACES, built.places),
         ] {
+            // A track has no trailheads.
+            if text.is_empty() {
+                continue;
+            }
             gameplay.files.push(GameFile {
                 name: name.to_owned(),
                 text,

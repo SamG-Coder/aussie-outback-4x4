@@ -1,2 +1,4 @@
 * text=auto eol=lf
 *.png binary
+# Batch files need Windows line endings: with any other, `call :label` in them does not work.
+*.bat text eol=crlf

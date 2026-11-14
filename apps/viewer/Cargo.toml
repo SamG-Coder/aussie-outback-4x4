@@ -19,7 +19,7 @@ required-features = ["gameplay"]
 # it, so a page that only looks at scenes downloads none of it (docs/gameplay.md, Viewers).
 [features]
 default = ["gameplay"]
-gameplay = ["dep:solstice-game"]
+gameplay = ["dep:solstice-game", "dep:serde_json"]
 # The editor's page (docs/editor.md): picking, moving instances and the map of what made them.
 # Only `editor.html` loads a build with it.
 editor = []
@@ -28,11 +28,15 @@ editor = []
 solstice-asset.workspace = true
 solstice-game = { workspace = true, optional = true }
 solstice-render.workspace = true
+# What the game tells its pages (`src/shell.rs`).
+serde_json = { workspace = true, optional = true }
 glam.workspace = true
 log.workspace = true
 wgpu.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Sound, natively (`src/sound.rs`).
+cpal = "0.18"
 env_logger = "0.11"
 # Gamepads, natively: the browser build reads them from the page (docs/gameplay.md).
 gilrs = "0.11"
@@ -41,6 +45,9 @@ hidapi = { version = "2.6", default-features = false, features = ["windows-nativ
 png = "0.17"
 pollster.workspace = true
 winit = "0.30"
+# The game's menus and instruments, natively: the same pages the browser shows, in a web view
+# laid over the window (`src/overlay.rs`).
+wry = "0.57"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1"

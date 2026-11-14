@@ -1,0 +1,8 @@
+{
+  "name": "rust4x4-uploader",
+  "main": "worker.js",
+  "compatibility_date": "2026-01-01",
+  "workers_dev": false,
+  "routes": [{ "pattern": "upload.rust4x4.com", "custom_domain": true }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "rust4x4-assets" }]
+}

@@ -1,5 +1,6 @@
 @echo off
-rem Builds everything: the truck's model from the downloaded zip, the programs, and the scene.
+rem Builds everything: the truck's model from the downloaded zip, the programs, and the scenes:
+rem Wombat Creek Track, and the hub it is driven to from.
 rem Needs Rust (rustup) and Blender. The truck's model is not in the repository: download the
 rem 2024 Ford F-150 Raptor R from Sketchfab (see README.md) and unzip it into
 rem target\outback\raptor_src, or into ..\assets\raptor_src beside this folder.
@@ -18,4 +19,8 @@ if not exist target\outback\raptor.glb (
 )
 cargo build --release -p bake -p viewer || exit /b 1
 if not exist assets mkdir assets
-target\release\bake.exe --scene scenes\outback.txt --output assets\outback.solstice
+target\release\bake.exe --scene scenes\outback.txt --output assets\outback.solstice || exit /b 1
+target\release\bake.exe --scene scenes\hub.txt --output assets\hub.solstice || exit /b 1
+target\release\bake.exe --scene scenes\granite.txt --output assets\granite.solstice || exit /b 1
+target\release\bake.exe --scene scenes\blackwood.txt --output assets\blackwood.solstice || exit /b 1
+call postcards.bat

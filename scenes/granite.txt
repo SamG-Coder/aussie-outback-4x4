@@ -1,0 +1,6 @@
+# Granite Ridge: a square kilometre of high, steep, stony country, and a track of slabs and
+# ledges up and over it. Everything is built from the `outback` line.
+texture_size 1024
+camera 240 72 -255 0.4 -0.1
+outback 1000 rock
+actor outback/raptor.actor 235.95 66.76 -273.53 149.1

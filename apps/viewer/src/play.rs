@@ -13,15 +13,26 @@ pub struct PlayMode {
     pub play: Play,
     /// What the input devices are doing, filled in from the window's events.
     pub devices: Devices,
+    /// Whether it is dark: the player's car then drives with its lamps on.
+    pub lamps: bool,
+    /// The instances of the player's car that are its tail lamps, and its headlamps.
+    tail_lamps: Vec<u32>,
+    head_lamps: Vec<u32>,
     /// What the player's car's wheels throw up.
     spray: Spray,
     /// The plants a car flattens, and which are down already.
     scrub: Scrub,
+    /// What is heard, once [`PlayMode::with_sound`] has opened an output for it, or, in a
+    /// browser, once the page has said it will play what is asked of it.
+    sound: Option<Soundscape>,
     /// Frames run, and whether to log where the player's car is every half second of them:
     /// set `SOLSTICE_TRACE` to try a track without watching it.
     frames: u32,
     trace: bool,
 }
+
+/// How bright the car's high beams are, in candela, as the renderer counts them.
+const LAMPS: f32 = 560.0;
 
 /// What a wheel throws up from the ground it is on: clods of mud, dust off dry clay, and
 /// water where it fords a creek. One effect a wheel, moved with it, with how much of each it
@@ -143,10 +154,12 @@ impl Scrub {
         scrub
     }
 
-    /// Lays flat whatever of it the car's body has reached, the way the car is going.
-    fn flatten(&mut self, renderer: &mut Renderer, hud: &solstice_game::Hud) {
+    /// Lays flat whatever of it the car's body has reached, the way the car is going. Returns
+    /// how many plants went down, and how far round the biggest of them reached.
+    fn flatten(&mut self, renderer: &mut Renderer, hud: &solstice_game::Hud) -> (u32, f32) {
+        let mut laid = (0, 0.0_f32);
         if self.plants.is_empty() || hud.velocity.length() < 0.4 {
-            return;
+            return laid;
         }
         let middle = hud.wheels.iter().map(|wheel| wheel.at).sum::<glam::Vec3>() / 4.0;
         let forward = glam::Vec3::new(hud.forward.x, 0.0, hud.forward.z).normalize_or_zero();
@@ -176,6 +189,7 @@ impl Scrub {
                         continue;
                     }
                     self.down[index] = true;
+                    laid = (laid.0 + 1, laid.1.max(reach));
                     // Laid over the way the car pushed it, each a little its own way, and
                     // crushed: about its foot, so that it stays rooted where it grew.
                     let twist = ((instance % 7) as f32 - 3.0) * 0.12;
@@ -194,6 +208,147 @@ impl Scrub {
                 }
             }
         }
+        laid
+    }
+}
+
+/// What is heard of a game being played: the truck's engine, its tyres on whatever each is on,
+/// what it hits and drives through, and the bush round it in whatever weather there is.
+///
+/// Everything here is worked out from what the game already knows. Each wheel says what it is
+/// on, how fast its tread passes over the ground and how hard it is pressed down
+/// (`solstice_game::drive::HudWheel`), which is what drives the spray; the same numbers choose
+/// each tyre's sound, and set how loud and how high it is.
+struct Soundscape {
+    sounds: crate::sound::Sounds,
+    /// Whether each wheel was in a ford's water a frame ago: going in is a splash.
+    in_water: [bool; 4],
+    /// Seconds since the last splash, the last brush snapped, and the last thud, so that none
+    /// is heard as a rattle of itself.
+    since: [f32; 3],
+    random: u32,
+}
+
+/// The loops a tyre can make, by name: rolling on each kind of ground, and spinning.
+const TYRE_LOOPS: [&str; 8] = [
+    "tyre_dirt",
+    "tyre_gravel",
+    "tyre_mud",
+    "tyre_litter",
+    "tyre_rock",
+    "tyre_water",
+    "tyre_spin_dirt",
+    "tyre_spin_mud",
+];
+
+impl Soundscape {
+    /// A number from 0 to 1, different each time: so that no two splashes are the same.
+    fn chance(&mut self) -> f32 {
+        self.random ^= self.random << 13;
+        self.random ^= self.random >> 17;
+        self.random ^= self.random << 5;
+        (self.random >> 8) as f32 / 16_777_216.0
+    }
+
+    /// Asks for what should be heard this frame. `flattened` is how many plants the car has
+    /// just laid flat, and how far round the biggest of them reached.
+    fn frame(
+        &mut self,
+        hud: Option<&solstice_game::Hud>,
+        flattened: (u32, f32),
+        renderer: &Renderer,
+        seconds: f32,
+    ) {
+        for since in &mut self.since {
+            *since += seconds;
+        }
+        // The weather: how hard it rains, from 0 to 1, and how hard it blows.
+        let rain = (renderer.rain_state().rate / 12.0).clamp(0.0, 1.0).sqrt();
+        let wind = ((renderer.weather().wind_speed - 3.0) / 13.0).clamp(0.0, 1.0);
+
+        let mut loops = [(0.0_f32, 1.0_f32); 8];
+        let mut engine = crate::sound::EngineNote::default();
+        let mut once: Vec<(&str, f32, f32)> = Vec::new();
+        if let Some(hud) = hud {
+            let t = &hud.telemetry;
+            engine = crate::sound::EngineNote {
+                rpm: t.rpm,
+                throttle: t.throttle,
+                limiter: t.limiter,
+                gain: 0.9,
+            };
+            let speed = hud.velocity.length();
+            for (index, wheel) in hud.wheels.iter().enumerate() {
+                let wet = wheel.on_ground && wheel.surface.name() == "ford";
+                if wet && !self.in_water[index] && speed > 1.5 && self.since[0] > 0.35 {
+                    self.since[0] = 0.0;
+                    let name = if speed > 5.0 {
+                        "splash_big"
+                    } else {
+                        "splash_small"
+                    };
+                    let pitch = 0.9 + 0.2 * self.chance();
+                    once.push((name, (0.45 + speed / 10.0).min(1.2), pitch));
+                }
+                self.in_water[index] = wet;
+                if !wheel.on_ground {
+                    continue;
+                }
+                // Which sound this tyre rolls with, and which it spins with.
+                let (roll, spin) = match wheel.surface.name() {
+                    "dirt" => (0, 6),
+                    "gravel" | "sand" => (1, 6),
+                    "mud" | "bog" => (2, 7),
+                    "litter" | "grass" => (3, 6),
+                    "ford" => (5, 7),
+                    _ => (4, 6),
+                };
+                let pressed = wheel.load.clamp(0.0, 1.3) * 0.25;
+                loops[roll].0 += (speed / 9.0).min(1.0).powf(0.7) * pressed;
+                loops[roll].1 = 0.7 + 0.6 * (speed / 14.0).min(1.5);
+                // Spinning, or locked and sliding: the tread passing over the ground.
+                let scrub = (wheel.slip.abs() - 0.6).max(0.0);
+                loops[spin].0 += (scrub / 5.0).min(1.0) * pressed;
+                loops[spin].1 = 0.8 + 0.5 * (scrub / 8.0).min(1.0);
+            }
+            // A wheel dropping off a ledge, or the suspension reaching its stops: more than
+            // twice its own weight on the truck, straight up.
+            if t.g.z > 2.3 && self.since[2] > 0.4 {
+                self.since[2] = 0.0;
+                let pitch = 0.9 + 0.2 * self.chance();
+                once.push((
+                    "suspension_thud",
+                    (0.4 + (t.g.z - 2.3) * 0.5).min(1.2),
+                    pitch,
+                ));
+            }
+            if flattened.0 > 0 && self.since[1] > 0.12 {
+                self.since[1] = 0.0;
+                let name = if flattened.1 > 0.5 && self.chance() < 0.5 {
+                    "sapling_crack"
+                } else {
+                    "brush_snap"
+                };
+                let pitch = 0.85 + 0.3 * self.chance();
+                once.push((name, (0.5 + 0.15 * flattened.0 as f32).min(1.0), pitch));
+            }
+        } else {
+            self.in_water = [false; 4];
+        }
+        self.sounds.frame(|ask| {
+            ask.engine(engine);
+            for (name, (gain, pitch)) in TYRE_LOOPS.iter().zip(loops) {
+                ask.looping(name, gain.min(1.0), pitch);
+            }
+            // The bush: birds and insects in the dry, the wind as it blows, the rain as it
+            // falls.
+            ask.looping("bush_day", 0.3 * (1.0 - 0.75 * rain), 1.0);
+            ask.looping("bush_wind", 0.35 * wind, 1.0);
+            ask.looping("rain_leaves", 0.55 * rain, 1.0);
+            for (name, gain, pitch) in once {
+                ask.once(name, gain, pitch);
+            }
+        });
     }
 }
 
@@ -316,11 +471,98 @@ impl PlayMode {
         Ok(Self {
             play,
             devices: Devices::new(),
+            lamps: false,
+            tail_lamps: Vec::new(),
+            head_lamps: Vec::new(),
             spray: Spray::default(),
             scrub: Scrub::read(files),
+            sound: None,
             frames: 0,
             trace: std::env::var_os("SOLSTICE_TRACE").is_some(),
         })
+    }
+
+    /// Opens the sound output and reads the sounds in `folder`, so that the game is heard
+    /// from the next frame on. A viewer that only takes pictures does not ask for this.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn with_sound(&mut self, folder: &std::path::Path) {
+        self.sound = crate::sound::Sounds::new(folder).map(|sounds| Soundscape {
+            sounds,
+            in_water: [false; 4],
+            since: [1.0; 3],
+            random: 0x9E37_79B9,
+        });
+    }
+
+    /// In a browser: from now on what should be heard is kept for the page to take, each
+    /// frame, with [`PlayMode::sound_asks`], and play.
+    #[cfg(target_arch = "wasm32")]
+    pub fn with_web_sound(&mut self) {
+        self.sound = Some(Soundscape {
+            sounds: crate::sound::Sounds::new(),
+            in_water: [false; 4],
+            since: [1.0; 3],
+            random: 0x9E37_79B9,
+        });
+    }
+
+    /// In a browser: what the page is to play, as JSON (`sound_web::Sounds::take`), or
+    /// nothing if the game has no sound.
+    #[cfg(target_arch = "wasm32")]
+    pub fn sound_asks(&mut self) -> String {
+        self.sound
+            .as_mut()
+            .map(|sound| sound.sounds.take())
+            .unwrap_or_default()
+    }
+
+    /// Says which instances of the player's car are its tail lamps and its headlamps, to be
+    /// lit as it is driven.
+    pub fn set_lamps(&mut self, tail: Vec<u32>, head: Vec<u32>) {
+        self.tail_lamps = tail;
+        self.head_lamps = head;
+    }
+
+    /// The sound, taken from a game that is ending to be given to the one that follows it, so
+    /// that the output is opened and the sounds are read once.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn take_sound(&mut self) -> Option<Box<dyn std::any::Any>> {
+        self.sound
+            .take()
+            .map(|sound| Box::new(sound) as Box<dyn std::any::Any>)
+    }
+
+    /// Gives this game the sound another had, from [`PlayMode::take_sound`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn give_sound(&mut self, sound: Box<dyn std::any::Any>) {
+        if let Ok(mut sound) = sound.downcast::<Soundscape>() {
+            sound.in_water = [false; 4];
+            self.sound = Some(*sound);
+        }
+    }
+
+    /// Runs a frame with nobody at the controls, the view going round the player's car by
+    /// `orbit` pixels of mouse: what a title is shown over. The devices are left as they are.
+    pub fn frame_unattended(
+        &mut self,
+        renderer: &mut Renderer,
+        camera: &mut Camera,
+        seconds: f32,
+        orbit: f32,
+    ) -> Vec<Message> {
+        let held = std::mem::take(&mut self.devices);
+        self.devices.mouse_motion(orbit, 0.0);
+        let messages = self.frame(renderer, camera, seconds);
+        self.devices = held;
+        messages
+    }
+
+    /// A frame in which the game is not run: nothing moves, and the truck is not heard, but
+    /// the bush still is.
+    pub fn frame_held(&mut self, renderer: &Renderer, seconds: f32) {
+        if let Some(sound) = &mut self.sound {
+            sound.frame(None, (0, 0.0), renderer, seconds);
+        }
     }
 
     /// Runs a frame `seconds` long: moves the instances that moved, poses the characters that
@@ -344,12 +586,47 @@ impl PlayMode {
         for (pose, bones) in self.play.take_poses() {
             renderer.set_pose(pose, &bones);
         }
+        // By dark the car's high beams are on: one beam from between its headlamps, pointed
+        // a little down the road, narrow, and fading as it goes.
+        let lamp = self.play.hud().filter(|_| self.lamps).map(|hud| {
+            let middle = hud.wheels.iter().map(|w| w.at).sum::<glam::Vec3>() / 4.0;
+            let ahead = hud.forward.normalize_or_zero();
+            solstice_render::Lamp {
+                position: middle + glam::Vec3::Y * 1.05 + ahead * 2.5,
+                direction: (ahead - glam::Vec3::Y * 0.045).normalize_or_zero(),
+                half_angle: 0.6,
+                range: 150.0,
+                intensity: glam::Vec3::new(1.0, 0.95, 0.84) * LAMPS,
+            }
+        });
+        renderer.set_lamp(lamp);
+        // Its lamps glow as they are lit. By dark everything is seen with eyes opened up, a
+        // lamp's glow with it, so each is turned down to look as it should: the tail lamps a
+        // dull red, and bright under braking; by day, lit only under braking.
+        let braking = self.play.hud().is_some_and(|hud| hud.brake > 0.05);
+        let (tail, head) = match (self.lamps, braking) {
+            (true, true) => (0.2, 0.05),
+            (true, false) => (0.05, 0.05),
+            (false, true) => (1.0, 0.4),
+            (false, false) => (0.0, 0.4),
+        };
+        // Below zero is red: the model's tail lamps are white behind what should be red glass.
+        for &instance in &self.tail_lamps {
+            renderer.set_instance_glow(instance, -tail);
+        }
+        for &instance in &self.head_lamps {
+            renderer.set_instance_glow(instance, head);
+        }
+        let mut flattened = (0, 0.0);
         match self.play.hud() {
             Some(hud) => {
                 self.spray.follow(renderer, hud, wetness);
-                self.scrub.flatten(renderer, hud);
+                flattened = self.scrub.flatten(renderer, hud);
             }
             None => self.spray.rest(renderer),
+        }
+        if let Some(sound) = &mut self.sound {
+            sound.frame(self.play.hud(), flattened, renderer, seconds);
         }
         self.frames += 1;
         if let (true, Some(hud)) = (self.trace && self.frames % 30 == 0, self.play.hud()) {

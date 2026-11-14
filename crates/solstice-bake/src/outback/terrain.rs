@@ -125,18 +125,115 @@ fn valley_axis(x: f32) -> f32 {
     0.22 * x + 105.0 * (x / 240.0 + 0.9).sin() + 38.0 * (x / 95.0 + 2.1).sin() - 20.0
 }
 
-/// The land before any water has run on it: its height at a place, in metres.
-pub fn natural(x: f32, z: f32) -> f32 {
-    let p = Vec3::new(x, 0.0, z);
+/// What kind of country a square of bush is, and what kind of track runs through it. Each of
+/// the game's maps is one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Country {
+    /// What the map is called.
+    pub name: &'static str,
+    /// Whether it is a hub: a road to drive between trailheads, not a track to get over.
+    pub hub: bool,
+    /// Where in the hills it is, so that each map has its own, and whether its valley runs
+    /// the other way.
+    pub shift: Vec3,
+    pub turned: bool,
+    /// How high its hills and spurs stand, against Wombat Creek's.
+    pub relief: f32,
+    /// How much more of it is bare rock: taken off what it takes for stone to show.
+    pub stone: f32,
+    /// How wet it is: what water gathers is multiplied by the one, and the other is how damp
+    /// even its dry ground is.
+    pub damp: f32,
+    pub sodden: f32,
+    /// How steep a climb its track takes before going round, against Wombat Creek's.
+    pub climbs: f32,
+    /// How many bog holes its track may have, and how deep its ruts are worn.
+    pub bogs: usize,
+    pub rutted: f32,
+    /// Whether its track may cross itself. The first two maps' tracks were found before this
+    /// was looked for, and are kept as they were found.
+    pub crosses: bool,
+}
+
+impl Country {
+    /// Wombat Creek Track: a washed-out fire trail in foothill forest.
+    pub const TRACK: Self = Self {
+        name: "Wombat Creek Track",
+        hub: false,
+        shift: Vec3::ZERO,
+        turned: false,
+        relief: 1.0,
+        stone: 0.0,
+        damp: 1.0,
+        sodden: 0.0,
+        climbs: 1.0,
+        bogs: 9,
+        rutted: 1.0,
+        crosses: true,
+    };
+    /// The Crossroads: the hub, with a graded road round it.
+    pub const HUB: Self = Self {
+        name: "The Crossroads",
+        hub: true,
+        shift: Vec3::new(3170.0, 0.0, -2260.0),
+        turned: true,
+        ..Self::TRACK
+    };
+    /// Granite Ridge: high, steep and stony. A track of slabs and ledges, dry underfoot.
+    pub const ROCK: Self = Self {
+        name: "Granite Ridge",
+        shift: Vec3::new(-5240.0, 0.0, 1730.0),
+        relief: 1.55,
+        stone: 0.3,
+        damp: 0.6,
+        climbs: 1.7,
+        bogs: 2,
+        rutted: 0.7,
+        crosses: false,
+        ..Self::TRACK
+    };
+    /// Blackwood Gully: low, wet forest. A track of mud, bog holes and deep ruts.
+    pub const MUD: Self = Self {
+        name: "Blackwood Gully",
+        shift: Vec3::new(1410.0, 0.0, 6890.0),
+        turned: true,
+        relief: 0.7,
+        stone: -0.12,
+        damp: 1.9,
+        sodden: 0.17,
+        climbs: 0.8,
+        bogs: 16,
+        rutted: 1.5,
+        crosses: false,
+        ..Self::TRACK
+    };
+
+    /// The country a scene file names: `track`, `hub`, `rock` or `mud`.
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "track" => Some(Self::TRACK),
+            "hub" => Some(Self::HUB),
+            "rock" => Some(Self::ROCK),
+            "mud" => Some(Self::MUD),
+            _ => None,
+        }
+    }
+}
+
+/// The land before any water has run on it: its height at a place, in metres. Each country
+/// is the same kind of valley among its own hills.
+pub fn natural(x: f32, z: f32, country: &Country) -> f32 {
+    let x = if country.turned { -x } else { x };
+    let p = Vec3::new(x, 0.0, z) + country.shift;
     // The valley: its floor falls to the east, and its sides rise to ridges either side.
     let across = (z - valley_axis(x)) * 0.94;
     let valley = -30.0 * gauss(across, 250.0) - 5.0 * gauss(across, 60.0);
     let fall = -0.017 * x;
     let broad = fbm(p * 0.0019, 4, 901) * 34.0;
-    let hills = fbm(p * 0.0058, 4, 902) * 12.0;
+    let hills = fbm(p * 0.0058, 4, 902) * 12.0 * country.relief;
     // Spurs running down off the ridges, sharp along their crests.
-    let spurs = (ridged(p * 0.0075, 3, 903) - 0.5) * 9.0;
-    let knolls = fbm(p * 0.02, 3, 904) * 2.0;
+    let spurs = (ridged(p * 0.0075, 3, 903) - 0.5) * 9.0 * country.relief;
+    let knolls = fbm(p * 0.02, 3, 904) * 2.0 * country.relief;
     // Far off, ranges stand all round, so that the land has no edge to see.
     let far = x.hypot(z);
     let around = Vec3::new(x, 0.0, z) / far.max(1.0);
@@ -340,6 +437,14 @@ pub struct Cover {
 pub struct Plan {
     /// Half the width of the square that is driven on.
     pub half: f32,
+    /// Whether it is a hub: a road to drive between trailheads, not a track to get over.
+    pub hub: bool,
+    /// What kind of country it is.
+    pub country: Country,
+    /// Half the width of what is driven on: a track's, one truck wide, or a road's, two.
+    pub tread: f32,
+    /// The trailheads: rings on the road, each in a clearing.
+    pub places: Vec<Vec2>,
     /// The land once water has cut it, with the waterholes and the camp.
     land: Grid,
     /// How damp the ground is, from 0 to 1: how much water gathers there.
@@ -355,11 +460,17 @@ pub struct Plan {
 
 /// How far round a level clearing the camp is.
 const CAMP: f32 = 16.0;
+/// Half the width of a hub's road: two trucks pass on it.
+pub const ROAD: f32 = 3.4;
+/// How far round a trailhead's ring is.
+pub const RING: f32 = 7.0;
 
 impl Plan {
-    /// Designs a square of bush `size` metres across.
-    pub fn new(size: f32) -> Self {
+    /// Designs a square of bush `size` metres across, of some country: a four-wheel-drive
+    /// track through it, or, for a hub, a graded road round it with `trailheads` trailheads.
+    pub fn new(size: f32, country: Country, trailheads: usize) -> Self {
         let half = size * 0.5;
+        let hub = country.hub;
         let reach = half + MARGIN;
         println!("  the hills...");
         let mut land = Grid::new(reach, 1.0);
@@ -368,7 +479,7 @@ impl Plan {
             .into_par_iter()
             .map(|index| {
                 let (x, z) = land.place(index);
-                natural(x, z)
+                natural(x, z, &country)
             })
             .collect();
         land.values = heights;
@@ -396,7 +507,10 @@ impl Plan {
             land.values[index] -= cut[index] * smoothstep(0.0, 40.0, edge);
         }
         let mut wet = Grid::new(reach, 1.0);
-        wet.values = cut.iter().map(|&depth| (depth / 2.6).min(1.0)).collect();
+        wet.values = cut
+            .iter()
+            .map(|&depth| (depth / 2.6 * country.damp + country.sodden).min(1.0))
+            .collect();
 
         // The creek: from where most water leaves, upstream by the greater branch.
         let creek_cells = flow.main_stem(40_000.0);
@@ -473,6 +587,10 @@ impl Plan {
 
         let mut plan = Self {
             half,
+            hub,
+            country,
+            tread: if hub { ROAD } else { TREAD },
+            places: vec![Vec2::ZERO; trailheads],
             land,
             wet,
             pools,
@@ -494,12 +612,17 @@ impl Plan {
         plan
     }
 
+    /// How far from the track's middle its cutting has run out into the land.
+    fn batter(&self) -> f32 {
+        self.tread + (BATTER - TREAD)
+    }
+
     /// The land's height at a place before the track is worn into it.
     fn untracked(&self, x: f32, z: f32) -> f32 {
         if self.land.holds(x, z) {
             self.land.at(x, z)
         } else {
-            natural(x, z)
+            natural(x, z, &self.country)
         }
     }
 
@@ -532,7 +655,12 @@ impl Plan {
         let p = Vec3::new(x, 0.0, z);
         let glades = smoothstep(0.2, 0.42, fbm(p * 0.0075, 3, 941));
         let camp = 1.0 - smoothstep(CAMP * 0.8, CAMP * 1.7, Vec2::new(x, z).distance(self.camp));
-        glades.max(camp)
+        let trailheads = self
+            .places
+            .iter()
+            .map(|place| 1.0 - smoothstep(RING * 1.3, RING * 2.6, Vec2::new(x, z).distance(*place)))
+            .fold(0.0, f32::max);
+        glades.max(camp).max(trailheads)
     }
 
     /// How much of bare rock a place off the track is.
@@ -541,7 +669,8 @@ impl Plan {
         let stone = fbm(p * 0.016, 3, 951) + 0.5 * fbm(p * 0.07, 2, 952);
         let dry = 1.0 - self.wet(x, z);
         let steep = smoothstep(0.42, 0.7, self.slope(x, z));
-        (smoothstep(0.6, 0.78, stone * dry) + steep).min(1.0)
+        let shows = self.country.stone;
+        (smoothstep(0.6 - shows, 0.78 - shows, stone * dry) + steep).min(1.0)
     }
 
     /// The ground's height at a place, with the track worn into it.
@@ -559,15 +688,15 @@ impl Plan {
         let wash = self.wash(s);
         // The bench: cut across the hillside but still tilted with it, eased back to the land
         // over its cut and fill, and rising and falling along its length as nothing graded does.
-        let held = (1.0 - smoothstep(TREAD, BATTER, d.abs())) * (1.0 - ford);
+        let held = (1.0 - smoothstep(self.tread, self.batter(), d.abs())) * (1.0 - ford);
         let swell = 0.1 * fbm(Vec3::new(s * 0.1, 0.0, 9.0), 2, 966)
             + 0.05 * fbm(Vec3::new(s * 0.33, 0.0, 9.0), 1, 967);
         let level = trail.mix(&near, |p| p.height)
-            + d.clamp(-TREAD, TREAD) * trail.mix(&near, |p| p.tilt)
+            + d.clamp(-self.tread, self.tread) * trail.mix(&near, |p| p.tilt)
             + swell;
         let mut height = land + (level - land) * held + lumps * (1.0 - held) * self.lumpiness(x, z);
-        let tread = 1.0 - smoothstep(TREAD - 0.35, TREAD + 0.55, d.abs());
-        let reach = 1.0 - smoothstep(TREAD + 0.6, BATTER * 0.85, d.abs());
+        let tread = 1.0 - smoothstep(self.tread - 0.35, self.tread + 0.55, d.abs());
+        let reach = 1.0 - smoothstep(self.tread + 0.6, self.batter() * 0.85, d.abs());
         if reach <= 0.0 && held <= 0.0 {
             return height;
         }
@@ -585,7 +714,7 @@ impl Plan {
         let crown = gauss(line, 0.42);
         height += (-rut * wheels + 0.35 * rut * crown) * dry;
         // Spoil thrown to the edges, and the tread's own roughness: stones and hoof-sized dips.
-        height += 0.06 * gauss(d.abs() - (TREAD + 0.2), 0.45) * dry;
+        height += 0.06 * gauss(d.abs() - (self.tread + 0.2), 0.45) * dry;
         height += (fbm(p * 0.8, 2, 962) * 0.03 + fbm(p * 2.6, 2, 963) * 0.009) * tread;
         // Hollows that hold a puddle, on the flatter stretches.
         let flat = 1.0 - smoothstep(0.05, 0.14, trail.mix(&near, |p| p.grade.abs()));
@@ -683,7 +812,7 @@ impl Plan {
             if along.abs() >= 1.0 {
                 continue;
             }
-            let across = (line / (TREAD + 0.3)).abs();
+            let across = (line / (self.tread + 0.3)).abs();
             if across >= 1.0 {
                 continue;
             }
@@ -722,7 +851,7 @@ impl Plan {
         };
         let trail = &self.trail;
         let edge = 0.3 * fbm(p * 0.6, 2, 972);
-        let tread = 1.0 - smoothstep(TREAD - 0.5, TREAD + 0.5, near.offset.abs() + edge);
+        let tread = 1.0 - smoothstep(self.tread - 0.5, self.tread + 0.5, near.offset.abs() + edge);
         if tread <= 0.0 {
             return cover;
         }
@@ -761,6 +890,9 @@ impl Plan {
     /// Finds the track, and what it is like along its length.
     fn route(&mut self) {
         let half = self.half;
+        let tread = self.tread;
+        let climbs = self.country.climbs;
+        let crossing = self.country.crosses;
         let keep = half - KEEP_IN;
         let land = &self.land;
         // Which side of the creek each place is on: flooded out from beside the first ford,
@@ -950,6 +1082,26 @@ impl Plan {
         let mut used = vec![0.0_f32; side.values.len()];
         let pools = &self.pools;
         let mut line: Vec<Vec2> = Vec::new();
+        // The fords' own runs, down one bank and up the other, are track before any leg is
+        // found, so that none is found across them.
+        if !crossing {
+            for (from, to, _) in legs.iter().filter(|leg| leg.2) {
+                let steps = (from.distance(*to) / coarse).ceil() as usize;
+                for k in 0..=steps {
+                    let at = from.lerp(*to, k as f32 / steps as f32);
+                    for dz in -8..=8_i32 {
+                        for dx in -8..=8_i32 {
+                            let (ux, uz) = (at.x + dx as f32 * coarse, at.y + dz as f32 * coarse);
+                            if side.holds(ux, uz) {
+                                let away = (dx as f32).hypot(dz as f32) * coarse;
+                                let mark = &mut used[side.nearest(ux, uz)];
+                                *mark = mark.max(7.0 * (1.0 - smoothstep(6.0, 16.0, away)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for (from, to, straight) in &legs {
             if *straight {
                 // A ford: straight across the waterhole.
@@ -974,7 +1126,7 @@ impl Plan {
                     }
                 }
                 let grade = (land.at(x1, z1) - land.at(x0, z0)).abs() / length;
-                let climb = ((grade - 0.05).max(0.0) / 0.11).powi(2) * 1.6;
+                let climb = ((grade - 0.05 * climbs).max(0.0) / (0.11 * climbs)).powi(2) * 1.6;
                 let hillside = (land.slope(x1, z1) / 0.4).powi(2);
                 let soggy = if near_end > 25.0 {
                     smoothstep(0.45, 0.8, wet.at(x1, z1)) * 5.0
@@ -983,6 +1135,11 @@ impl Plan {
                 };
                 let edge = smoothstep(keep - 40.0, keep, x1.abs().max(z1.abs())) * 6.0;
                 let crowded = if near_end > 30.0 { used[next] } else { 0.0 };
+                // Where an earlier leg itself runs, not at all: a track that crossed itself
+                // would meet itself at two heights, and one would be a pit in the other.
+                if crowded > 6.9 && !crossing {
+                    return f32::INFINITY;
+                }
                 length * (1.0 + climb + hillside + soggy + edge + crowded)
             };
             let path = search(&side, *from, *to, &cost);
@@ -1073,7 +1230,8 @@ impl Plan {
         // follow every hummock.
         let raw: Vec<f32> = points.iter().map(|p| land.at(p.x, p.y)).collect();
         let mut height = raw.clone();
-        for _ in 0..2 {
+        // A road is graded: it keeps an even climb over more of the land's ups and downs.
+        for _ in 0..if self.hub { 9 } else { 2 } {
             let before = height.clone();
             for i in 0..n {
                 let mut sum = 0.0;
@@ -1132,7 +1290,7 @@ impl Plan {
             let at = points[i];
             for pool in pools.iter() {
                 let (low, high) = pool.rectangle();
-                let margin = TREAD + 4.0;
+                let margin = tread + 4.0;
                 if at.x > low.x - margin
                     && at.x < high.x + margin
                     && at.y > low.y - margin
@@ -1150,10 +1308,10 @@ impl Plan {
             .map(|(i, at)| {
                 let forward = (points[wrap(i as isize + 1)] - points[wrap(i as isize - 1)])
                     .normalize_or(Vec2::X);
-                let left = Vec2::new(forward.y, -forward.x) * (TREAD + 1.0);
+                let left = Vec2::new(forward.y, -forward.x) * (tread + 1.0);
                 let fall = (land.at(at.x + left.x, at.y + left.y)
                     - land.at(at.x - left.x, at.y - left.y))
-                    / (2.0 * (TREAD + 1.0));
+                    / (2.0 * (tread + 1.0));
                 (fall * 0.42).clamp(-0.13, 0.13)
             })
             .collect();
@@ -1247,9 +1405,18 @@ impl Plan {
             let point = &mut trail.points[i];
             point.mud = mud;
             point.rock = smoothstep(0.3, 0.7, rock);
-            point.rut = rut.max(0.02);
+            point.rut = (rut * self.country.rutted).max(0.02);
             point.erosion = erosion * (1.0 - 0.6 * point.rock);
             point.wear = wear;
+            // A hub's road is graded now and then: worn bare, with shallow wheel tracks, and
+            // only its wettest stretches soft. Getting to a track is not the hard part.
+            if self.hub {
+                point.mud = smoothstep(0.55, 1.0, mud) * 0.6;
+                point.rut = (rut * 0.22).max(0.012);
+                point.tilt *= 0.4;
+                point.erosion *= 0.2;
+                point.wear = wear.max(0.8);
+            }
         }
 
         // Drainage humps on the hills, one every forty or fifty metres.
@@ -1283,9 +1450,14 @@ impl Plan {
             })
             .collect();
         wanted.sort_by(|a, b| b.0.total_cmp(&a.0));
+        // A road has no bog holes, washouts or wheel-dug holes: those are what a track is for.
+        if self.hub {
+            wanted.clear();
+        }
         let mut holes: Vec<Hole> = Vec::new();
         for &(score, i) in &wanted {
-            if holes.len() >= 9 || (score < 0.55 && holes.len() >= 5) {
+            let most = self.country.bogs;
+            if holes.len() >= most || (score < 0.55 && holes.len() >= most.div_ceil(2)) {
                 break;
             }
             let at = trail.points[i].along;
@@ -1335,6 +1507,9 @@ impl Plan {
             .map(|i| (wet.at(trail.points[i].at.x, trail.points[i].at.y), i))
             .collect();
         crossings.sort_by(|a, b| b.0.total_cmp(&a.0));
+        if self.hub {
+            crossings.clear();
+        }
         let mut washes: Vec<(f32, f32)> = Vec::new();
         for &(damp, i) in &crossings {
             let at = trail.points[i].along;
@@ -1392,7 +1567,7 @@ impl Plan {
                     .bars
                     .iter()
                     .all(|&(bar, _)| !(-6.0..24.0).contains(&trail.apart(bar, point.along)));
-            if fits && clear && point.along - run_ends > 170.0 && runs < 7 {
+            if fits && clear && point.along - run_ends > 170.0 && runs < 7 && !self.hub {
                 let count = 5 + (runs % 2);
                 for k in 0..count {
                     let side = if k % 2 == 0 { 1.0 } else { -1.0 };
@@ -1403,6 +1578,35 @@ impl Plan {
             }
         }
         trail.moguls = moguls;
+        // The trailheads: spread evenly round the road from the camp, each at the most level
+        // place within sixty metres of where it falls, clear of the fords and their ramps.
+        let home = (0..n)
+            .min_by(|&a, &b| {
+                trail.points[a]
+                    .at
+                    .distance(camp)
+                    .total_cmp(&trail.points[b].at.distance(camp))
+            })
+            .unwrap_or(0);
+        let count = self.places.len();
+        for (k, place) in self.places.iter_mut().enumerate() {
+            let middle = home + (k + 1) * n / (count + 1);
+            let reach = (60.0 / STEP) as isize;
+            let best = (-reach..=reach)
+                .map(|step| wrap(middle as isize + step))
+                .filter(|&i| !from_pool[i].is_finite() && trail.points[i].ford == 0.0)
+                .min_by(|&a, &b| {
+                    trail.points[a]
+                        .grade
+                        .abs()
+                        .total_cmp(&trail.points[b].grade.abs())
+                })
+                .unwrap_or(wrap(middle as isize));
+            *place = trail.points[best].at;
+        }
+        if count > 0 {
+            println!("    trailheads at {:?}", self.places);
+        }
         trail.index();
         println!(
             "    a loop of {:.0} m: {} drainage humps, {} bog holes, {} washouts, {} runs of wheel holes",

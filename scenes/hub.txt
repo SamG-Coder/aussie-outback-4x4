@@ -1,0 +1,8 @@
+# The Crossroads: the game's hub. A square kilometre of high country with a graded road
+# looping round it, and on the road a trailhead for each of the game's tracks: a ring to stop
+# in. The maps are named in the order the road comes to them from the camp, and are the names
+# `scenes/outback.world` gives them.
+texture_size 1024
+camera -417 62 150 0.2 -0.1
+outback 1000 hub wombat granite blackwood
+actor outback/raptor.actor -417.42 58.54 133.21 9.6

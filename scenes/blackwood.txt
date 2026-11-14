@@ -1,0 +1,6 @@
+# Blackwood Gully: a square kilometre of low, wet forest, and a track of mud, bog holes and
+# deep ruts along its creek. Everything is built from the `outback` line.
+texture_size 1024
+camera -340 60 78 0.2 -0.1
+outback 1000 mud
+actor outback/raptor.actor -341.97 55.77 62.12 -10.1

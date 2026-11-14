@@ -10,7 +10,7 @@
 //! Each species is a text file beside this one (`species/`, `grass/`), in the form the
 //! procedural library reads, so a tree is changed, or another added, by description.
 
-use super::terrain::{smoothstep, Plan, TREAD};
+use super::terrain::{smoothstep, Plan};
 use glam::{Mat4, Vec2, Vec3};
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
@@ -314,7 +314,7 @@ pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, 
             if plan
                 .trail
                 .near(x, z)
-                .is_some_and(|near| near.offset.abs() < TREAD + kind.clear)
+                .is_some_and(|near| near.offset.abs() < plan.tread + kind.clear)
             {
                 continue;
             }
@@ -570,7 +570,7 @@ fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32) -> Vec<Blocker> {
             || plan
                 .trail
                 .near(x, z)
-                .is_some_and(|near| near.offset.abs() < TREAD + 4.5)
+                .is_some_and(|near| near.offset.abs() < plan.tread + 4.5)
         {
             continue;
         }
@@ -667,7 +667,7 @@ fn grass(scene: &mut SceneAsset, plan: &Plan, low: f32, high: f32) {
             if plan
                 .trail
                 .near(x, z)
-                .is_some_and(|near| near.offset.abs() < TREAD + size * 0.75)
+                .is_some_and(|near| near.offset.abs() < plan.tread + size * 0.75)
             {
                 continue;
             }
@@ -746,7 +746,7 @@ fn boulders(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> Vec<Blocker> {
         }
         let near = plan.trail.near(x, z).map(|near| near.offset.abs());
         // On outcrop, thick; in a scoured gully's bed and beside the track's ledges, small.
-        let by_track = near.is_some_and(|offset| offset < TREAD + 0.4);
+        let by_track = near.is_some_and(|offset| offset < plan.tread + 0.4);
         let liking = if by_track {
             cover.scour * 0.25
         } else {
@@ -769,7 +769,7 @@ fn boulders(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> Vec<Blocker> {
             3
         };
         // Nothing a car cannot drive over within its own width of the track.
-        if size >= 2 && near.is_some_and(|offset| offset < TREAD + 2.6) {
+        if size >= 2 && near.is_some_and(|offset| offset < plan.tread + 2.6) {
             continue;
         }
         let radius = SIZES[size] * grow;

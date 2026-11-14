@@ -1,0 +1,10 @@
+# The game's site on Cloudflare Pages: the home page and the browser version are its files
+# (../dist, made by scripts/build-site.sh), and the maps and the download are in an R2 bucket,
+# which functions/ serves from the same address.
+name = "rust4x4"
+pages_build_output_dir = "../dist"
+compatibility_date = "2026-01-01"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "rust4x4-assets"

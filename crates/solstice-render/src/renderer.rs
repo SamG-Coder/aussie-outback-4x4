@@ -314,6 +314,8 @@ struct History {
 
 /// Renders a scene with virtualized geometry and global illumination.
 pub struct Renderer {
+    /// The lamps of whatever is driven, when they are on.
+    lamp: Option<crate::Lamp>,
     streamer: Streamer,
     settings: RendererSettings,
     scene: GpuScene,
@@ -584,6 +586,9 @@ impl Renderer {
         self.scene.instance_table.set_hidden(instance, hidden)
     }
 
+    /// Below zero, it glows red, as brightly as it would have glowed above: a tail lamp, whose
+    /// model has a white lamp behind what should be red glass.
+    ///
     /// Scales how brightly an instance's material glows, as a lamp is lit or put out: 1 as the
     /// material says, 0 dark.
     pub fn set_instance_glow(&mut self, instance: u32, glow: f32) -> bool {
@@ -766,6 +771,7 @@ impl Renderer {
             particles,
             profiler: Profiler::new(gpu),
             scene,
+            lamp: None,
             streamer,
             frame_uniform,
             view_slots,
@@ -938,6 +944,12 @@ impl Renderer {
 
     pub fn weather(&self) -> Weather {
         self.clouds.weather()
+    }
+
+    /// Turns on the lamps of whatever is driven, where they are now, or turns them off. Set
+    /// each frame as the car moves.
+    pub fn set_lamp(&mut self, lamp: Option<crate::Lamp>) {
+        self.lamp = lamp;
     }
 
     /// What the rain has done so far: how hard it falls now, how wet it has left what is open
@@ -1688,6 +1700,12 @@ impl Renderer {
             },
             moon_disc: environment.moon_disc.unwrap_or(Vec3::NEG_Y),
             _pad2: 0.0,
+            lamp_position: self.lamp.map_or(Vec3::ZERO, |lamp| lamp.position),
+            lamp_range: self.lamp.map_or(0.0, |lamp| lamp.range),
+            lamp_direction: self.lamp.map_or(Vec3::NEG_Z, |lamp| lamp.direction),
+            lamp_spread: self.lamp.map_or(1.0, |lamp| lamp.half_angle.cos()),
+            lamp_intensity: self.lamp.map_or(Vec3::ZERO, |lamp| lamp.intensity),
+            _pad3: 0.0,
             daylight_illuminance: environment.daylight(),
         };
         gpu.queue

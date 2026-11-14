@@ -42,6 +42,10 @@ fi
 mkdir -p dist/content
 cp assets/content/*.solstice dist/content/
 cp apps/viewer/web/index.html apps/viewer/web/editor.html apps/viewer/web/loader.js apps/viewer/web/auto-quality.js dist/
+# The game round the driving (docs/ui.md): its pages, the glue that lays them over the viewer's,
+# and its maps. Played at index.html?world=outback.world
+cp apps/viewer/web/game.js scenes/outback.world dist/
+cp -r ui dist/ui
 cp -r apps/viewer/web/editor dist/
 # Scene files are already compressed where it helps, part by part, so that the page can fetch
 # any part alone. Hard links keep big scenes from taking disk space twice.

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aussie Outback 4x4</title>
+<meta name="description" content="A four-wheel-drive game in the Australian bush: low range, diff locks, mud, rock and creek crossings. Play it in your browser or download it for Windows.">
+<meta property="og:title" content="Aussie Outback 4x4">
+<meta property="og:description" content="Low range, diff locks, mud, rock and creek crossings in the Victorian high country. Play in your browser or download for Windows.">
+<meta property="og:image" content="https://rust4x4.com/play/ui/art/wombat.jpg">
+<meta name="theme-color" content="#0f0c0a">
+<style>
+  /* The game's own colours and lettering (ui/ui.css): red earth, ochre and bone on warm black. */
+  :root {
+    --ink: #0f0c0a; --soil: #17120e; --bone: #f2eadb; --dust: #b5a892; --ochre: #e58a2e; --clay: #c2461f;
+    --gum: #a9bda4; --line: rgba(242, 234, 219, 0.16);
+    --sign: "Bahnschrift", "DIN Alternate", "Oswald", "Arial Narrow", "Segoe UI", sans-serif;
+    --text: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--ink); color: var(--bone); font: 400 17px/1.55 var(--text); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3, p, dl, dd, ul, figure { margin: 0; }
+  a { color: inherit; }
+  .wrap { width: min(1180px, 100% - 48px); margin: 0 auto; }
+  .kicker { font: 600 14px/1 var(--sign); letter-spacing: 0.22em; text-transform: uppercase; color: var(--ochre); }
+  h2 { font: 700 clamp(34px, 4.4vw, 54px)/1 var(--sign); font-stretch: 75%; text-transform: uppercase; margin-top: 12px; }
+
+  /* ---- The top: the truck in the bush, the name, and the two ways in. */
+  header { position: relative; min-height: min(92vh, 860px); display: grid; align-items: center; overflow: hidden; }
+  header img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: drift 30s ease-out both; }
+  @keyframes drift { from { transform: scale(1.02); } to { transform: scale(1.12) translate(-1%, -1%); } }
+  @media (prefers-reduced-motion: reduce) { header img { animation: none; } }
+  header::after { content: ""; position: absolute; inset: 0; background:
+    linear-gradient(90deg, rgba(10, 7, 5, 0.94) 0%, rgba(10, 7, 5, 0.74) 34%, rgba(10, 7, 5, 0.08) 72%),
+    linear-gradient(0deg, var(--ink) 0%, rgba(10, 7, 5, 0) 26%); }
+  header .wrap { position: relative; z-index: 1; padding: 72px 0; }
+  .mark { width: 26px; height: 26px; fill: var(--ochre); vertical-align: -6px; margin-right: 10px; }
+  .wordmark { font: 700 clamp(64px, 10.5vw, 132px)/0.86 var(--sign); font-stretch: 75%; text-transform: uppercase;
+    margin: 20px 0 26px; display: grid; justify-items: start; }
+  .wordmark span:first-child { font-size: 0.5em; letter-spacing: 0.16em; color: var(--dust); margin-bottom: 0.25em; }
+  .wordmark b { margin-top: 0.14em; padding: 0.06em 0.26em 0.02em 0.5em; font-size: 0.74em; color: var(--ink);
+    background: repeating-linear-gradient(-58deg, var(--ink) 0 0.09em, transparent 0.09em 0.2em) left / 0.3em 100% no-repeat, var(--ochre); }
+  .lede { max-width: 34em; font-size: 20px; color: var(--bone); }
+  .ways { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 36px; }
+  .way { display: block; min-width: 290px; padding: 18px 26px 18px 22px; text-decoration: none; border-left: 5px solid var(--ochre);
+    background: rgba(17, 13, 10, 0.82); transition: transform 0.12s ease-out, background 0.12s; }
+  .way b { display: block; font: 700 30px/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
+  .way small { display: block; margin-top: 6px; font-size: 14px; color: var(--dust); }
+  .way.first { background: var(--ochre); color: var(--ink); border-left-color: var(--ink); }
+  .way.first small { color: rgba(15, 12, 10, 0.78); }
+  .way:hover, .way:focus-visible { transform: translateY(-2px); outline: none; }
+  .way:not(.first):hover, .way:not(.first):focus-visible { background: rgba(60, 36, 16, 0.92); }
+  .build { margin-top: 26px; font: 600 13px/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+
+  section { padding: 84px 0; border-top: 1px solid var(--line); }
+  section > .wrap > p.intro { max-width: 46em; margin-top: 16px; color: var(--dust); font-size: 18px; }
+
+  /* ---- The tracks. */
+  .tracks { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; margin-top: 40px; }
+  .track { background: var(--soil); border-top: 4px solid var(--ochre); }
+  .track img { display: block; width: 100%; aspect-ratio: 16 / 8; object-fit: cover; }
+  .track div { padding: 20px 22px 24px; }
+  .track h3 { font: 700 30px/1.05 var(--sign); font-stretch: 75%; text-transform: uppercase; }
+  .track p { margin-top: 10px; color: var(--dust); font-size: 16px; }
+  .track dl { display: flex; gap: 28px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .track dt { font: 600 12px/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+  .track dd { font: 700 20px/1.2 var(--sign); font-stretch: 75%; margin-top: 6px; }
+
+  /* ---- What is in it. */
+  .bits { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 30px 44px; margin-top: 40px; }
+  .bits h3 { font: 700 21px/1.15 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.03em; padding-left: 14px;
+    border-left: 3px solid var(--ochre); }
+  .bits p { margin-top: 10px; color: var(--dust); font-size: 16px; }
+
+  /* ---- The two versions, side by side. */
+  table { width: 100%; border-collapse: collapse; margin-top: 36px; font-size: 16px; }
+  th { text-align: left; padding: 0 16px 12px 0; font: 600 13px/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+  td { padding: 12px 16px 12px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  td:first-child { color: var(--dust); width: 26%; }
+  .get { display: inline-block; margin-top: 30px; margin-right: 14px; padding: 12px 22px; text-decoration: none;
+    font: 700 20px/1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink); background: var(--ochre); }
+  .get.second { color: var(--bone); background: none; border: 1px solid var(--dust); }
+  .get:hover, .get:focus-visible { filter: brightness(1.12); outline: none; }
+  kbd { display: inline-block; min-width: 1.9em; padding: 1px 7px; margin-right: 3px; text-align: center; font: 600 14px/1.5 var(--text);
+    border: 1px solid var(--dust); border-radius: 4px; }
+
+  footer { padding: 54px 0 70px; border-top: 1px solid var(--line); color: var(--dust); font-size: 15px; }
+  footer p { max-width: 62em; margin-top: 12px; }
+  footer a { color: var(--bone); }
+</style>
+
+<header>
+  <img src="play/ui/art/wombat.jpg" alt="A red pickup truck on a red dirt track among gum trees.">
+  <div class="wrap">
+    <p class="kicker"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 26 L11 10 L16 18 L20 12 L30 26 Z"/><circle cx="24" cy="7" r="3"/></svg>Victorian High Country</p>
+    <h1 class="wordmark"><span>Aussie</span><span>Outback</span><b>4x4</b></h1>
+    <p class="lede">A four-wheel-drive game in the Australian bush. Low range, diff locks and aired-down tyres;
+      red clay, bog holes, rock steps and creek crossings; and nobody else out here.</p>
+    <div class="ways">
+      <a class="way first" href="play/">
+        <b>Play in your browser</b>
+        <small>Edge or Chrome on a desktop PC. Streams as you drive, and keeps what it has downloaded.</small>
+      </a>
+      <a class="way" href="download/AussieOutback4x4-windows.zip" download>
+        <b>Download for Windows</b>
+        <small>Windows 10 or 11, 64-bit. <span data-size>About 40 MB</span>, then 1.9 GB of maps the first time you play.</small>
+      </a>
+    </div>
+    <p class="build">Pre-alpha <span data-version>0.1</span> &nbsp;·&nbsp; free &nbsp;·&nbsp; no account, no ads</p>
+  </div>
+</header>
+
+<section id="tracks">
+  <div class="wrap">
+    <p class="kicker">Where you drive</p>
+    <h2>Three tracks and the road between</h2>
+    <p class="intro">You start at The Crossroads, a dirt main road through the high country. Each track has a trailhead on it:
+      drive into the ring, choose the time of day and the weather, and take it as free roam or timed laps.</p>
+    <div class="tracks">
+      <article class="track">
+        <img src="play/ui/art/wombat.jpg" alt="" loading="lazy">
+        <div>
+          <h3>Wombat Creek Track</h3>
+          <p>A washed-out fire trail through stringybark and manna gum: two creek fords, bog holes, rock steps and ruts cut by a wet winter.</p>
+          <dl><div><dt>Track</dt><dd>Fire trail</dd></div><div><dt>Length</dt><dd>3.5 km</dd></div></dl>
+        </div>
+      </article>
+      <article class="track">
+        <img src="play/ui/art/granite.jpg" alt="" loading="lazy">
+        <div>
+          <h3>Granite Ridge</h3>
+          <p>High, steep, stony country. Slabs and ledges up and over the ridge, dry underfoot: low range, lockers in, and pick your line.</p>
+          <dl><div><dt>Track</dt><dd>Rock crawl</dd></div><div><dt>Length</dt><dd>5.0 km</dd></div></dl>
+        </div>
+      </article>
+      <article class="track">
+        <img src="play/ui/art/blackwood.jpg" alt="" loading="lazy">
+        <div>
+          <h3>Blackwood Gully</h3>
+          <p>Low, wet forest along a creek. Sixteen bog holes with deep ruts and washouts between them: keep your momentum and air the tyres down.</p>
+          <dl><div><dt>Track</dt><dd>Mud run</dd></div><div><dt>Length</dt><dd>4.5 km</dd></div></dl>
+        </div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="truck">
+  <div class="wrap">
+    <p class="kicker">What you drive with</p>
+    <h2>A truck that works like one</h2>
+    <div class="bits">
+      <div><h3>Transfer case</h3><p>2H, 4H and 4L. Low range multiplies the engine's pull for climbs, bog holes and rock steps.</p></div>
+      <div><h3>Diff locks</h3><p>Rear, then front and rear. With open diffs a lifted wheel spins away your drive; locked, the others keep pulling.</p></div>
+      <div><h3>Tyre pressure</h3><p>Air down to float over mud and sand, and back up for the hard stuff.</p></div>
+      <div><h3>Hill descent</h3><p>Holds the truck back on steep drops, a wheel at a time, so you can stay off the brake.</p></div>
+      <div><h3>Ground that gives</h3><p>Clay, mud, bog, leaf litter, gravel, rock and water each grip, sink and spray differently, and rain changes all of them.</p></div>
+      <div><h3>Day, dusk and night</h3><p>Pick the hour and the weather for each track. After dark the high beams come on, and the tail lamps light under braking.</p></div>
+      <div><h3>The bush</h3><p>Manna gum, stringybark, ironbark, wattle, tree ferns, grass trees and bracken, each planted where it would grow.</p></div>
+      <div><h3>Keyboard or controller</h3><p>Keyboard and mouse, Xbox-style pads, and PlayStation controllers by USB or Bluetooth.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="versions">
+  <div class="wrap">
+    <p class="kicker">Two ways to play</p>
+    <h2>Browser or Windows</h2>
+    <table>
+      <thead><tr><th></th><th>In your browser</th><th>Windows download</th></tr></thead>
+      <tbody>
+        <tr><td>Needs</td><td>Edge or Chrome on a desktop or laptop with a dedicated graphics card (it uses WebGPU)</td><td>Windows 10 or 11, 64-bit, a graphics card with 6 GB or more</td></tr>
+        <tr><td>Size</td><td>About 50 MB to start, and some 300 MB in the first minute of a new map as the bush around you comes in</td><td><span data-size>About 40 MB</span> to download, then 1.9 GB of maps the first time you play. An update is the small download again: the maps are kept</td></tr>
+        <tr><td>Sound</td><td>The same sounds, once you have pressed a key or clicked</td><td>Engine, tyres on every surface, water, brush, and the bush itself</td></tr>
+        <tr><td>Changing maps</td><td>The page loads again for each map</td><td>A few seconds behind a loading screen</td></tr>
+        <tr><td>Played again</td><td>What you have already downloaded is kept by your browser, and not fetched twice</td><td>Nothing to download unless a map has changed</td></tr>
+        <tr><td>Best laps</td><td>Kept by your browser</td><td>Kept in the game's folder</td></tr>
+      </tbody>
+    </table>
+    <a class="get" href="play/">Play in your browser</a>
+    <a class="get second" href="download/AussieOutback4x4-windows.zip" download>Download for Windows</a>
+    <p class="intro" style="margin-top: 26px">To run the download: unzip it anywhere and open <b>Play.bat</b>, which fetches the maps and then
+      starts the game. Windows may ask before running a program it has not seen before; choose <b>More info</b>, then <b>Run anyway</b>.</p>
+  </div>
+</section>
+
+<section id="controls">
+  <div class="wrap">
+    <p class="kicker">How to drive it</p>
+    <h2>Controls</h2>
+    <table>
+      <thead><tr><th></th><th>Keyboard and mouse</th><th>Controller</th></tr></thead>
+      <tbody>
+        <tr><td>Throttle, brake</td><td><kbd>W</kbd> <kbd>S</kbd></td><td><kbd>R2</kbd> <kbd>L2</kbd></td></tr>
+        <tr><td>Steer</td><td><kbd>A</kbd> <kbd>D</kbd></td><td>Left stick</td></tr>
+        <tr><td>2H, 4H, 4L</td><td><kbd>T</kbd></td><td><kbd>□</kbd></td></tr>
+        <tr><td>Diff locks</td><td><kbd>G</kbd></td><td><kbd>✕</kbd></td></tr>
+        <tr><td>Air the tyres down, up</td><td><kbd>Y</kbd></td><td>D-pad up</td></tr>
+        <tr><td>Handbrake</td><td><kbd>Space</kbd></td><td><kbd>○</kbd></td></tr>
+        <tr><td>Look round</td><td>Click, then the mouse</td><td>Right stick</td></tr>
+        <tr><td>Enter a trailhead, in its ring</td><td>Hold <kbd>Enter</kbd>, or click the banner</td><td>Hold <kbd>✕</kbd></td></tr>
+        <tr><td>Back on the track</td><td><kbd>R</kbd></td><td><kbd>△</kbd></td></tr>
+        <tr><td>Pause</td><td><kbd>Esc</kbd></td><td><kbd>Options</kbd></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="kicker">Credits</p>
+    <p>The truck is the <a href="https://sketchfab.com/3d-models/2024-ford-f-150-raptor-r-91aedf1119724f3396dcfe87686545c1">2024 Ford F-150 Raptor R</a>
+      by Ddiaz Design, used under <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a>. It has been adapted for the game
+      (scaled, its parts joined, its rear lamps given a material of their own), and the adapted model is shared under the same licence.
+      Ford, F-150 and Raptor are trademarks of Ford Motor Company, which has no part in this game.</p>
+    <p>Because of that licence the game is free and non-commercial: nothing is sold here and there are no ads.</p>
+    <p>Built on the <a href="https://github.com/SamG-Coder/solstice">Solstice</a> engine. The land, the tracks and everything that grows are generated;
+      the sounds were made with the MOSS-SoundEffect model. This is an early build: expect rough edges.</p>
+    <p>&copy; 2026 Aussie Outback 4x4.</p>
+  </div>
+</footer>
+</html>

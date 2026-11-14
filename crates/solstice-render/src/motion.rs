@@ -183,7 +183,6 @@ impl InstanceTable {
         let Some(i) = self.index(instance) else {
             return false;
         };
-        let glow = glow.max(0.0);
         if self.data[i].glow() != glow {
             self.data[i].set_glow(glow);
             self.changed.push(i as u32);
@@ -547,10 +546,10 @@ mod tests {
     }
 
     #[test]
-    fn negative_glow_is_dark() {
+    fn glow_below_zero_is_kept_for_a_lamp_that_glows_red() {
         let mut table = table();
         table.set_glow(0, -3.0);
-        assert_eq!(table.data[0].glow(), 0.0);
+        assert_eq!(table.data[0].glow(), -3.0);
     }
 
     #[test]

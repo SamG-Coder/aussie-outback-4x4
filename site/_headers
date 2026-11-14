@@ -1,0 +1,8 @@
+# The viewer's program and the game's pages change with each build: a browser asks each time
+# whether what it has is still the latest. Pictures keep for a day.
+/play/*
+  Cache-Control: public, max-age=0, must-revalidate
+/play/ui/art/*
+  Cache-Control: public, max-age=86400
+/play/sounds/*
+  Cache-Control: public, max-age=86400

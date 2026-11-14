@@ -1,0 +1,255 @@
+/* The game's pages: how each screen looks. Red earth, ochre and bone on warm black, set in a
+   condensed road-sign face. Sizes are in rem, and a rem follows the window's height, so the
+   instruments are the same share of the picture at any size. */
+:root {
+  --ink: #0f0c0a;
+  --panel: rgba(17, 13, 10, 0.78);
+  --bone: #f2eadb;
+  --dust: #b5a892;
+  --ochre: #e58a2e;
+  --clay: #c2461f;
+  --gum: #a9bda4;
+  --line: rgba(242, 234, 219, 0.16);
+  --sign: "Bahnschrift", "DIN Alternate", "Oswald", "Arial Narrow", "Segoe UI", sans-serif;
+  --text: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  font-size: clamp(11px, 1.48vh, 22px);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
+body {
+  color: var(--bone);
+  font: 400 1rem/1.45 var(--text);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+/* A browser with nothing under the pages: something to see them against. */
+body.mock { background: linear-gradient(#8fa9bd 0%, #c9c2ad 46%, #9a7350 47%, #6e4a31 100%); }
+
+h1, h2, p, dl, dd, figure { margin: 0; }
+/* A button is never quite see-through: where the page shows nothing at all, a click goes to
+   the game under it and not to the page. */
+button { font: inherit; color: inherit; background: rgba(0, 0, 0, 0.02); border: 0; padding: 0; text-align: left; cursor: pointer; }
+[hidden] { display: none !important; }
+
+/* ---- Along the top: what is being downloaded. A line that fills, and a label under its
+   right-hand end. Still while nothing is coming, and gone a moment after. */
+#stream { position: fixed; left: 0; right: 0; top: 0; z-index: 10; pointer-events: none; }
+#stream i { display: block; height: 0.45rem; width: 0; background: var(--ochre); transition: width 0.3s ease-out;
+  box-shadow: 0 0 0.8rem rgba(229, 138, 46, 0.7); }
+#stream.busy i { background: linear-gradient(90deg, var(--ochre) 0%, #ffd9a8 50%, var(--ochre) 100%) 0 0 / 14rem 100%;
+  animation: flow 1.1s linear infinite; }
+@keyframes flow { to { background-position: 14rem 0; } }
+#stream p { position: absolute; right: 2.6rem; top: 1.1rem; display: flex; align-items: center; gap: 0.7rem; padding: 0.6rem 1.1rem;
+  background: var(--panel); border-left: 0.3rem solid var(--ochre);
+  font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+#stream b { color: var(--bone); font-weight: 700; }
+#stream .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--dust); }
+#stream.busy .dot { background: var(--ochre); animation: pulse 0.9s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+/* On the loading screen the label is under the title, where it is looked for. */
+body[data-screen="loading"] #stream p { right: auto; left: 6.5rem; top: auto; bottom: 3.2rem; position: fixed; background: none; padding: 0;
+  font-size: 1rem; }
+
+/* ---- Screens: one shown at a time, each fading in. */
+.screen { position: fixed; inset: 0; display: none; }
+body[data-screen="title"] #title,
+body[data-screen="drive"] #drive,
+body[data-screen="pause"] #pause,
+body[data-screen="offer"] #offer,
+body[data-screen="controls"] #controls,
+body[data-screen="loading"] #loading { display: block; animation: arrive 0.28s ease-out both; }
+@keyframes arrive { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+/* For a picture of a screen: nothing fades in. */
+body.still * { animation: none !important; transition: none !important; }
+
+.scrim { position: absolute; inset: 0; }
+.scrim-left { background:
+  linear-gradient(90deg, rgba(10, 7, 5, 0.94) 0%, rgba(10, 7, 5, 0.72) 30%, rgba(10, 7, 5, 0) 62%),
+  linear-gradient(0deg, rgba(10, 7, 5, 0.6) 0%, rgba(10, 7, 5, 0) 26%); }
+.scrim-full { background: rgba(10, 7, 5, 0.78); }
+
+.column { position: absolute; left: 6.5rem; top: 50%; transform: translateY(-50%); width: min(44rem, 80vw); }
+
+/* ---- Lettering. */
+.kicker {
+  font: 600 1.05rem/1 var(--sign); letter-spacing: 0.22em; text-transform: uppercase; color: var(--ochre);
+  display: flex; align-items: center; gap: 0.7rem;
+}
+.mark { width: 1.9rem; height: 1.9rem; fill: var(--ochre); }
+.heading {
+  font: 700 4.6rem/0.95 var(--sign); font-stretch: 75%; letter-spacing: 0.01em; text-transform: uppercase;
+  margin-top: 0.9rem;
+}
+.wordmark {
+  font: 700 7.4rem/0.86 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.005em;
+  margin: 1.2rem 0 3.2rem; display: grid; justify-items: start;
+}
+.wordmark span:first-child { font-size: 0.5em; letter-spacing: 0.16em; color: var(--dust); margin-bottom: 0.25em; }
+/* The 4x4: a plate, with a strip of tread down its side. */
+.wordmark b {
+  margin-top: 0.14em; padding: 0.06em 0.26em 0.02em 0.5em; font-size: 0.74em; color: var(--ink);
+  background:
+    repeating-linear-gradient(-58deg, var(--ink) 0 0.09em, transparent 0.09em 0.2em) left / 0.3em 100% no-repeat,
+    var(--ochre);
+}
+
+/* ---- Menus: a list down the page. The one in hand has the bar. */
+.menu { display: grid; gap: 0.2rem; justify-items: start; }
+.menu button {
+  position: relative; display: flex; align-items: baseline; gap: 1.4rem;
+  padding: 0.5rem 1.6rem 0.5rem 1.5rem; min-width: 22rem;
+  border-left: 0.3rem solid transparent; transition: padding 0.12s ease-out, background 0.12s ease-out;
+}
+.menu button span { font: 700 2.5rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; color: var(--dust); }
+.menu button small { font-size: 1.05rem; color: var(--dust); opacity: 0; transition: opacity 0.12s; }
+.menu button.held { border-left-color: var(--ochre); padding-left: 2.2rem;
+  background: linear-gradient(90deg, rgba(229, 138, 46, 0.2), rgba(229, 138, 46, 0) 85%); }
+.menu button.held span { color: var(--bone); }
+.menu button.held small { opacity: 1; }
+.menu.small { margin-top: 2rem; }
+.menu.small button { min-width: 0; }
+.menu.small button span { font-size: 1.6rem; }
+
+/* What works the menu, along the bottom. */
+.hints {
+  position: absolute; left: 6.5rem; right: 6.5rem; bottom: 3.2rem; display: flex; gap: 2.4rem; align-items: center;
+  font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust);
+}
+.hints span[data-hint]::before {
+  content: attr(data-key); display: inline-grid; place-items: center; min-width: 2.1rem; height: 2.1rem;
+  padding: 0 0.5rem; margin-right: 0.7rem; border: 1px solid var(--dust); border-radius: 0.35rem;
+  color: var(--bone); letter-spacing: 0; font-size: 0.95rem;
+}
+body.pad .hints span[data-hint]::before { border-radius: 50%; padding: 0; }
+.hints .build { margin-left: auto; opacity: 0.6; }
+
+/* ---- Driving: panels in the corners, nothing in the middle of the road. */
+.panel { background: var(--panel); border-left: 0.3rem solid var(--ochre); }
+#drive .panel, .tilt, .dash, .marker, .banner { position: absolute; }
+
+.where { left: 2.6rem; top: 2.4rem; padding: 1rem 1.5rem 1.1rem 1.3rem; min-width: 17rem; }
+.where .kicker { font-size: 0.85rem; }
+.where h2 { font: 700 1.75rem/1.15 var(--sign); font-stretch: 75%; text-transform: uppercase; margin-top: 0.35rem; }
+.where dl { display: grid; grid-template-columns: auto 1fr; gap: 0.15rem 1.4rem; margin-top: 0.8rem; align-items: baseline;
+  font-variant-numeric: tabular-nums; }
+.where dt { font: 600 0.85rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.where dd { font: 600 1.3rem/1.25 var(--sign); text-align: right; }
+.where dd.big { font-size: 2.3rem; font-weight: 700; }
+.where dd.off { color: var(--clay); }
+
+/* The way to the nearest trailhead: an arrow that turns to it, and how far. */
+.marker { top: 2.4rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 0.9rem;
+  padding: 0.55rem 1.3rem 0.55rem 0.9rem; background: var(--panel); border-bottom: 0.2rem solid var(--ochre); }
+.marker svg { width: 1.9rem; height: 1.9rem; fill: var(--ochre); transition: transform 0.15s linear; }
+.marker b { display: block; font: 700 1.2rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.03em; }
+.marker span { font: 600 0.9rem/1 var(--sign); letter-spacing: 0.14em; color: var(--dust); }
+/* In a trailhead's ring: what it leads to, and how to take it. The bar fills as the button
+   is held. */
+.banner { top: 2.4rem; left: 50%; transform: translateX(-50%); min-width: 26rem; padding: 0.9rem 1.8rem 1.1rem;
+  text-align: center; background: var(--panel); border-top: 0.3rem solid var(--ochre); overflow: hidden; }
+.banner b { display: block; font: 700 1.9rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
+.banner > span { display: inline-flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;
+  font: 600 0.95rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.banner kbd { margin: 0; }
+body.pad .banner kbd { border-radius: 50%; padding: 0; }
+.banner i { position: absolute; left: 0; bottom: 0; height: 0.3rem; width: 0; background: var(--ochre); }
+.banner:hover { background: rgba(60, 36, 16, 0.9); }
+
+/* The inclinometer: the truck from the side and from behind, tipped as it is. */
+.tilt { left: 2.6rem; bottom: 2.4rem; display: flex; gap: 1.1rem; }
+.tilt figure { text-align: center; }
+.dial { position: relative; width: 7.4rem; height: 7.4rem; border-radius: 50%; background: var(--panel);
+  border: 1px solid var(--line); overflow: hidden; }
+.dial svg { position: absolute; inset: 0.9rem; fill: var(--bone); transition: transform 0.12s linear; }
+.dial i { position: absolute; left: 0.7rem; right: 0.7rem; top: 50%; border-top: 1px dashed var(--line); }
+.tilt figure.steep .dial { border-color: var(--clay); }
+.tilt figure.steep svg { fill: var(--clay); }
+.tilt figcaption { margin-top: 0.45rem; font: 600 0.85rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.tilt figcaption b { color: var(--bone); font-variant-numeric: tabular-nums; margin-left: 0.3rem; }
+
+/* The dashboard. */
+.dash { right: 2.6rem; bottom: 2.4rem; width: 29rem; padding: 1rem 1.3rem 1.1rem; background: var(--panel);
+  border-right: 0.3rem solid var(--ochre); }
+.lamps { display: flex; gap: 0.5rem; justify-content: flex-end; height: 1.5rem; }
+.lamps span { font: 700 0.8rem/1.5rem var(--sign); letter-spacing: 0.12em; padding: 0 0.55rem; color: rgba(242, 234, 219, 0.22);
+  border: 1px solid var(--line); }
+.lamps span.on { color: var(--ink); background: var(--ochre); border-color: var(--ochre); }
+.readout { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 0.2rem; }
+.gear { width: 4.4rem; height: 4.4rem; display: grid; place-items: center; border: 0.18rem solid var(--bone);
+  font: 700 3rem/1 var(--sign); margin-bottom: 0.7rem; }
+.speed { text-align: right; line-height: 1; }
+.speed b { font: 700 6.6rem/0.9 var(--sign); font-stretch: 75%; font-variant-numeric: tabular-nums; }
+.speed span { display: block; font: 600 0.85rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dust); margin-top: 0.2rem; }
+/* The revs: a row of bars, the last few red. */
+.revs { display: grid; grid-template-columns: repeat(28, 1fr); gap: 0.16rem; height: 1.1rem; margin-top: 0.9rem; }
+.revs i { background: rgba(242, 234, 219, 0.14); transform: skewX(-14deg); }
+.revs i.lit { background: var(--bone); }
+.revs i.red { background: rgba(194, 70, 31, 0.36); }
+.revs i.red.lit { background: var(--clay); }
+.driveline { display: flex; gap: 0.45rem; margin-top: 0.9rem; flex-wrap: wrap; }
+.driveline .range { display: flex; border: 1px solid var(--line); }
+.driveline i { font: 700 0.95rem/1.7rem var(--sign); font-style: normal; padding: 0 0.6rem; color: rgba(242, 234, 219, 0.3); }
+.driveline i.on { color: var(--ink); background: var(--bone); }
+.driveline .lock { font: 600 0.8rem/1.7rem var(--sign); letter-spacing: 0.1em; text-transform: uppercase; padding: 0 0.6rem;
+  color: rgba(242, 234, 219, 0.24); border: 1px solid var(--line); }
+.driveline .lock.on { color: var(--ink); background: var(--gum); border-color: var(--gum); }
+
+/* ---- Cards: the trailhead's offer, and the controls. */
+.card { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(58rem, 88vw);
+  padding: 2.2rem 3rem 2rem; background: rgba(17, 13, 10, 0.92); border-top: 0.35rem solid var(--ochre); }
+/* A map's picture, across the top of its card. */
+.card .art { display: block; width: calc(100% + 6rem); height: 13rem; margin: -2.2rem -3rem 1.6rem; object-fit: cover; }
+.art.none { display: none; }
+.card.wide { width: min(64rem, 92vw); }
+.about { margin-top: 1rem; max-width: 46rem; font-size: 1.2rem; color: var(--dust); }
+.facts { display: flex; gap: 3rem; margin-top: 1.7rem; padding: 1.1rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.facts dt { font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.facts dd { font: 700 1.7rem/1.2 var(--sign); font-stretch: 75%; margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+/* What a track is driven in: a row of choices, one of them picked. */
+.choice { display: flex; align-items: center; gap: 1.4rem; margin-top: 1.1rem; }
+.choice > span { width: 6.5rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.chips { display: flex; gap: 0.5rem; }
+.chips button { padding: 0.5rem 1.1rem; border: 1px solid var(--line);
+  font: 700 1.15rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dust); }
+.chips button.picked { color: var(--ink); background: var(--bone); border-color: var(--bone); }
+.chips button.held { border-color: var(--ochre); box-shadow: 0 0 0 0.12rem var(--ochre); }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin-top: 1.6rem; }
+.tiles button { padding: 1.4rem 1.5rem 1.5rem; border: 1px solid var(--line); border-bottom: 0.3rem solid transparent;
+  transition: background 0.12s, border-color 0.12s, transform 0.12s; }
+.tiles button span { display: block; font: 700 2.3rem/1 var(--sign); font-stretch: 75%; text-transform: uppercase; color: var(--dust); }
+.tiles button small { display: block; margin-top: 0.6rem; font-size: 1.05rem; color: var(--dust); }
+.tiles button.held { background: rgba(229, 138, 46, 0.16); border-color: var(--ochre); transform: translateY(-0.15rem); }
+.tiles button.held span { color: var(--bone); }
+.unbuilt { margin-top: 1.8rem; padding: 1.2rem 1.4rem; border: 1px dashed var(--line); font-size: 1.2rem; color: var(--dust); }
+
+table { width: 100%; border-collapse: collapse; margin-top: 1.6rem; font-size: 1.1rem; }
+th { text-align: left; padding: 0 0 0.7rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+td { padding: 0.48rem 0; border-top: 1px solid var(--line); }
+td:first-child { color: var(--dust); width: 34%; }
+kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem; padding: 0 0.5rem; margin-right: 0.2rem;
+  font: 600 0.95rem/1 var(--text); color: var(--bone); border: 1px solid var(--dust); border-radius: 0.3rem; }
+
+/* ---- Loading: nothing under it, so it is its own picture: the map's, drifting slowly, or
+   failing that the lines of a map. */
+#loading { overflow: hidden; background:
+  radial-gradient(120% 90% at 78% 30%, rgba(194, 70, 31, 0.34), transparent 60%),
+  repeating-radial-gradient(circle at 82% 24%, transparent 0 2.6rem, rgba(242, 234, 219, 0.045) 2.6rem 2.7rem),
+  var(--ink); }
+#loading .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  animation: drift 24s ease-out both; }
+@keyframes drift { from { transform: scale(1.02); } to { transform: scale(1.16) translate(-1.5%, -1%); } }
+#loading .scrim-left { background:
+  linear-gradient(90deg, rgba(10, 7, 5, 0.96) 0%, rgba(10, 7, 5, 0.8) 34%, rgba(10, 7, 5, 0.1) 72%),
+  linear-gradient(0deg, rgba(10, 7, 5, 0.85) 0%, rgba(10, 7, 5, 0) 30%); }
+#loading .heading { font-size: 6rem; }
+.facts-line { margin-top: 1rem; font: 600 1.05rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dust); }
+.tread { width: 22rem; height: 0.7rem; margin-top: 2.2rem; overflow: hidden; background: rgba(242, 234, 219, 0.1); }
+.tread i { display: block; height: 100%; width: 200%;
+  background: repeating-linear-gradient(-58deg, var(--ochre) 0 0.5rem, transparent 0.5rem 1rem);
+  animation: roll 0.7s linear infinite; }
+@keyframes roll { to { transform: translateX(-1.18rem); } }
+.tip { margin-top: 2rem; max-width: 34rem; padding-left: 1.1rem; border-left: 0.2rem solid var(--ochre); font-size: 1.15rem; color: var(--bone); }
+.tip b { display: block; margin-bottom: 0.3rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ochre); }

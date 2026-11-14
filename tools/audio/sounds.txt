@@ -1,0 +1,49 @@
+# The game's sounds, each made from a description by tools/audio/generate.py.
+#
+#   NAME  KIND  SECONDS  SEED  DESCRIPTION...
+#
+# KIND is `loop`, a sound that plays round and round with no seam, or `shot`, one that plays
+# once. SEED picks which of the model's many answers to the description is kept: change it to
+# get another take of the same sound. Lines are made in order; one already made is left alone.
+
+# ---- The bush: beds that play all the time, mixed by the weather and the time of day.
+bush_day        loop 28 9  Quiet daytime ambience in an open eucalyptus forest. A light breeze moves through the leaves overhead and a few birds call now and then from far off. A clean, natural field recording with nothing close to the microphone.
+bush_wind       loop 26 5  Strong wind gusting through tall eucalyptus trees. Leaves hiss and rush, branches creak and sway. No birds, no people.
+bush_cicadas    loop 20 2  A dense chorus of cicadas shrilling on a hot summer afternoon in the Australian bush, constant and loud, close.
+creek           loop 22 4  A small shallow creek trickling and burbling over stones, gentle running water, recorded close up. No birds, no wind.
+rain_leaves     loop 26 6  Steady rain falling on forest leaves and wet ground, a soft even patter with drips from the trees. No thunder, no wind.
+rain_cab        loop 20 8  Heavy rain drumming on the metal roof of a parked truck, heard from inside the cab. Constant.
+
+# ---- Tyres: what each wheel is rolling on. Volume and pitch follow its speed.
+tyre_dirt       loop 14 11 Car tyres rolling steadily over a dry hard-packed dirt road with fine gravel, constant speed, recorded close by the wheel. A steady gritty hiss and rumble. No engine sound.
+tyre_gravel     loop 14 12 Car tyres crunching over loose gravel and small stones at a steady speed, pebbles pinging against the underbody, recorded close by the wheel. No engine sound.
+tyre_mud        loop 14 13 Tyres churning slowly through thick wet mud, sticky squelching and sucking, wet slapping against the wheel arch. No engine sound.
+tyre_litter     loop 14 14 Tyres rolling slowly over dry leaves, bark and small twigs on a forest floor, constant crackling and crunching. No engine sound.
+tyre_rock       loop 12 15 A heavy tyre crawling slowly over bare rock, rubber gripping and squeaking on stone with grit grinding under it. No engine sound.
+tyre_water      loop 14 16 A vehicle wading slowly through shallow water, continuous sloshing, splashing and the rush of a wake. No engine sound.
+tyre_spin_dirt  loop 10 17 A tyre spinning fast on loose dry dirt and gravel, scrabbling gritty wheelspin throwing stones, constant. No engine sound.
+tyre_spin_mud   loop 10 18 A tyre spinning fast in wet mud, flinging and spattering mud, a wet whirring slap, constant. No engine sound.
+
+# ---- Things that happen once.
+splash_big      shot 4  21 A heavy vehicle plunging into a shallow creek: one big splash of water, then the spray falling back.
+splash_small    shot 3  22 A wheel dropping into a puddle with a short sharp splash.
+brush_snap      shot 3  23 Dry branches, twigs and brush snapping and crackling as something heavy pushes through a bush.
+sapling_crack   shot 3  24 A thin young tree bending over and cracking as it is pushed flat, with leaves swishing.
+suspension_thud shot 2  25 A heavy dull thud as a truck's suspension bottoms out over a bump, with a short metallic clunk.
+log_thump       shot 2  26 A heavy rubber tyre bumping over a wooden log: a deep hollow wooden thud.
+rock_scrape     shot 3  27 Steel scraping over rock for a moment, a harsh grinding screech of a truck's underside on stone.
+mud_splat       shot 2  28 Wet mud splattering hard against metal panels.
+
+# ---- The engine: a supercharged V8, held at steady revs from an idle to hard at work. The game
+# plays the two nearest the revs it is at, each sped up or slowed to match, and fades between
+# them (apps/viewer/src/sound.rs). Each must be steady: a loop that revs up and down is no use.
+#
+# A loop comes out at whatever revs it comes out at, whatever its words ask for, and the game
+# has to know the revs heard: ENGINE_LAYERS in sound.rs has them, as measured by
+# engine_pitch.py. These four were chosen from several takes for a clear, steady note. After
+# making any of them again with another seed or other words, measure it and set its revs.
+engine_idle     loop 10 41 A big V8 pickup truck engine idling. A steady, low, lumpy burble from the exhaust at a constant slow speed, recorded close behind the truck. No revving, no change in pitch, nothing else.
+engine_low      loop 10 42 A big V8 pickup truck engine held at a steady low speed, about 1500 rpm. A constant deep even rumble from the exhaust, recorded close behind the truck. No change in pitch, nothing else.
+engine_mid      loop 10 45 A supercharged V8 engine held at a steady high 5000 rpm at full throttle. A constant loud hard roar with a supercharger whine over it, no change in pitch. Nothing else.
+engine_high     loop 10 48 A V8 racing engine held at very high revs at full throttle: a continuous high-pitched screaming howl with a supercharger whine over it, constant. The pitch does not rise or fall. Nothing else.
+engine_off      loop 10 46 A big V8 truck engine on the overrun with the throttle shut: engine braking, a steady deep burble with soft pops from the exhaust, constant. Nothing else.

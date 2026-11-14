@@ -235,6 +235,28 @@ pub struct FrameUniform {
     pub sea_level: f32,
     pub moon_disc: Vec3,
     pub _pad2: f32,
+    /// The lamps of whatever is driven: see [`Lamp`]. No lamp when the range is 0.
+    pub lamp_position: Vec3,
+    pub lamp_range: f32,
+    pub lamp_direction: Vec3,
+    pub lamp_spread: f32,
+    pub lamp_intensity: Vec3,
+    pub _pad3: f32,
+}
+
+/// The lamps of whatever is driven, as one beam: a car's headlights. It moves with the car,
+/// and casts no shadows.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lamp {
+    pub position: Vec3,
+    /// The way it points: a unit vector.
+    pub direction: Vec3,
+    /// Half the beam's spread, in radians: it is brightest along its middle and gone here.
+    pub half_angle: f32,
+    /// How far it reaches, in metres.
+    pub range: f32,
+    /// Linear RGB intensity, in candela, as a scene's lights are.
+    pub intensity: Vec3,
 }
 
 /// Sub-pixel offset for frame `index`, from the Halton (2, 3) sequence, in `-0.5..0.5`.

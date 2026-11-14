@@ -1,0 +1,24 @@
+# The game: its maps, and which of them is the hub the others are driven to from
+# (apps/viewer/src/shell.rs). A map whose scene has not been baked is on the signs, and
+# cannot be driven yet.
+hub crossroads
+
+map crossroads assets/hub.solstice The Crossroads
+about crossroads A dirt main road through the high country, with a trailhead for every track.
+kind crossroads Main road
+length crossroads 3.0 km
+
+map wombat assets/outback.solstice Wombat Creek Track
+about wombat A washed-out fire trail through stringybark and manna gum: two creek fords, bog holes, rock steps and ruts cut by a wet winter.
+kind wombat Fire trail
+length wombat 3.5 km
+
+map granite assets/granite.solstice Granite Ridge
+about granite High, steep, stony country. A track of slabs and ledges up and over the ridge, dry underfoot: low range, lockers in, and pick your line.
+kind granite Rock crawl
+length granite 5.0 km
+
+map blackwood assets/blackwood.solstice Blackwood Gully
+about blackwood Low, wet forest along a creek. Sixteen bog holes, deep ruts and washouts between them: keep your momentum and air the tyres down.
+kind blackwood Mud run
+length blackwood 4.5 km

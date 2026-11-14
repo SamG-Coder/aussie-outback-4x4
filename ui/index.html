@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aussie Outback 4x4</title>
+<link rel="stylesheet" href="ui.css">
+
+<!-- The game's pages: one document, a section a screen, shown over the scene. The game says
+     which screen there is and what the instruments read (ui.js, docs/ui.md). -->
+<body data-screen="boot">
+
+<!-- Along the top, over every screen: what is being downloaded, in a browser, where a map
+     comes a part at a time. A line across the page that fills, and what it is of. -->
+<div id="stream" hidden>
+  <i id="stream-bar"></i>
+  <p><span class="dot"></span><b id="stream-what"></b><span id="stream-much"></span></p>
+</div>
+
+<!-- The title: the game's name and its first menu, down the left, the truck behind. -->
+<section class="screen" id="title">
+  <div class="scrim scrim-left"></div>
+  <div class="column">
+    <p class="kicker"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 26 L11 10 L16 18 L20 12 L30 26 Z"/><circle cx="24" cy="7" r="3"/></svg>Victorian High Country</p>
+    <h1 class="wordmark"><span>Aussie</span><span>Outback</span><b>4x4</b></h1>
+    <nav class="menu" data-menu="title">
+      <button data-do="start"><span>Drive</span><small>Take the truck out from the crossroads</small></button>
+      <button data-open="controls"><span>Controls</span><small>Keys, mouse and controller</small></button>
+      <button data-do="quit"><span>Quit</span><small>Back to the desktop</small></button>
+    </nav>
+  </div>
+  <footer class="hints"><span data-hint="accept">Select</span><span class="build">Pre-alpha</span></footer>
+</section>
+
+<!-- Driving: the instruments. -->
+<section class="screen" id="drive">
+  <aside class="panel where" id="where">
+    <p class="kicker" id="where-mode">Free roam</p>
+    <h2 id="where-title"></h2>
+    <dl id="laps" hidden>
+      <dt>Lap</dt><dd id="lap-count">1</dd>
+      <dt>Time</dt><dd id="lap-time" class="big">-:--.---</dd>
+      <dt>Last</dt><dd id="lap-last">-:--.---</dd>
+      <dt>Best</dt><dd id="lap-best">-:--.---</dd>
+    </dl>
+  </aside>
+
+  <aside class="marker" id="marker" hidden>
+    <svg id="marker-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 20 L12 15 L4 20 Z"/></svg>
+    <div><b id="marker-title"></b><span id="marker-distance"></span></div>
+  </aside>
+  <button class="banner" id="banner" hidden>
+    <b id="banner-title"></b>
+    <span><kbd id="banner-key">Enter</kbd><span id="banner-words">Hold to enter, or click here</span></span>
+    <i id="banner-hold"></i>
+  </button>
+
+  <aside class="tilt" id="tilt">
+    <figure>
+      <div class="dial"><svg id="pitch-truck" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path d="M-34 6 L-34 -8 L-10 -8 L-4 -20 L16 -20 L22 -8 L34 -6 L34 6 Z"/>
+        <circle cx="-20" cy="9" r="9"/><circle cx="20" cy="9" r="9"/></svg><i></i></div>
+      <figcaption>Pitch <b id="pitch">0°</b></figcaption>
+    </figure>
+    <figure>
+      <div class="dial"><svg id="roll-truck" viewBox="-50 -50 100 100" aria-hidden="true">
+        <path d="M-20 4 L-20 -10 L-14 -24 L14 -24 L20 -10 L20 4 Z"/>
+        <rect x="-28" y="-2" width="10" height="20" rx="3"/><rect x="18" y="-2" width="10" height="20" rx="3"/></svg><i></i></div>
+      <figcaption>Roll <b id="roll">0°</b></figcaption>
+    </figure>
+  </aside>
+
+  <aside class="dash" id="dash">
+    <div class="lamps">
+      <span id="lamp-abs">ABS</span><span id="lamp-tc">TC</span><span id="lamp-hdc">HDC</span>
+    </div>
+    <div class="readout">
+      <div class="gear" id="gear">N</div>
+      <div class="speed"><b id="speed">0</b><span>km/h</span></div>
+    </div>
+    <div class="revs" id="revs"></div>
+    <div class="driveline" id="driveline">
+      <span class="range"><i data-range="2H">2H</i><i data-range="4H">4H</i><i data-range="4L">4L</i></span>
+      <span class="lock" id="lock-front">F diff</span>
+      <span class="lock" id="lock-rear">R diff</span>
+      <span class="lock" id="tyres">Tyres down</span>
+    </div>
+  </aside>
+</section>
+
+<!-- Paused. -->
+<section class="screen" id="pause">
+  <div class="scrim scrim-full"></div>
+  <div class="column">
+    <p class="kicker" id="pause-map"></p>
+    <h1 class="heading">Paused</h1>
+    <nav class="menu" data-menu="pause">
+      <button data-do="resume"><span>Resume</span></button>
+      <button data-do="restart"><span>Restart</span><small>Back to where this map starts</small></button>
+      <button data-do="hub" id="pause-hub"><span>Back to the crossroads</span><small>Leave this map</small></button>
+      <button data-open="controls"><span>Controls</span></button>
+      <button data-do="title"><span>Quit to title</span></button>
+    </nav>
+  </div>
+  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Resume</span></footer>
+</section>
+
+<!-- Stopped at a trailhead: its map, and what to drive it for. -->
+<section class="screen" id="offer">
+  <div class="scrim scrim-full"></div>
+  <article class="card">
+    <img class="art" id="offer-art" alt="">
+    <p class="kicker">Trailhead</p>
+    <h1 class="heading" id="offer-title"></h1>
+    <p class="about" id="offer-about"></p>
+    <dl class="facts">
+      <div><dt>Track</dt><dd id="offer-kind">-</dd></div>
+      <div><dt>Length</dt><dd id="offer-length">-</dd></div>
+      <div><dt>Best lap</dt><dd id="offer-best">-:--.---</dd></div>
+    </dl>
+    <div id="offer-built">
+      <div class="choice"><span>Time</span><nav class="chips" data-row id="offer-times"></nav></div>
+      <div class="choice"><span>Weather</span><nav class="chips" data-row id="offer-weathers"></nav></div>
+      <nav class="tiles" data-row data-first>
+        <button data-do="roam"><span>Free roam</span><small>No clock. The track, and the bush round it, at your own pace.</small></button>
+        <button data-do="laps"><span>Timed laps</span><small>From the start line, against your best.</small></button>
+      </nav>
+    </div>
+    <p class="unbuilt" id="offer-unbuilt" hidden>This track is still being cut. Check back soon.</p>
+    <nav class="menu small" data-menu="offer-leave">
+      <button data-do="leave"><span>Drive on</span></button>
+    </nav>
+  </article>
+  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Drive on</span></footer>
+</section>
+
+<!-- Keys and buttons: opened from the title and from the pause menu. -->
+<section class="screen" id="controls">
+  <div class="scrim scrim-full"></div>
+  <article class="card wide">
+    <p class="kicker">How to drive it</p>
+    <h1 class="heading">Controls</h1>
+    <table>
+      <thead><tr><th></th><th>Keyboard and mouse</th><th>Controller</th></tr></thead>
+      <tbody>
+        <tr><td>Throttle, brake</td><td><kbd>W</kbd> <kbd>S</kbd></td><td><kbd>R2</kbd> <kbd>L2</kbd></td></tr>
+        <tr><td>Steer</td><td><kbd>A</kbd> <kbd>D</kbd></td><td>Left stick</td></tr>
+        <tr><td>Handbrake</td><td><kbd>Space</kbd></td><td><kbd>○</kbd></td></tr>
+        <tr><td>Gear up, down</td><td><kbd>E</kbd> <kbd>Q</kbd></td><td><kbd>R1</kbd> <kbd>L1</kbd></td></tr>
+        <tr><td>2H, 4H, 4L</td><td><kbd>T</kbd></td><td><kbd>□</kbd></td></tr>
+        <tr><td>Diff locks</td><td><kbd>G</kbd></td><td><kbd>✕</kbd></td></tr>
+        <tr><td>Air the tyres down, up</td><td><kbd>Y</kbd></td><td>D-pad up</td></tr>
+        <tr><td>Look round</td><td>Click, then the mouse</td><td>Right stick</td></tr>
+        <tr><td>Change view</td><td><kbd>C</kbd></td><td><kbd>Share</kbd></td></tr>
+        <tr><td>Back on the track</td><td><kbd>R</kbd></td><td><kbd>△</kbd></td></tr>
+        <tr><td>Pause</td><td><kbd>Esc</kbd></td><td><kbd>Options</kbd></td></tr>
+      </tbody>
+    </table>
+    <nav class="menu small" data-menu="controls">
+      <button data-close="controls"><span>Back</span></button>
+    </nav>
+  </article>
+  <footer class="hints"><span data-hint="back">Back</span></footer>
+</section>
+
+<!-- A map being read. -->
+<section class="screen" id="loading">
+  <img class="art" id="loading-art" alt="">
+  <div class="scrim scrim-left"></div>
+  <div class="column">
+    <p class="kicker">Heading out to</p>
+    <h1 class="heading" id="loading-title"></h1>
+    <p class="facts-line" id="loading-facts"></p>
+    <div class="tread"><i></i></div>
+    <p class="tip"><b>Bush sense</b><span id="loading-tip"></span></p>
+  </div>
+  <footer class="hints"><span class="build">Loading</span></footer>
+</section>
+
+<script src="ui.js"></script>
+</body>
+</html>
