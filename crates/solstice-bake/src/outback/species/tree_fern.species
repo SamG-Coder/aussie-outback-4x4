@@ -1,0 +1,9 @@
+# A soft tree fern (Dicksonia antarctica), of the wet gullies: a thick fibrous trunk and a
+# crown of fronds two metres long that arch out from its top and bow over.
+height 2.3
+trunk radius=0.17 flare=0.08 gnarl=0.05
+crown even
+bark stringybark
+# Stubs at the top of the trunk; each frond is a spray that springs from one.
+level per_metre=42 span=0.86..1 angle=14..62 length=0.07 radius=0.2 gnarl=0.05
+leaves fern_fronds per_metre=24 length=1.5..2.2 width=0.15 variants=0.35,0.35,0.22,0.08 normals=0.4 lean=1.0

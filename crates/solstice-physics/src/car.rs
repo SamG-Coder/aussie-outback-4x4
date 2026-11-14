@@ -130,8 +130,10 @@ impl Physics {
                 ColliderBuilder::round_cuboid(half.x, half.y, half.z, ROUNDING)
                     .translation(to_vector(spec.body_at))
                     .density(0.0)
-                    .friction(0.35)
-                    .restitution(0.15)
+                    // Two tonnes and more of truck lands and stays; a racing car's shell
+                    // skips off what it touches.
+                    .friction(if spec.mass > 2000.0 { 0.55 } else { 0.35 })
+                    .restitution(if spec.mass > 2000.0 { 0.02 } else { 0.15 })
                     .user_data(crate::entity_data(entity)),
                 handle,
                 &mut self.bodies,

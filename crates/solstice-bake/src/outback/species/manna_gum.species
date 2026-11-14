@@ -1,0 +1,15 @@
+# A manna gum (Eucalyptus viminalis), the tall white gum of Victoria's creeks and gullies: a
+# straight, smooth trunk clear of branches for more than half its height, then a few great
+# limbs that climb steeply and an open crown, its leaves hanging in clumps at the shoots' ends.
+height 27
+trunk radius=0.46 flare=0.5 gnarl=0.03
+# Widest two thirds of the way up its crown: an umbrella, not a ball.
+crown profile 0.5 0.75 1 0.95 0.7 0.4
+bark gum_bark
+# The limbs: few, steep, and long.
+level per_metre=0.8 span=0.52..0.97 angle=50..22 length=0.4 radius=0.5 upturn=0.2 droop=0.03 gnarl=0.2
+level per_metre=1.2 span=0.3..0.98 angle=50..34 length=0.5 taper=0.4 radius=0.52 upturn=0.14 droop=0.1 gnarl=0.35
+level per_metre=3.2 span=0.3..1 angle=50 length=0.42 radius=0.55 upturn=0.02 droop=0.3 gnarl=0.5
+# The leafy twigs hang, in clumps at the ends of the branchlets.
+level per_metre=6.5 span=0.25..1 angle=52 length=0.42 radius=0.6 droop=0.8 gnarl=0.5
+leaves gum_leaves per_metre=62 length=0.13..0.21 width=0.2 variants=0.4,0.32,0.2,0.08 normals=0.45 lean=1.5

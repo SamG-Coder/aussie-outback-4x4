@@ -940,6 +940,12 @@ impl Renderer {
         self.clouds.weather()
     }
 
+    /// What the rain has done so far: how hard it falls now, how wet it has left what is open
+    /// to the sky, and how full the puddles are. For a game whose ground the rain changes.
+    pub fn rain_state(&self) -> crate::rain::RainState {
+        self.rain.state
+    }
+
     /// Whether this scene has cut-out materials, and so the passes that draw them.
     pub fn draws_masked(&self) -> bool {
         self.rasterizer.draws_masked()

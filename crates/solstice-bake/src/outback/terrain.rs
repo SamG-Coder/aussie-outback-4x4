@@ -1,0 +1,1852 @@
+//! The lie of the land: hills, the gullies water has cut in them, a creek with its waterholes,
+//! and a four-wheel-drive track found across it all.
+//!
+//! * **The hills** are noise at several scales about a valley that crosses the whole square,
+//!   so that there is always a creek, and it always runs right through.
+//! * **Water shapes them.** Every hollow is filled until it spills, each point's rain is sent
+//!   down the steepest way, and where enough gathers the land is cut: a spoonful of catchment
+//!   makes a dip, a hillside's makes a gully, and the valley's makes the creek. How much has
+//!   gathered also says where the ground is damp, which is where the mud is, and what grows.
+//! * **Waterholes** are basins cut in the creek's bed, as a creek in summer is a chain of pools.
+//!   A basin's rim is raised where the bed below would otherwise lie under its water.
+//! * **The track** is found, not drawn: between a few places worth driving to (two fords, the
+//!   top of each side's hill, the dampest flat) it takes the easiest line, as a track made by
+//!   use does, climbing spurs and following contours. Then it is worn into the land, and
+//!   broken by water, as every bush track is:
+//!   - two wheel ruts with a strip of litter and grass between, tilted with the hillside it
+//!     crosses rather than graded level, and rising and falling along its length;
+//!   - on its hills, the rill that rain cuts down it: a gutter a wheel can drop into, which
+//!     snakes from one side of the track to the other and bares the stones under the clay;
+//!   - washouts where a gully crosses it and has taken the track away with it;
+//!   - holes dug by spinning wheels, left and right by turns, which cross a car's axles;
+//!   - drainage humps, bog holes in the wet flats, and ledges where it climbs over rock.
+
+use glam::{Vec2, Vec3};
+use rayon::prelude::*;
+use rustc_hash::FxHashMap;
+use solstice_procgen::noise::{fbm, ridged};
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
+
+/// Metres from the square's middle to the edge of the land the design reaches: beyond what
+/// is driven on, so that gullies run out of it rather than ending at a fence.
+const MARGIN: f32 = 80.0;
+/// How far inside the driven square the track and everything on it keeps from the edge.
+const KEEP_IN: f32 = 45.0;
+/// Half the width of the track's tread, and how far out its cut and fill reach.
+pub const TREAD: f32 = 1.75;
+const BATTER: f32 = 5.5;
+/// Metres between the track's points.
+const STEP: f32 = 1.5;
+/// Metres between the wheel ruts' middles: a four-wheel drive's track.
+const RUTS: f32 = 1.74;
+
+pub fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn gauss(x: f32, width: f32) -> f32 {
+    (-(x / width) * (x / width)).exp()
+}
+
+/// Values at the points of a square grid centred on the origin.
+#[derive(Clone)]
+pub struct Grid {
+    /// Squares a side: there is one more point than that.
+    pub cells: usize,
+    pub origin: f32,
+    pub spacing: f32,
+    pub values: Vec<f32>,
+}
+
+impl Grid {
+    pub fn new(half: f32, spacing: f32) -> Self {
+        let cells = (2.0 * half / spacing).round() as usize;
+        Self {
+            cells,
+            origin: -half,
+            spacing,
+            values: vec![0.0; (cells + 1) * (cells + 1)],
+        }
+    }
+
+    pub fn stride(&self) -> usize {
+        self.cells + 1
+    }
+
+    pub fn place(&self, index: usize) -> (f32, f32) {
+        let stride = self.stride();
+        (
+            self.origin + (index % stride) as f32 * self.spacing,
+            self.origin + (index / stride) as f32 * self.spacing,
+        )
+    }
+
+    /// The point nearest a place, kept on the grid.
+    pub fn nearest(&self, x: f32, z: f32) -> usize {
+        let last = self.cells as f32;
+        let column = ((x - self.origin) / self.spacing).round().clamp(0.0, last) as usize;
+        let row = ((z - self.origin) / self.spacing).round().clamp(0.0, last) as usize;
+        row * self.stride() + column
+    }
+
+    /// The value at a place, between the grid's points.
+    pub fn at(&self, x: f32, z: f32) -> f32 {
+        let limit = self.cells as f32 - 1.0e-3;
+        let u = ((x - self.origin) / self.spacing).clamp(0.0, limit);
+        let v = ((z - self.origin) / self.spacing).clamp(0.0, limit);
+        let (column, row) = (u as usize, v as usize);
+        let (fu, fv) = (u - column as f32, v - row as f32);
+        let stride = self.stride();
+        let value = |column: usize, row: usize| self.values[row * stride + column];
+        let near = value(column, row) + (value(column + 1, row) - value(column, row)) * fu;
+        let far =
+            value(column, row + 1) + (value(column + 1, row + 1) - value(column, row + 1)) * fu;
+        near + (far - near) * fv
+    }
+
+    /// How steep the values are at a place: their rise over their run.
+    pub fn slope(&self, x: f32, z: f32) -> f32 {
+        let step = self.spacing.max(1.5);
+        let dx = (self.at(x + step, z) - self.at(x - step, z)) / (2.0 * step);
+        let dz = (self.at(x, z + step) - self.at(x, z - step)) / (2.0 * step);
+        dx.hypot(dz)
+    }
+
+    /// Whether a place is on the grid.
+    pub fn holds(&self, x: f32, z: f32) -> bool {
+        x.abs() <= -self.origin && z.abs() <= -self.origin
+    }
+}
+
+/// Where the valley's middle runs: its z for an x. It wanders, as a creek's valley does.
+fn valley_axis(x: f32) -> f32 {
+    0.22 * x + 105.0 * (x / 240.0 + 0.9).sin() + 38.0 * (x / 95.0 + 2.1).sin() - 20.0
+}
+
+/// The land before any water has run on it: its height at a place, in metres.
+pub fn natural(x: f32, z: f32) -> f32 {
+    let p = Vec3::new(x, 0.0, z);
+    // The valley: its floor falls to the east, and its sides rise to ridges either side.
+    let across = (z - valley_axis(x)) * 0.94;
+    let valley = -30.0 * gauss(across, 250.0) - 5.0 * gauss(across, 60.0);
+    let fall = -0.017 * x;
+    let broad = fbm(p * 0.0019, 4, 901) * 34.0;
+    let hills = fbm(p * 0.0058, 4, 902) * 12.0;
+    // Spurs running down off the ridges, sharp along their crests.
+    let spurs = (ridged(p * 0.0075, 3, 903) - 0.5) * 9.0;
+    let knolls = fbm(p * 0.02, 3, 904) * 2.0;
+    // Far off, ranges stand all round, so that the land has no edge to see.
+    let far = x.hypot(z);
+    let around = Vec3::new(x, 0.0, z) / far.max(1.0);
+    let ranges = smoothstep(620.0, 1500.0, far).powi(2)
+        * 150.0
+        * (0.75 + 0.5 * fbm(around * 2.3 + Vec3::new(0.0, 7.0, 0.0), 3, 905));
+    90.0 + valley + fall + broad + hills + spurs + knolls + ranges
+}
+
+/// The small shapes of the ground between the design's points: hummocks, and lumps.
+fn detail(x: f32, z: f32) -> f32 {
+    let p = Vec3::new(x, 0.0, z);
+    fbm(p * 0.12, 3, 911) * 0.24 + fbm(p * 0.47, 2, 912) * 0.05
+}
+
+/// A waterhole in the creek.
+#[derive(Clone, Copy, Debug)]
+pub struct Pool {
+    pub centre: Vec2,
+    /// The way the creek runs through it: a unit vector.
+    pub along: Vec2,
+    /// Half its length along the creek, and half its width across.
+    pub radii: Vec2,
+    /// The water's height, and its bed's at the deepest.
+    pub level: f32,
+    pub bed: f32,
+}
+
+impl Pool {
+    /// How far inside its basin a place is: 1 at the middle, 0 at the rim, below it outside.
+    pub fn inside(&self, x: f32, z: f32) -> f32 {
+        let d = Vec2::new(x, z) - self.centre;
+        let (u, v) = (d.dot(self.along), d.dot(self.along.perp()));
+        1.0 - ((u / self.radii.x).powi(2) + (v / self.radii.y).powi(2))
+    }
+
+    /// The rectangle its water is drawn over: opposite corners.
+    pub fn rectangle(&self) -> (Vec2, Vec2) {
+        let reach = Vec2::new(
+            (self.along.x * self.radii.x).hypot(self.along.y * self.radii.y),
+            (self.along.y * self.radii.x).hypot(self.along.x * self.radii.y),
+        ) + Vec2::splat(1.5);
+        (self.centre - reach, self.centre + reach)
+    }
+}
+
+/// A point of the track's middle line.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TrailPoint {
+    pub at: Vec2,
+    /// The track's height here, level across its tread.
+    pub height: f32,
+    /// The way the track runs: a unit vector.
+    pub forward: Vec2,
+    /// How far round the loop, in metres.
+    pub along: f32,
+    /// Its rise over its run, the way it runs.
+    pub grade: f32,
+    /// How deep its wheel ruts are, in metres.
+    pub rut: f32,
+    /// How much of it is mud, from 0 to 1, and how much rock.
+    pub mud: f32,
+    pub rock: f32,
+    /// Whether it is crossing a waterhole, from 0 to 1: there the creek's bed is the track.
+    pub ford: f32,
+    /// How much rain has cut it, from 0 to 1: how deep the rill down it is.
+    pub erosion: f32,
+    /// How it tilts across: its rise for each metre to the left, with the hillside it is on.
+    pub tilt: f32,
+    /// How bare it is between its wheel ruts, from 0, grown over, to 1.
+    pub wear: f32,
+}
+
+/// A hump across the track that turns water off it, and a bog hole in it.
+#[derive(Clone, Copy, Debug)]
+pub struct Hole {
+    pub along: f32,
+    pub length: f32,
+    pub depth: f32,
+}
+
+/// Where a place is, relative to the track.
+#[derive(Clone, Copy, Debug)]
+pub struct Near {
+    /// The point the nearest stretch starts at, and how far along the stretch.
+    pub index: usize,
+    pub t: f32,
+    /// How far round the loop, and how far to the left of the middle line.
+    pub along: f32,
+    pub offset: f32,
+}
+
+/// The track: a loop.
+pub struct Trail {
+    pub points: Vec<TrailPoint>,
+    pub length: f32,
+    /// Drainage humps, by how far round the loop each is, and which way the hill falls there.
+    pub bars: Vec<(f32, f32)>,
+    pub holes: Vec<Hole>,
+    /// Washouts, where a gully has cut across the track: how far round, and how deep.
+    pub washes: Vec<(f32, f32)>,
+    /// Holes dug by wheels, on one side or the other: how far round, and which side (1 is
+    /// the left).
+    pub moguls: Vec<(f32, f32)>,
+    /// Which stretches pass near each square of ground, to find the nearest quickly.
+    squares: FxHashMap<(i32, i32), Vec<u32>>,
+}
+
+/// The size of the squares the track's stretches are sorted into.
+const SQUARE: f32 = 10.0;
+
+impl Trail {
+    fn index(&mut self) {
+        self.squares.clear();
+        for index in 0..self.points.len() {
+            let a = self.points[index].at;
+            let key = ((a.x / SQUARE).floor() as i32, (a.y / SQUARE).floor() as i32);
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    self.squares
+                        .entry((key.0 + dx, key.1 + dz))
+                        .or_default()
+                        .push(index as u32);
+                }
+            }
+        }
+    }
+
+    /// The nearest of the track to a place, if it is within about ten metres.
+    pub fn near(&self, x: f32, z: f32) -> Option<Near> {
+        let key = ((x / SQUARE).floor() as i32, (z / SQUARE).floor() as i32);
+        let stretches = self.squares.get(&key)?;
+        let p = Vec2::new(x, z);
+        let count = self.points.len();
+        let mut best: Option<(f32, Near)> = None;
+        for &index in stretches {
+            let index = index as usize;
+            let (a, b) = (&self.points[index], &self.points[(index + 1) % count]);
+            let run = b.at - a.at;
+            let t = ((p - a.at).dot(run) / run.length_squared().max(1.0e-6)).clamp(0.0, 1.0);
+            let on = a.at + run * t;
+            let distance = p.distance_squared(on);
+            if best.is_none_or(|(least, _)| distance < least) {
+                let forward = (a.forward + (b.forward - a.forward) * t).normalize_or(a.forward);
+                // To the left of the way it runs, seen from above with +x east and +z south.
+                let left = Vec2::new(forward.y, -forward.x);
+                best = Some((
+                    distance,
+                    Near {
+                        index,
+                        t,
+                        along: a.along + run.length() * t,
+                        offset: (p - on).dot(left),
+                    },
+                ));
+            }
+        }
+        best.map(|(_, near)| near)
+    }
+
+    /// A value of the track's points at a place along a stretch.
+    fn mix(&self, near: &Near, value: impl Fn(&TrailPoint) -> f32) -> f32 {
+        let (a, b) = (
+            &self.points[near.index],
+            &self.points[(near.index + 1) % self.points.len()],
+        );
+        value(a) + (value(b) - value(a)) * near.t
+    }
+
+    /// How far round the loop from one place along it to another, the short way: signed.
+    fn apart(&self, from: f32, to: f32) -> f32 {
+        let d = (to - from).rem_euclid(self.length);
+        if d > self.length * 0.5 {
+            d - self.length
+        } else {
+            d
+        }
+    }
+}
+
+/// What the ground is covered with at a place: shares of each, the rest leaf litter.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Cover {
+    /// The track's clay.
+    pub clay: f32,
+    pub mud: f32,
+    /// Dry grass, in the clearings.
+    pub grass: f32,
+    pub rock: f32,
+    /// How deep a bog hole is here, as a share of its deepest, and whether it is under a
+    /// waterhole's water.
+    pub bog: f32,
+    pub water: bool,
+    /// How much of the track's tread this is.
+    pub tread: f32,
+    /// How much this is the bed of a rill or a washout: stones in wet silt.
+    pub scour: f32,
+}
+
+/// The whole design.
+pub struct Plan {
+    /// Half the width of the square that is driven on.
+    pub half: f32,
+    /// The land once water has cut it, with the waterholes and the camp.
+    land: Grid,
+    /// How damp the ground is, from 0 to 1: how much water gathers there.
+    wet: Grid,
+    pub pools: Vec<Pool>,
+    pub trail: Trail,
+    /// Where the track starts: the camp, a level clearing.
+    pub camp: Vec2,
+    pub camp_height: f32,
+    /// The creek's line, from its mouth upstream.
+    pub creek: Vec<Vec2>,
+}
+
+/// How far round a level clearing the camp is.
+const CAMP: f32 = 16.0;
+
+impl Plan {
+    /// Designs a square of bush `size` metres across.
+    pub fn new(size: f32) -> Self {
+        let half = size * 0.5;
+        let reach = half + MARGIN;
+        println!("  the hills...");
+        let mut land = Grid::new(reach, 1.0);
+        let count = land.values.len();
+        let heights: Vec<f32> = (0..count)
+            .into_par_iter()
+            .map(|index| {
+                let (x, z) = land.place(index);
+                natural(x, z)
+            })
+            .collect();
+        land.values = heights;
+
+        println!("  running water over them...");
+        // Water is routed over the land with the ground's own unevenness on it: on a slope
+        // that was perfectly even it would run ruler-straight along the grid.
+        let mut uneven = land.clone();
+        uneven.values = (0..count)
+            .into_par_iter()
+            .map(|index| {
+                let (x, z) = land.place(index);
+                let p = Vec3::new(x, 0.0, z);
+                land.values[index] + fbm(p * 0.045, 3, 921) * 1.1 + fbm(p * 0.14, 2, 922) * 0.3
+            })
+            .collect();
+        let flow = Flow::new(&uneven);
+        let cut = flow.cut(&land);
+        // Towards the design's edge the land goes back to its own shape, which is all there is
+        // beyond it.
+        let stride = land.stride();
+        for index in 0..count {
+            let (x, z) = land.place(index);
+            let edge = reach - x.abs().max(z.abs());
+            land.values[index] -= cut[index] * smoothstep(0.0, 40.0, edge);
+        }
+        let mut wet = Grid::new(reach, 1.0);
+        wet.values = cut.iter().map(|&depth| (depth / 2.6).min(1.0)).collect();
+
+        // The creek: from where most water leaves, upstream by the greater branch.
+        let creek_cells = flow.main_stem(40_000.0);
+        let creek: Vec<Vec2> = creek_cells
+            .iter()
+            .map(|&index| {
+                let (x, z) = land.place(index);
+                Vec2::new(x, z)
+            })
+            .collect();
+        println!("    the creek runs {} m", creek.len());
+
+        // Waterholes along it, well apart, where it is inside the square.
+        let mut pools: Vec<Pool> = Vec::new();
+        let inside = half - 85.0;
+        let mut since = 1.0e9_f32;
+        for k in 12..creek.len().saturating_sub(12) {
+            since += creek[k].distance(creek[k - 1]);
+            let here = creek[k];
+            // As many as a scene's still water has room for: a creek in summer is a chain of
+            // long pools with bars of stone and sand between.
+            if here.x.abs() > inside || here.y.abs() > inside || since < 105.0 || pools.len() == 8 {
+                continue;
+            }
+            // Upstream is further along the list: the creek runs the other way.
+            let along = (creek[k - 10] - creek[k + 10]).normalize_or(Vec2::X);
+            let floor = land.at(here.x, here.y);
+            let long = 13.5 + 4.5 * fbm(Vec3::new(here.x * 0.05, 3.0, here.y * 0.05), 2, 931);
+            pools.push(Pool {
+                centre: here,
+                along,
+                radii: Vec2::new(long, long * 0.5),
+                level: floor - 0.1,
+                bed: floor - 0.8,
+            });
+            since = 0.0;
+        }
+        // From the west, upstream, to the east.
+        pools.sort_by(|a, b| a.centre.x.total_cmp(&b.centre.x));
+        for pool in &pools {
+            let (low, high) = pool.rectangle();
+            let (first, last) = (land.nearest(low.x, low.y), land.nearest(high.x, high.y));
+            let (c0, r0) = (first % stride, first / stride);
+            let (c1, r1) = (last % stride, last / stride);
+            for row in r0.saturating_sub(24)..=(r1 + 24).min(land.cells) {
+                for column in c0.saturating_sub(24)..=(c1 + 24).min(land.cells) {
+                    let index = row * stride + column;
+                    let (x, z) = land.place(index);
+                    let inside = pool.inside(x, z);
+                    let d = (Vec2::new(x, z) - pool.centre).abs();
+                    let reach = (high - low) * 0.5;
+                    // How far inside the rectangle the water is drawn over, in metres.
+                    let within = (reach.x - d.x).min(reach.y - d.y);
+                    let height = &mut land.values[index];
+                    if inside > 0.0 {
+                        // The basin: a bowl, steeper at its rim than in its middle.
+                        let bowl = pool.level + 0.1 - (0.9 * inside.powf(0.8));
+                        *height = height.min(bowl);
+                    } else {
+                        // Its banks: no lower than the water, wherever the water is drawn,
+                        // and sloping back to the land at one in three, not standing as a cut.
+                        let rim = pool.level + 0.14 + 0.25 * smoothstep(0.0, -0.6, inside);
+                        let held = smoothstep(-3.0, 0.0, within);
+                        *height = *height + (rim.max(*height) - *height) * held;
+                        // Close by the water, that is; a way back the land is its own again.
+                        let out = ((1.0 - inside).sqrt() - 1.0) * pool.radii.y;
+                        let sloped = height.min(pool.level + 0.24 + out * 0.34);
+                        *height = sloped + (*height - sloped) * smoothstep(3.0, 11.0, out);
+                    }
+                }
+            }
+        }
+        println!("    {} waterholes", pools.len());
+
+        let mut plan = Self {
+            half,
+            land,
+            wet,
+            pools,
+            trail: Trail {
+                points: Vec::new(),
+                length: 0.0,
+                bars: Vec::new(),
+                holes: Vec::new(),
+                washes: Vec::new(),
+                moguls: Vec::new(),
+                squares: FxHashMap::default(),
+            },
+            camp: Vec2::ZERO,
+            camp_height: 0.0,
+            creek,
+        };
+        println!("  finding the track...");
+        plan.route();
+        plan
+    }
+
+    /// The land's height at a place before the track is worn into it.
+    fn untracked(&self, x: f32, z: f32) -> f32 {
+        if self.land.holds(x, z) {
+            self.land.at(x, z)
+        } else {
+            natural(x, z)
+        }
+    }
+
+    pub fn wet(&self, x: f32, z: f32) -> f32 {
+        if self.wet.holds(x, z) {
+            self.wet.at(x, z)
+        } else {
+            0.0
+        }
+    }
+
+    /// How steep the land is at a place, without its small shapes.
+    pub fn slope(&self, x: f32, z: f32) -> f32 {
+        let step = 1.5;
+        let dx = (self.untracked(x + step, z) - self.untracked(x - step, z)) / (2.0 * step);
+        let dz = (self.untracked(x, z + step) - self.untracked(x, z - step)) / (2.0 * step);
+        dx.hypot(dz)
+    }
+
+    /// The waterhole a place is in, if any, and how far inside.
+    fn pool_at(&self, x: f32, z: f32) -> Option<(&Pool, f32)> {
+        self.pools
+            .iter()
+            .map(|pool| (pool, pool.inside(x, z)))
+            .find(|(_, inside)| *inside > -0.35)
+    }
+
+    /// How much of open, grassy ground a place is, from 0, under trees, to 1.
+    pub fn open(&self, x: f32, z: f32) -> f32 {
+        let p = Vec3::new(x, 0.0, z);
+        let glades = smoothstep(0.2, 0.42, fbm(p * 0.0075, 3, 941));
+        let camp = 1.0 - smoothstep(CAMP * 0.8, CAMP * 1.7, Vec2::new(x, z).distance(self.camp));
+        glades.max(camp)
+    }
+
+    /// How much of bare rock a place off the track is.
+    fn outcrop(&self, x: f32, z: f32) -> f32 {
+        let p = Vec3::new(x, 0.0, z);
+        let stone = fbm(p * 0.016, 3, 951) + 0.5 * fbm(p * 0.07, 2, 952);
+        let dry = 1.0 - self.wet(x, z);
+        let steep = smoothstep(0.42, 0.7, self.slope(x, z));
+        (smoothstep(0.6, 0.78, stone * dry) + steep).min(1.0)
+    }
+
+    /// The ground's height at a place, with the track worn into it.
+    pub fn height(&self, x: f32, z: f32) -> f32 {
+        let land = self.untracked(x, z);
+        let lumps = detail(x, z);
+        let Some(near) = self.trail.near(x, z) else {
+            return land + lumps * self.lumpiness(x, z);
+        };
+        let trail = &self.trail;
+        let ford = trail.mix(&near, |p| p.ford);
+        let d = near.offset;
+        let s = near.along;
+        // Where a gully has washed the track out, its channel is cut through the bench.
+        let wash = self.wash(s);
+        // The bench: cut across the hillside but still tilted with it, eased back to the land
+        // over its cut and fill, and rising and falling along its length as nothing graded does.
+        let held = (1.0 - smoothstep(TREAD, BATTER, d.abs())) * (1.0 - ford);
+        let swell = 0.1 * fbm(Vec3::new(s * 0.1, 0.0, 9.0), 2, 966)
+            + 0.05 * fbm(Vec3::new(s * 0.33, 0.0, 9.0), 1, 967);
+        let level = trail.mix(&near, |p| p.height)
+            + d.clamp(-TREAD, TREAD) * trail.mix(&near, |p| p.tilt)
+            + swell;
+        let mut height = land + (level - land) * held + lumps * (1.0 - held) * self.lumpiness(x, z);
+        let tread = 1.0 - smoothstep(TREAD - 0.35, TREAD + 0.55, d.abs());
+        let reach = 1.0 - smoothstep(TREAD + 0.6, BATTER * 0.85, d.abs());
+        if reach <= 0.0 && held <= 0.0 {
+            return height;
+        }
+        let p = Vec3::new(x, 0.0, z);
+        let (rut, mud, rock, erosion) = (
+            trail.mix(&near, |p| p.rut),
+            trail.mix(&near, |p| p.mud),
+            trail.mix(&near, |p| p.rock),
+            trail.mix(&near, |p| p.erosion),
+        );
+        let dry = 1.0 - ford;
+        // The wheel ruts wander a little within the tread, as each driver picks a line.
+        let line = d - self.wander(s);
+        let wheels = gauss(line - RUTS * 0.5, 0.2) + gauss(line + RUTS * 0.5, 0.2);
+        let crown = gauss(line, 0.42);
+        height += (-rut * wheels + 0.35 * rut * crown) * dry;
+        // Spoil thrown to the edges, and the tread's own roughness: stones and hoof-sized dips.
+        height += 0.06 * gauss(d.abs() - (TREAD + 0.2), 0.45) * dry;
+        height += (fbm(p * 0.8, 2, 962) * 0.03 + fbm(p * 2.6, 2, 963) * 0.009) * tread;
+        // Hollows that hold a puddle, on the flatter stretches.
+        let flat = 1.0 - smoothstep(0.05, 0.14, trail.mix(&near, |p| p.grade.abs()));
+        let hollow = (fbm(p * 0.33, 2, 964) - 0.16).max(0.0);
+        height -= hollow * 0.36 * tread * flat * dry * (0.4 + 0.6 * mud);
+
+        // The rill: rain runs down a hill's track and cuts a gutter in it, which snakes from
+        // one wheel rut to the other and back. Its sides crumble, and stones stand in its bed.
+        if erosion > 0.02 {
+            let (gutter, bed) = self.rill(s, d, erosion);
+            let stones = (fbm(p * 1.1, 2, 968) - 0.05).max(0.0) * 0.16;
+            height += (-gutter + stones * bed) * dry;
+        }
+        // A washout: the gully's own channel, straight through the track, with a rough bed.
+        if wash.0 > 0.0 {
+            let rubble = fbm(p * 0.7, 2, 969) * 0.07;
+            height += (-wash.0 + rubble * wash.1) * reach * dry;
+        }
+        // Holes dug by wheels that spun, left and right by turns: with one wheel in a hole the
+        // one across the axle from it hangs in the air.
+        for &(at, side) in &trail.moguls {
+            let along = trail.apart(at, s);
+            if along.abs() < 3.5 {
+                let hole = gauss(along, 0.95) * gauss(line - side * RUTS * 0.5, 0.5);
+                let heap = gauss(along - 1.9, 0.8) * gauss(line - side * RUTS * 0.5, 0.55);
+                height += (-0.32 * hole + 0.1 * heap) * dry;
+            }
+        }
+        // Drainage humps across the hills: a mound, with a dip above it where water gathers
+        // and is turned off the track.
+        for &(at, uphill) in &trail.bars {
+            let along = trail.apart(at, s);
+            if along.abs() < 7.0 {
+                height +=
+                    (0.4 * gauss(along, 1.4) - 0.14 * gauss(along - uphill * 2.7, 1.2)) * reach;
+            }
+        }
+        // Bog holes: a bowl the width of the tread, deepest under the wheels.
+        height -= self.bog(s, line) * dry;
+        // Ledges of rock: the track climbs them as steps, each a little askew.
+        if rock > 0.01 {
+            const LEDGE: f32 = 3.1;
+            let skew = 0.6 * (d * 0.9 + (s * 0.21).sin() * 2.0).sin();
+            let f = ((s + skew) / LEDGE).rem_euclid(1.0);
+            let riser = smoothstep(0.8, 1.0, f) - f;
+            let climbing = trail.mix(&near, |p| p.grade).signum();
+            let stones = (fbm(p * 0.75, 2, 965) - 0.1).max(0.0) * 0.36;
+            height += (0.36 * riser * climbing + stones) * rock * tread;
+        }
+        height
+    }
+
+    /// How far the wheel ruts are to the left of the track's middle, this far round.
+    fn wander(&self, s: f32) -> f32 {
+        0.28 * fbm(Vec3::new(s * 0.035, 0.0, 5.0), 2, 961)
+    }
+
+    /// The rill at a place along the track and across it, where rain has cut it this much:
+    /// how deep its gutter is there, in metres, and how much of its bed this is, 0 to 1.
+    fn rill(&self, s: f32, d: f32, erosion: f32) -> (f32, f32) {
+        // It snakes across the tread, a turn every forty metres or so, never quite the same.
+        let line = 1.05 * (s * 0.075 + 1.6 * (s * 0.019).sin()).sin();
+        let width = 0.3 + 0.24 * erosion;
+        let depth = 0.08 + 0.4 * erosion;
+        let across = ((d - line).abs() / width).min(1.0);
+        let bed = (1.0 - across).powf(1.25);
+        // Its banks slump towards it.
+        let slump = 0.07 * erosion * gauss(d - line, width * 2.4);
+        (depth * bed + slump, smoothstep(0.25, 0.8, bed))
+    }
+
+    /// The washout at a place along the track, if it is in one: how deep the gully's channel
+    /// is there, in metres, and how much of a washout it is, 0 to 1.
+    fn wash(&self, s: f32) -> (f32, f32) {
+        let mut found = (0.0_f32, 0.0_f32);
+        for &(at, depth) in &self.trail.washes {
+            let along = self.trail.apart(at, s).abs();
+            if along < 3.6 {
+                // A channel with a flat, narrow bed and banks that have slumped in.
+                let bank = 1.0 - smoothstep(0.3, 2.7, along);
+                found = (
+                    found.0.max(depth * bank),
+                    found.1.max(1.0 - smoothstep(1.4, 3.6, along)),
+                );
+            }
+        }
+        found
+    }
+
+    /// How deep a bog hole is at a place along the track and across it, in metres.
+    fn bog(&self, s: f32, line: f32) -> f32 {
+        let mut deepest = 0.0_f32;
+        for hole in &self.trail.holes {
+            let along = self.trail.apart(hole.along, s) / (hole.length * 0.5);
+            if along.abs() >= 1.0 {
+                continue;
+            }
+            let across = (line / (TREAD + 0.3)).abs();
+            if across >= 1.0 {
+                continue;
+            }
+            let bowl = (1.0 - along * along).powi(2) * (1.0 - across.powi(3));
+            let wheels = gauss(line - RUTS * 0.5, 0.3) + gauss(line + RUTS * 0.5, 0.3);
+            deepest = deepest.max(hole.depth * bowl * (0.72 + 0.28 * wheels));
+        }
+        deepest
+    }
+
+    /// How much of the forest floor's hummocks a place has: none in water or on stone.
+    fn lumpiness(&self, x: f32, z: f32) -> f32 {
+        match self.pool_at(x, z) {
+            Some((_, inside)) => smoothstep(0.0, -0.35, inside),
+            None => 1.0,
+        }
+    }
+
+    /// What covers the ground at a place.
+    pub fn cover(&self, x: f32, z: f32) -> Cover {
+        let mut cover = Cover::default();
+        let p = Vec3::new(x, 0.0, z);
+        let wet = self.wet(x, z);
+        if let Some((pool, inside)) = self.pool_at(x, z) {
+            // A waterhole's bed and its banks are mud and silt.
+            cover.mud = smoothstep(-0.35, -0.05, inside);
+            cover.water = self.untracked(x, z) < pool.level - 0.02 && inside > 0.0;
+        }
+        // The creek's own bed, and the wettest of the gullies: damp earth.
+        let damp = smoothstep(0.62, 0.9, wet + 0.1 * fbm(p * 0.2, 2, 971));
+        cover.mud = cover.mud.max(damp * 0.85);
+        cover.rock = self.outcrop(x, z) * (1.0 - cover.mud);
+        cover.grass = self.open(x, z) * (1.0 - cover.rock) * (1.0 - cover.mud);
+        let Some(near) = self.trail.near(x, z) else {
+            return cover;
+        };
+        let trail = &self.trail;
+        let edge = 0.3 * fbm(p * 0.6, 2, 972);
+        let tread = 1.0 - smoothstep(TREAD - 0.5, TREAD + 0.5, near.offset.abs() + edge);
+        if tread <= 0.0 {
+            return cover;
+        }
+        let ford = trail.mix(&near, |p| p.ford);
+        let line = near.offset - self.wander(near.along);
+        let bog = self.bog(near.along, line);
+        let mud = (trail.mix(&near, |p| p.mud) + smoothstep(0.03, 0.2, bog)).min(1.0);
+        let erosion = trail.mix(&near, |p| p.erosion);
+        // Scoured beds, the rill's and a washout's, are stones in silt.
+        let wash = self.wash(near.along);
+        let scour = if erosion > 0.02 {
+            self.rill(near.along, near.offset, erosion).1
+        } else {
+            0.0
+        }
+        .max(smoothstep(0.1, 0.35, wash.0));
+        let rock = (trail.mix(&near, |p| p.rock) + scour * 0.55).min(1.0);
+        // Bare where the wheels run; between them, and at the edges, as bare as the track is
+        // worn. A track seldom driven is two lines in the litter.
+        let wheels = (gauss(line - RUTS * 0.5, 0.46) + gauss(line + RUTS * 0.5, 0.46)).min(1.0);
+        let wear = trail.mix(&near, |p| p.wear);
+        let ragged = 0.5 + 0.5 * fbm(p * 0.9, 2, 973);
+        let bare = (wheels.max(wear * (0.55 + 0.45 * ragged)) + mud + scour).min(1.0);
+        let worn = tread * (1.0 - ford) * bare;
+        cover.tread = tread;
+        cover.bog = bog;
+        cover.scour = scour * tread;
+        // On the tread: clay, with mud where it is wet and stone where it crosses rock.
+        cover.grass *= 1.0 - worn;
+        cover.rock = cover.rock * (1.0 - worn) + worn * rock;
+        cover.mud = (cover.mud * (1.0 - worn) + worn * mud * (1.0 - rock)).min(1.0 - cover.rock);
+        cover.clay = (worn * (1.0 - mud) * (1.0 - rock)).min(1.0 - cover.rock - cover.mud);
+        cover
+    }
+
+    /// Finds the track, and what it is like along its length.
+    fn route(&mut self) {
+        let half = self.half;
+        let keep = half - KEEP_IN;
+        let land = &self.land;
+        // Which side of the creek each place is on: flooded out from beside the first ford,
+        // with the creek as a wall.
+        let coarse = 2.0;
+        let mut side = Grid::new(half, coarse);
+        let stride = side.stride();
+        let mut wall = vec![false; side.values.len()];
+        for at in &self.creek {
+            for dz in -1..=1 {
+                for dx in -1..=1 {
+                    let (x, z) = (at.x + dx as f32 * coarse, at.y + dz as f32 * coarse);
+                    if side.holds(x, z) {
+                        wall[side.nearest(x, z)] = true;
+                    }
+                }
+            }
+        }
+        // The creek rises somewhere inside the square: carry its line on from its head to the
+        // edge, the way it was heading, so that it parts the square in two.
+        if self.creek.len() > 40 {
+            let head = self.creek[self.creek.len() - 1];
+            let heading = (head - self.creek[self.creek.len() - 40]).normalize_or(Vec2::NEG_X);
+            let mut at = head;
+            while side.holds(at.x, at.y) {
+                for dz in -1..=1 {
+                    for dx in -1..=1 {
+                        let (x, z) = (at.x + dx as f32 * coarse, at.y + dz as f32 * coarse);
+                        if side.holds(x, z) {
+                            wall[side.nearest(x, z)] = true;
+                        }
+                    }
+                }
+                at += heading * coarse * 0.5;
+            }
+        }
+        let fords = if self.pools.len() >= 2 {
+            vec![self.pools[0], self.pools[self.pools.len() - 1]]
+        } else {
+            self.pools.clone()
+        };
+        let across = |pool: &Pool| pool.along.perp();
+        let flood = |from: Vec2, mark: f32, side: &mut Grid| {
+            let start = side.nearest(from.x, from.y);
+            if wall[start] || side.values[start] != 0.0 {
+                return;
+            }
+            let mut queue = vec![start];
+            side.values[start] = mark;
+            while let Some(index) = queue.pop() {
+                let (column, row) = (index % stride, index / stride);
+                let mut visit = |c: usize, r: usize| {
+                    let next = r * stride + c;
+                    if !wall[next] && side.values[next] == 0.0 {
+                        side.values[next] = mark;
+                        queue.push(next);
+                    }
+                };
+                if column > 0 {
+                    visit(column - 1, row);
+                }
+                if column < stride - 1 {
+                    visit(column + 1, row);
+                }
+                if row > 0 {
+                    visit(column, row - 1);
+                }
+                if row < stride - 1 {
+                    visit(column, row + 1);
+                }
+            }
+        };
+        let Some(first) = fords.first().copied() else {
+            return;
+        };
+        let last = *fords.last().expect("one at least");
+        let out = first.radii.y + 17.0;
+        flood(first.centre + across(&first) * out, 1.0, &mut side);
+        flood(first.centre - across(&first) * out, 2.0, &mut side);
+        let side_of = |p: Vec2| side.values[side.nearest(p.x, p.y)];
+
+        // The places worth driving to. On each side: the best of some measure, well inside
+        // the square and well away from what has been chosen already.
+        let mut chosen: Vec<Vec2> = vec![first.centre, last.centre];
+        let mut best = |which: f32, apart: f32, score: &dyn Fn(f32, f32) -> f32| -> Vec2 {
+            let mut found = (f32::MIN, Vec2::ZERO);
+            for index in (0..side.values.len()).step_by(3) {
+                if side.values[index] != which {
+                    continue;
+                }
+                let (x, z) = side.place(index);
+                if x.abs() > keep - 25.0 || z.abs() > keep - 25.0 {
+                    continue;
+                }
+                let p = Vec2::new(x, z);
+                if chosen.iter().any(|c| c.distance(p) < apart) {
+                    continue;
+                }
+                let value = score(x, z);
+                if value > found.0 {
+                    found = (value, p);
+                }
+            }
+            chosen.push(found.1);
+            found.1
+        };
+        let wet = &self.wet;
+        let high = |x: f32, z: f32| land.at(x, z);
+        let flat_and_wet = |x: f32, z: f32| {
+            let level = 1.0 - smoothstep(0.03, 0.14, land.slope(x, z));
+            wet.at(x, z).min(0.7) * level + level * 0.2
+        };
+        // The camp: level ground near the first ford.
+        let near_first = first.centre;
+        let camp_score = |x: f32, z: f32| {
+            let away = Vec2::new(x, z).distance(near_first);
+            if !(55.0..150.0).contains(&away) {
+                return f32::MIN;
+            }
+            -land.slope(x, z) * 100.0 - wet.at(x, z) * 30.0 - away * 0.02
+        };
+        let camp = best(2.0, 30.0, &camp_score);
+        let summit_a = best(1.0, 170.0, &high);
+        let lookout_a = best(1.0, 230.0, &high);
+        let bog_flat = best(2.0, 170.0, &flat_and_wet);
+        let summit_b = best(2.0, 200.0, &high);
+        self.camp = camp;
+        let sides = |which: f32| side.values.iter().filter(|&&v| v == which).count();
+        println!(
+            "    sides {} and {} of {}; fords {} and {}",
+            sides(1.0),
+            sides(2.0),
+            side.values.len(),
+            first.centre,
+            last.centre
+        );
+        println!(
+            "    camp {camp}, hills {summit_a} and {lookout_a}, wet flat {bog_flat}, hill {summit_b}"
+        );
+
+        // Level the camp.
+        let pad = land.at(camp.x, camp.y);
+        self.camp_height = pad;
+        let stride_land = self.land.stride();
+        for row in 0..=self.land.cells {
+            for column in 0..=self.land.cells {
+                let index = row * stride_land + column;
+                let (x, z) = self.land.place(index);
+                let away = Vec2::new(x, z).distance(camp);
+                if away < CAMP * 2.2 {
+                    let held = 1.0 - smoothstep(CAMP, CAMP * 2.2, away);
+                    let height = &mut self.land.values[index];
+                    *height += (pad - *height) * held;
+                }
+            }
+        }
+        let land = &self.land;
+
+        // The first ford is the nearer to the camp's side of the two that bound each leg.
+        let ford_ends = |pool: &Pool, to_side: f32| -> Vec2 {
+            let step = across(pool) * (pool.radii.y + 17.0);
+            if side_of(pool.centre + step) == to_side {
+                pool.centre + step
+            } else {
+                pool.centre - step
+            }
+        };
+        // Round the loop: the camp, over the first ford, the far side's two hills, back over
+        // the second ford, the wet flat, this side's hill, and home.
+        let (a, b) = (1.0, 2.0);
+        let legs: Vec<(Vec2, Vec2, bool)> = vec![
+            (camp, ford_ends(&first, b), false),
+            (ford_ends(&first, b), ford_ends(&first, a), true),
+            (ford_ends(&first, a), summit_a, false),
+            (summit_a, lookout_a, false),
+            (lookout_a, ford_ends(&last, a), false),
+            (ford_ends(&last, a), ford_ends(&last, b), true),
+            (ford_ends(&last, b), bog_flat, false),
+            (bog_flat, summit_b, false),
+            (summit_b, camp, false),
+        ];
+
+        // Each leg by the easiest way: a search over the land, where a step costs its length,
+        // and more the steeper it climbs, the steeper the hillside it crosses, and the wetter
+        // the ground. Where a leg has gone, the next keeps off, so the loop does not double
+        // back along itself.
+        let mut used = vec![0.0_f32; side.values.len()];
+        let pools = &self.pools;
+        let mut line: Vec<Vec2> = Vec::new();
+        for (from, to, straight) in &legs {
+            if *straight {
+                // A ford: straight across the waterhole.
+                let steps = (from.distance(*to) / coarse).ceil() as usize;
+                for k in 0..steps {
+                    line.push(from.lerp(*to, k as f32 / steps as f32));
+                }
+                continue;
+            }
+            let cost = |index: usize, next: usize, length: f32| -> f32 {
+                let (x0, z0) = side.place(index);
+                let (x1, z1) = side.place(next);
+                if x1.abs() > keep || z1.abs() > keep {
+                    return f32::INFINITY;
+                }
+                let p = Vec2::new(x1, z1);
+                let near_end = p.distance(*from).min(p.distance(*to));
+                // Not through a waterhole, nor along the creek's bed, but to reach a ford.
+                if near_end > 20.0 {
+                    if wall[next] || pools.iter().any(|pool| pool.inside(x1, z1) > -1.2) {
+                        return f32::INFINITY;
+                    }
+                }
+                let grade = (land.at(x1, z1) - land.at(x0, z0)).abs() / length;
+                let climb = ((grade - 0.05).max(0.0) / 0.11).powi(2) * 1.6;
+                let hillside = (land.slope(x1, z1) / 0.4).powi(2);
+                let soggy = if near_end > 25.0 {
+                    smoothstep(0.45, 0.8, wet.at(x1, z1)) * 5.0
+                } else {
+                    0.0
+                };
+                let edge = smoothstep(keep - 40.0, keep, x1.abs().max(z1.abs())) * 6.0;
+                let crowded = if near_end > 30.0 { used[next] } else { 0.0 };
+                length * (1.0 + climb + hillside + soggy + edge + crowded)
+            };
+            let path = search(&side, *from, *to, &cost);
+            // Mark what it used, and a way either side.
+            for &index in &path {
+                let (x, z) = side.place(index);
+                for dz in -8..=8_i32 {
+                    for dx in -8..=8_i32 {
+                        let (ux, uz) = (x + dx as f32 * coarse, z + dz as f32 * coarse);
+                        if side.holds(ux, uz) {
+                            let away = (dx as f32).hypot(dz as f32) * coarse;
+                            let mark = &mut used[side.nearest(ux, uz)];
+                            *mark = mark.max(7.0 * (1.0 - smoothstep(6.0, 16.0, away)));
+                        }
+                    }
+                }
+            }
+            line.extend(path.iter().map(|&index| {
+                let (x, z) = side.place(index);
+                Vec2::new(x, z)
+            }));
+        }
+
+        // The line found steps from point to point of a grid: take every few of its points
+        // and draw a smooth curve through them, round the loop.
+        let knots: Vec<Vec2> = line.iter().step_by(5).copied().collect();
+        let count = knots.len();
+        let curve = |k: usize, t: f32| -> Vec2 {
+            let p = |i: isize| knots[(k as isize + i).rem_euclid(count as isize) as usize];
+            let (p0, p1, p2, p3) = (p(-1), p(0), p(1), p(2));
+            0.5 * ((2.0 * p1)
+                + (-p0 + p2) * t
+                + (2.0 * p0 - 5.0 * p1 + 4.0 * p2 - p3) * t * t
+                + (-p0 + 3.0 * p1 - 3.0 * p2 + p3) * t * t * t)
+        };
+        let mut fine: Vec<Vec2> = Vec::new();
+        for k in 0..count {
+            for step in 0..8 {
+                fine.push(curve(k, step as f32 / 8.0));
+            }
+        }
+        // And walk it at an even pace.
+        let mut points: Vec<Vec2> = vec![fine[0]];
+        let mut left = STEP;
+        for k in 0..fine.len() {
+            let (a, b) = (fine[k], fine[(k + 1) % fine.len()]);
+            let run = a.distance(b);
+            let mut gone = 0.0;
+            while run - gone >= left {
+                gone += left;
+                points.push(a.lerp(b, gone / run));
+                left = STEP;
+            }
+            left -= run - gone;
+        }
+        // The last point would lie on the first.
+        if points.len() > 2 && points[points.len() - 1].distance(points[0]) < STEP * 0.6 {
+            points.pop();
+        }
+        let n = points.len();
+        let wrap = |i: isize| i.rem_euclid(n as isize) as usize;
+        // No bend tighter than a truck can turn. Each point is drawn towards the middle of
+        // those a few metres either side of it, over and over, which opens a hairpin out to a
+        // loop; in a waterhole, and a car's length either side, the line stays as it is.
+        let pinned: Vec<bool> = (0..n)
+            .map(|i| {
+                (-2..=2_isize).any(|k| {
+                    let at = points[wrap(i as isize + k)];
+                    pools.iter().any(|pool| pool.inside(at.x, at.y) > 0.0)
+                })
+            })
+            .collect();
+        for _ in 0..40 {
+            let before = points.clone();
+            for i in 0..n {
+                if pinned[i] {
+                    continue;
+                }
+                let mut middle = Vec2::ZERO;
+                for k in -3..=3_isize {
+                    middle += before[wrap(i as isize + k)];
+                }
+                points[i] = before[i].lerp(middle / 7.0, 0.6);
+            }
+        }
+
+        // Its height: the land's along it, smoothed, so that it climbs evenly and does not
+        // follow every hummock.
+        let raw: Vec<f32> = points.iter().map(|p| land.at(p.x, p.y)).collect();
+        let mut height = raw.clone();
+        for _ in 0..2 {
+            let before = height.clone();
+            for i in 0..n {
+                let mut sum = 0.0;
+                for k in -4..=4_isize {
+                    sum += before[wrap(i as isize + k)];
+                }
+                height[i] = sum / 9.0;
+            }
+        }
+        // Fords: in a waterhole the creek's bed is the track, and the track runs down to it
+        // and up out of it on a ramp cut through the bank, no steeper than a wet tyre climbs.
+        // The ramp is cut where the bank stands above it and filled where the land falls
+        // away below, as below the bar at a waterhole's foot. Its grade is held gentlest by
+        // the water and let go little by little over sixty metres, so that it runs out into
+        // the track's own grade with no step where it ends.
+        const RAMP: f32 = 0.14;
+        let in_pool: Vec<bool> = points
+            .iter()
+            .map(|p| pools.iter().any(|pool| pool.inside(p.x, p.y) > -0.04))
+            .collect();
+        let from_pool: Vec<f32> = (0..n)
+            .map(|i| {
+                (-40..=40_isize)
+                    .filter(|&k| in_pool[wrap(i as isize + k)])
+                    .map(|k| k.unsigned_abs() as f32 * STEP)
+                    .fold(f32::INFINITY, f32::min)
+            })
+            .collect();
+        let grade_at = |i: usize| RAMP + (0.5 - RAMP) * smoothstep(24.0, 60.0, from_pool[i]);
+        for i in 0..n {
+            if in_pool[i] {
+                height[i] = raw[i];
+            }
+        }
+        for _ in 0..3 {
+            for i in 0..n {
+                if from_pool[i].is_finite() && !in_pool[i] {
+                    let (before, step) = (height[wrap(i as isize - 1)], grade_at(i) * STEP);
+                    height[i] = height[i].clamp(before - step, before + step);
+                }
+            }
+            for i in (0..n).rev() {
+                if from_pool[i].is_finite() && !in_pool[i] {
+                    let (after, step) = (height[wrap(i as isize + 1)], grade_at(i) * STEP);
+                    height[i] = height[i].clamp(after - step, after + step);
+                }
+            }
+        }
+        // Beside a waterhole the track is never cut below the water: wherever the water is
+        // drawn, and a car's width beyond, it stands a hand above it, or the water would be
+        // seen hanging over the cutting.
+        for i in 0..n {
+            if in_pool[i] {
+                continue;
+            }
+            let at = points[i];
+            for pool in pools.iter() {
+                let (low, high) = pool.rectangle();
+                let margin = TREAD + 4.0;
+                if at.x > low.x - margin
+                    && at.x < high.x + margin
+                    && at.y > low.y - margin
+                    && at.y < high.y + margin
+                {
+                    height[i] = height[i].max(pool.level + 0.16);
+                }
+            }
+        }
+        // How the hillside it is on tilts it: a share of the land's own fall across it,
+        // evened out along its length.
+        let mut tilt: Vec<f32> = points
+            .iter()
+            .enumerate()
+            .map(|(i, at)| {
+                let forward = (points[wrap(i as isize + 1)] - points[wrap(i as isize - 1)])
+                    .normalize_or(Vec2::X);
+                let left = Vec2::new(forward.y, -forward.x) * (TREAD + 1.0);
+                let fall = (land.at(at.x + left.x, at.y + left.y)
+                    - land.at(at.x - left.x, at.y - left.y))
+                    / (2.0 * (TREAD + 1.0));
+                (fall * 0.42).clamp(-0.13, 0.13)
+            })
+            .collect();
+        for _ in 0..2 {
+            let before = tilt.clone();
+            for i in 0..n {
+                let mut sum = 0.0;
+                for k in -4..=4_isize {
+                    sum += before[wrap(i as isize + k)];
+                }
+                tilt[i] = sum / 9.0;
+            }
+        }
+        let mut trail = Trail {
+            points: Vec::with_capacity(n),
+            length: 0.0,
+            bars: Vec::new(),
+            holes: Vec::new(),
+            washes: Vec::new(),
+            moguls: Vec::new(),
+            squares: FxHashMap::default(),
+        };
+        let mut along = 0.0;
+        for i in 0..n {
+            let (before, after) = (points[wrap(i as isize - 1)], points[wrap(i as isize + 1)]);
+            let forward = (after - before).normalize_or(Vec2::X);
+            let run = before.distance(after).max(1.0e-3);
+            let grade = (height[wrap(i as isize + 1)] - height[wrap(i as isize - 1)]) / run;
+            let at = points[i];
+            let ford = pools
+                .iter()
+                // The track is its own right down to the water's edge, where its ramp ends.
+                .map(|pool| smoothstep(-0.14, 0.06, pool.inside(at.x, at.y)))
+                .fold(0.0, f32::max);
+            trail.points.push(TrailPoint {
+                at,
+                height: height[i],
+                forward,
+                along,
+                grade,
+                ford,
+                // Level at the camp, and by a waterhole, where a tilt would dip one edge
+                // of it under the water.
+                tilt: tilt[i]
+                    * (1.0 - smoothstep(CAMP * 2.0, CAMP, at.distance(camp)))
+                    * smoothstep(12.0, 30.0, from_pool[i]),
+                ..TrailPoint::default()
+            });
+            along += at.distance(points[wrap(i as isize + 1)]);
+        }
+        trail.length = along;
+
+        // What it is like along its length.
+        for i in 0..n {
+            let point = trail.points[i];
+            let p = Vec3::new(point.at.x, 0.0, point.at.y);
+            let damp = wet.at(point.at.x, point.at.y);
+            let steep = smoothstep(0.08, 0.24, point.grade.abs());
+            // Mud where water gathers and the track is not steep enough to shed it, and on
+            // the way into and out of a ford.
+            let near_ford = (-12..=12_isize)
+                .map(|k| trail.points[wrap(i as isize + k)].ford)
+                .fold(0.0, f32::max)
+                * (1.0 - point.ford);
+            let patchy = smoothstep(0.05, 0.3, fbm(p * 0.03, 3, 981));
+            let mud =
+                (smoothstep(0.3, 0.62, damp + 0.25 * patchy) * (1.0 - steep)).max(near_ford * 0.9);
+            // Rock where the land is stone and the track is steep or on a crest.
+            let stone = self.outcrop(point.at.x, point.at.y);
+            let rock = (stone * (0.35 + 0.65 * steep)).max(
+                smoothstep(0.12, 0.2, point.grade.abs())
+                    * smoothstep(-0.2, 0.1, fbm(p * 0.025, 2, 982)),
+            ) * (1.0 - mud)
+                * (1.0 - point.ford);
+            let rut = (0.05 + 0.1 * steep + 0.13 * mud + 0.05 * fbm(p * 0.05, 2, 983))
+                * (1.0 - 0.75 * rock);
+            // Rain cuts a hill's track, here more and there less, and not where it is stone
+            // or a bog already; and never at the camp.
+            let away = smoothstep(CAMP * 1.5, CAMP * 3.0, point.at.distance(camp));
+            let patchy = smoothstep(-0.25, 0.3, fbm(p * 0.018, 3, 985));
+            let erosion = smoothstep(0.045, 0.17, point.grade.abs())
+                * patchy
+                * (1.0 - mud)
+                * (1.0 - point.ford)
+                * away;
+            // How bare it is between the wheels: more where it is steep, wet or cut.
+            let wear =
+                (0.22 + 0.5 * steep + 0.6 * mud + 0.5 * erosion + 0.35 * fbm(p * 0.03, 2, 986))
+                    .clamp(0.08, 1.0)
+                    .max(1.0 - away);
+            let point = &mut trail.points[i];
+            point.mud = mud;
+            point.rock = smoothstep(0.3, 0.7, rock);
+            point.rut = rut.max(0.02);
+            point.erosion = erosion * (1.0 - 0.6 * point.rock);
+            point.wear = wear;
+        }
+
+        // Drainage humps on the hills, one every forty or fifty metres.
+        let mut since = 0.0;
+        for i in 0..n {
+            let point = trail.points[i];
+            since += STEP;
+            if point.grade.abs() > 0.11 && point.ford == 0.0 && point.rock < 0.3 && since > 58.0 {
+                // Clear of the camp, where the track starts.
+                if point.at.distance(camp) > CAMP * 2.0 {
+                    trail.bars.push((point.along, -point.grade.signum()));
+                    since = 0.0;
+                }
+            }
+        }
+        // Bog holes in the wet flats: where the track is muddy and level. If the land gives
+        // too few, the muddiest stretches get them anyway: it is what the track is for.
+        let mut wanted: Vec<(f32, usize)> = (0..n)
+            .filter(|&i| {
+                let point = &trail.points[i];
+                point.ford == 0.0
+                    && point.grade.abs() < 0.07
+                    && point.at.distance(camp) > CAMP * 2.5
+                    && pools
+                        .iter()
+                        .all(|pool| pool.inside(point.at.x, point.at.y) < -3.0)
+            })
+            .map(|i| {
+                let point = &trail.points[i];
+                (point.mud + 0.4 * wet.at(point.at.x, point.at.y), i)
+            })
+            .collect();
+        wanted.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mut holes: Vec<Hole> = Vec::new();
+        for &(score, i) in &wanted {
+            if holes.len() >= 9 || (score < 0.55 && holes.len() >= 5) {
+                break;
+            }
+            let at = trail.points[i].along;
+            if holes
+                .iter()
+                .any(|hole| trail.apart(hole.along, at).abs() < 26.0)
+            {
+                continue;
+            }
+            let size = 0.5 + 0.5 * fbm(Vec3::new(at * 0.37, 1.0, 0.0), 1, 984);
+            holes.push(Hole {
+                along: at,
+                length: 7.5 + 4.5 * size,
+                depth: 0.34 + 0.2 * size,
+            });
+        }
+        // Mud round each hole, whatever the land said.
+        for hole in &holes {
+            for point in &mut trail.points {
+                let d = (point.along - hole.along).rem_euclid(trail.length);
+                let away = d.min(trail.length - d);
+                let muddy =
+                    1.0 - smoothstep(hole.length * 0.5 + 1.0, hole.length * 0.5 + 9.0, away);
+                point.mud = point.mud.max(muddy);
+                point.rock *= 1.0 - muddy;
+            }
+        }
+        trail.holes = holes;
+
+        // Washouts: where the track crosses a gully, away from the fords and the bog holes,
+        // the gully has taken the track with it. The wetter the gully, the deeper.
+        let mut crossings: Vec<(f32, usize)> = (0..n)
+            .filter(|&i| {
+                let point = &trail.points[i];
+                let damp = wet.at(point.at.x, point.at.y);
+                let peak = (-6..=6_isize).all(|k| {
+                    let other = trail.points[wrap(i as isize + k)].at;
+                    wet.at(other.x, other.y) <= damp
+                });
+                damp > 0.2
+                    && peak
+                    && point.at.distance(camp) > CAMP * 3.0
+                    && pools
+                        .iter()
+                        .all(|pool| pool.inside(point.at.x, point.at.y) < -6.0)
+            })
+            .map(|i| (wet.at(trail.points[i].at.x, trail.points[i].at.y), i))
+            .collect();
+        crossings.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let mut washes: Vec<(f32, f32)> = Vec::new();
+        for &(damp, i) in &crossings {
+            let at = trail.points[i].along;
+            let clear = washes
+                .iter()
+                .all(|&(other, _)| trail.apart(other, at).abs() > 45.0)
+                && trail
+                    .holes
+                    .iter()
+                    .all(|hole| trail.apart(hole.along, at).abs() > hole.length + 8.0);
+            if clear && washes.len() < 14 {
+                washes.push((at, 0.34 + 0.26 * smoothstep(0.2, 0.8, damp)));
+            }
+        }
+        // Nothing else is built in a washout: no hump, no rill, and the ruts end at its lip.
+        let kept: Vec<(f32, f32)> = trail
+            .bars
+            .iter()
+            .copied()
+            .filter(|&(bar, _)| {
+                washes
+                    .iter()
+                    .all(|&(wash, _)| trail.apart(wash, bar).abs() > 9.0)
+            })
+            .collect();
+        trail.bars = kept;
+        for &(wash, _) in &washes {
+            for point in &mut trail.points {
+                let d = (point.along - wash).rem_euclid(trail.length);
+                let near = 1.0 - smoothstep(2.5, 6.0, d.min(trail.length - d));
+                point.erosion *= 1.0 - near;
+                point.wear = point.wear.max(near);
+            }
+        }
+        trail.washes = washes;
+
+        // Wheel-dug holes, left and right by turns, in runs of five or six: on the climbs
+        // that are neither stone nor already cut by a rill.
+        let mut moguls: Vec<(f32, f32)> = Vec::new();
+        let mut run_ends = -1.0e9_f32;
+        let mut runs = 0;
+        for i in 0..n {
+            let point = trail.points[i];
+            let fits = (0.075..0.2).contains(&point.grade.abs())
+                && point.rock < 0.2
+                && point.mud < 0.3
+                && point.erosion < 0.35
+                && point.ford == 0.0
+                && point.at.distance(camp) > CAMP * 3.0;
+            let clear = trail
+                .washes
+                .iter()
+                .all(|&(wash, _)| trail.apart(wash, point.along).abs() > 26.0)
+                && trail
+                    .bars
+                    .iter()
+                    .all(|&(bar, _)| !(-6.0..24.0).contains(&trail.apart(bar, point.along)));
+            if fits && clear && point.along - run_ends > 170.0 && runs < 7 {
+                let count = 5 + (runs % 2);
+                for k in 0..count {
+                    let side = if k % 2 == 0 { 1.0 } else { -1.0 };
+                    moguls.push((point.along + k as f32 * 2.7, side));
+                }
+                run_ends = point.along + count as f32 * 2.7;
+                runs += 1;
+            }
+        }
+        trail.moguls = moguls;
+        trail.index();
+        println!(
+            "    a loop of {:.0} m: {} drainage humps, {} bog holes, {} washouts, {} runs of wheel holes",
+            trail.length,
+            trail.bars.len(),
+            trail.holes.len(),
+            trail.washes.len(),
+            runs
+        );
+        let cut = trail.points.iter().filter(|p| p.erosion > 0.3).count() as f32 * STEP;
+        let stone = trail.points.iter().filter(|p| p.rock > 0.5).count() as f32 * STEP;
+        let soft = trail.points.iter().filter(|p| p.mud > 0.5).count() as f32 * STEP;
+        println!("    {cut:.0} m of it cut by rain, {stone:.0} m over rock, {soft:.0} m of mud");
+        self.trail = trail;
+    }
+
+    /// Where a car starts: on the track at the camp, and the way it faces, as a yaw in degrees
+    /// (zero looks along -z).
+    pub fn start(&self) -> (Vec3, f32) {
+        let point = self
+            .trail
+            .points
+            .iter()
+            .min_by(|a, b| {
+                a.at.distance(self.camp)
+                    .total_cmp(&b.at.distance(self.camp))
+            })
+            .copied()
+            .unwrap_or_default();
+        let height = self.height(point.at.x, point.at.y);
+        let yaw = (-point.forward.x).atan2(-point.forward.y).to_degrees();
+        (Vec3::new(point.at.x, height, point.at.y), yaw)
+    }
+}
+
+/// The cheapest way over a grid from one place to another, as the grid's points in order.
+fn search(
+    grid: &Grid,
+    from: Vec2,
+    to: Vec2,
+    cost: &dyn Fn(usize, usize, f32) -> f32,
+) -> Vec<usize> {
+    #[derive(PartialEq)]
+    struct Open(f32, usize);
+    impl Eq for Open {}
+    impl PartialOrd for Open {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Open {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.0.total_cmp(&other.0).then(self.1.cmp(&other.1))
+        }
+    }
+    let (start, goal) = (grid.nearest(from.x, from.y), grid.nearest(to.x, to.y));
+    let stride = grid.stride() as isize;
+    let mut reached = vec![f32::INFINITY; grid.values.len()];
+    let mut came = vec![u32::MAX; grid.values.len()];
+    let mut open = BinaryHeap::new();
+    reached[start] = 0.0;
+    open.push(Reverse(Open(0.0, start)));
+    let remaining = |index: usize| {
+        let (x, z) = grid.place(index);
+        Vec2::new(x, z).distance(to)
+    };
+    // Sixteen ways from each point: to its neighbours, and a knight's move beyond, so that
+    // a track can run at more angles than eight.
+    const MOVES: [(isize, isize); 16] = [
+        (1, 0),
+        (-1, 0),
+        (0, 1),
+        (0, -1),
+        (1, 1),
+        (1, -1),
+        (-1, 1),
+        (-1, -1),
+        (2, 1),
+        (2, -1),
+        (-2, 1),
+        (-2, -1),
+        (1, 2),
+        (1, -2),
+        (-1, 2),
+        (-1, -2),
+    ];
+    while let Some(Reverse(Open(_, index))) = open.pop() {
+        if index == goal {
+            break;
+        }
+        let (column, row) = (index as isize % stride, index as isize / stride);
+        for (dx, dz) in MOVES {
+            let (c, r) = (column + dx, row + dz);
+            if c < 0 || r < 0 || c >= stride || r >= stride {
+                continue;
+            }
+            let next = (r * stride + c) as usize;
+            let length = (dx as f32).hypot(dz as f32) * grid.spacing;
+            let step = cost(index, next, length);
+            if !step.is_finite() {
+                continue;
+            }
+            let total = reached[index] + step;
+            if total < reached[next] {
+                reached[next] = total;
+                came[next] = index as u32;
+                open.push(Reverse(Open(total + remaining(next), next)));
+            }
+        }
+    }
+    let mut path = Vec::new();
+    let mut at = goal;
+    if came[goal] == u32::MAX && goal != start {
+        // No way was found: straight there, rather than no track at all.
+        let steps = (from.distance(to) / grid.spacing).ceil() as usize;
+        return (0..steps)
+            .map(|k| {
+                let p = from.lerp(to, k as f32 / steps as f32);
+                grid.nearest(p.x, p.y)
+            })
+            .collect();
+    }
+    while at != start {
+        path.push(at);
+        at = came[at] as usize;
+    }
+    path.push(start);
+    path.reverse();
+    // The goal is the next leg's start.
+    path.pop();
+    path
+}
+
+/// Where water runs over a grid of heights, and how much.
+struct Flow {
+    stride: usize,
+    /// For each point, the one its water runs to, or itself at the edge.
+    down: Vec<u32>,
+    /// How much has gathered at each: the points whose water passes through it.
+    gathered: Vec<f32>,
+}
+
+impl Flow {
+    fn new(land: &Grid) -> Self {
+        let stride = land.stride();
+        let count = land.values.len();
+        // Fill every hollow until it spills (Barnes, Lehman and Mulla 2014): from the edge
+        // inwards, lowest first, no point may be lower than the one it was reached from.
+        #[derive(PartialEq)]
+        struct Wet(f32, u32);
+        impl Eq for Wet {}
+        impl PartialOrd for Wet {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+        impl Ord for Wet {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.0.total_cmp(&other.0).then(self.1.cmp(&other.1))
+            }
+        }
+        let mut filled = land.values.clone();
+        let mut seen = vec![false; count];
+        let mut heap = BinaryHeap::new();
+        for row in 0..stride {
+            for column in 0..stride {
+                if row == 0 || column == 0 || row == stride - 1 || column == stride - 1 {
+                    let index = row * stride + column;
+                    seen[index] = true;
+                    heap.push(Reverse(Wet(filled[index], index as u32)));
+                }
+            }
+        }
+        let neighbours = |index: usize| {
+            let (column, row) = ((index % stride) as isize, (index / stride) as isize);
+            (-1..=1_isize)
+                .flat_map(move |dz| (-1..=1_isize).map(move |dx| (dx, dz)))
+                .filter(|&(dx, dz)| dx != 0 || dz != 0)
+                .filter_map(move |(dx, dz)| {
+                    let (c, r) = (column + dx, row + dz);
+                    (c >= 0 && r >= 0 && c < stride as isize && r < stride as isize).then(|| {
+                        (
+                            (r * stride as isize + c) as usize,
+                            if dx != 0 && dz != 0 {
+                                std::f32::consts::SQRT_2
+                            } else {
+                                1.0
+                            },
+                        )
+                    })
+                })
+        };
+        // In the order the flood reaches them, which is from low to high.
+        let mut order: Vec<u32> = Vec::with_capacity(count);
+        while let Some(Reverse(Wet(height, index))) = heap.pop() {
+            order.push(index);
+            for (next, _) in neighbours(index as usize) {
+                if !seen[next] {
+                    seen[next] = true;
+                    // A hair higher, so that a filled hollow still drains across its flat.
+                    filled[next] = filled[next].max(height + 1.0e-4);
+                    heap.push(Reverse(Wet(filled[next], next as u32)));
+                }
+            }
+        }
+        // Each point's water runs to the neighbour it falls most steeply to.
+        let down: Vec<u32> = (0..count)
+            .into_par_iter()
+            .map(|index| {
+                let mut best = (0.0_f32, index);
+                for (next, length) in neighbours(index) {
+                    let fall = (filled[index] - filled[next]) / length;
+                    if fall > best.0 {
+                        best = (fall, next);
+                    }
+                }
+                best.1 as u32
+            })
+            .collect();
+        // From the highest down, each hands on what it has gathered.
+        let mut gathered = vec![1.0_f32; count];
+        for &index in order.iter().rev() {
+            let to = down[index as usize];
+            if to != index {
+                gathered[to as usize] += gathered[index as usize];
+            }
+        }
+        Self {
+            stride,
+            down,
+            gathered,
+        }
+    }
+
+    /// How deep water has cut the land at each point, in metres: nothing where little
+    /// gathers, a gully where a hillside drains, the creek's bed where the valley does, each
+    /// with banks that slope back to the land.
+    fn cut(&self, land: &Grid) -> Vec<f32> {
+        let stride = self.stride;
+        let count = land.values.len();
+        let mut depth: Vec<f32> = self
+            .gathered
+            .par_iter()
+            .map(|&gathered| 0.95 * (gathered.log10() - 2.9).max(0.0).powf(1.3))
+            .collect();
+        // Banks: no steeper than they stand. Two sweeps, each way, as a distance is spread.
+        const BANK: f32 = 0.3;
+        let relax = |depth: &mut Vec<f32>, index: usize, from: usize, length: f32| {
+            let through = depth[from] - BANK * length;
+            if through > depth[index] {
+                depth[index] = through;
+            }
+        };
+        let diagonal = std::f32::consts::SQRT_2;
+        for _ in 0..2 {
+            for row in 1..stride - 1 {
+                for column in 1..stride - 1 {
+                    let index = row * stride + column;
+                    relax(&mut depth, index, index - 1, 1.0);
+                    relax(&mut depth, index, index - stride, 1.0);
+                    relax(&mut depth, index, index - stride - 1, diagonal);
+                    relax(&mut depth, index, index - stride + 1, diagonal);
+                }
+            }
+            for row in (1..stride - 1).rev() {
+                for column in (1..stride - 1).rev() {
+                    let index = row * stride + column;
+                    relax(&mut depth, index, index + 1, 1.0);
+                    relax(&mut depth, index, index + stride, 1.0);
+                    relax(&mut depth, index, index + stride + 1, diagonal);
+                    relax(&mut depth, index, index + stride - 1, diagonal);
+                }
+            }
+        }
+        // A bed is not a knife's cut: round it.
+        for _ in 0..3 {
+            let before = depth.clone();
+            depth = (0..count)
+                .into_par_iter()
+                .map(|index| {
+                    let (column, row) = (index % stride, index / stride);
+                    if column == 0 || row == 0 || column == stride - 1 || row == stride - 1 {
+                        return before[index];
+                    }
+                    let mut sum = 0.0;
+                    for dz in 0..3 {
+                        for dx in 0..3 {
+                            sum += before[(row + dz - 1) * stride + column + dx - 1];
+                        }
+                    }
+                    sum / 9.0
+                })
+                .collect();
+        }
+        depth
+    }
+
+    /// The main stream: from where the most water leaves the land, upstream by the greater
+    /// branch at each meeting, for as long as at least `least` has gathered.
+    fn main_stem(&self, least: f32) -> Vec<usize> {
+        let count = self.gathered.len();
+        let mouth = (0..count)
+            .max_by(|&a, &b| self.gathered[a].total_cmp(&self.gathered[b]))
+            .unwrap_or(0);
+        // The greatest of the points that drain to each.
+        let mut feeder = vec![u32::MAX; count];
+        for index in 0..count {
+            let to = self.down[index] as usize;
+            if to != index
+                && (feeder[to] == u32::MAX
+                    || self.gathered[index] > self.gathered[feeder[to] as usize])
+            {
+                feeder[to] = index as u32;
+            }
+        }
+        let mut stem = vec![mouth];
+        let mut at = mouth;
+        while feeder[at] != u32::MAX && self.gathered[feeder[at] as usize] >= least {
+            at = feeder[at] as usize;
+            stem.push(at);
+        }
+        stem
+    }
+}
+
+/// A picture of the design from above, for looking at while changing it: a `.ppm` file's bytes,
+/// two metres to a pixel. The land is shaded by its slope, the creek and waterholes are blue,
+/// the track is drawn by what it is made of, and the camp is white.
+pub fn picture(plan: &Plan) -> Vec<u8> {
+    picture_of(plan, Vec2::ZERO, plan.half + 40.0, 2.0)
+}
+
+/// A picture of part of the design: `half` metres either side of `middle`, `scale` metres to
+/// a pixel, with a contour drawn every half metre when it is close enough to see them.
+pub fn picture_of(plan: &Plan, middle: Vec2, half: f32, scale: f32) -> Vec<u8> {
+    let size = (2.0 * half / scale) as usize;
+    let mut bytes = format!("P6\n{size} {size}\n255\n").into_bytes();
+    let pixels: Vec<[u8; 3]> = (0..size * size)
+        .into_par_iter()
+        .map(|index| {
+            let (x, z) = (
+                (index % size) as f32 * scale - half + middle.x,
+                (index / size) as f32 * scale - half + middle.y,
+            );
+            let h = plan.height(x, z);
+            let light = ((plan.height(x - 2.0, z - 2.0) - plan.height(x + 2.0, z + 2.0)) * 0.22
+                + 0.62)
+                .clamp(0.15, 1.0);
+            let cover = plan.cover(x, z);
+            let tall = ((h - 40.0) / 90.0).clamp(0.0, 1.0);
+            let mut color = Vec3::new(0.42 + 0.3 * tall, 0.5 + 0.2 * tall, 0.3 + 0.2 * tall);
+            color = color.lerp(Vec3::new(0.75, 0.72, 0.4), cover.grass * 0.7);
+            color = color.lerp(Vec3::new(0.6, 0.6, 0.62), cover.rock);
+            color = color.lerp(Vec3::new(0.3, 0.38, 0.7), plan.wet(x, z) * 0.6);
+            color *= light;
+            if cover.tread > 0.3 {
+                color = Vec3::new(0.85, 0.5, 0.25);
+                color = color.lerp(Vec3::new(0.35, 0.2, 0.1), cover.mud);
+                color = color.lerp(Vec3::new(0.95, 0.95, 0.95), cover.rock);
+                if cover.bog > 0.1 {
+                    color = Vec3::new(0.9, 0.1, 0.6);
+                }
+                if cover.scour > 0.3 {
+                    color = Vec3::new(0.1, 0.9, 0.9);
+                }
+            }
+            if cover.water {
+                color = Vec3::new(0.1, 0.3, 0.95);
+            }
+            if x.abs().max(z.abs()) > plan.half && (x.abs().max(z.abs()) - plan.half) < 3.0 {
+                color = Vec3::new(1.0, 0.0, 0.0);
+            }
+            if Vec2::new(x, z).distance(plan.camp) < 5.0 {
+                color = Vec3::ONE;
+            }
+            if scale < 1.0 {
+                let line = (h * 2.0).fract();
+                if !(0.06..0.94).contains(&line) {
+                    color *= 0.55;
+                }
+                if plan
+                    .trail
+                    .near(x, z)
+                    .is_some_and(|near| near.offset.abs() < 0.12)
+                {
+                    color = Vec3::new(1.0, 1.0, 0.2);
+                }
+            }
+            (color * 255.0)
+                .to_array()
+                .map(|c| c.clamp(0.0, 255.0) as u8)
+        })
+        .collect();
+    for pixel in pixels {
+        bytes.extend_from_slice(&pixel);
+    }
+    bytes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_grid_reads_between_its_points() {
+        let mut grid = Grid::new(4.0, 2.0);
+        assert_eq!(grid.cells, 4);
+        for index in 0..grid.values.len() {
+            let (x, z) = grid.place(index);
+            grid.values[index] = x + 10.0 * z;
+        }
+        assert!((grid.at(1.0, -1.0) - (1.0 - 10.0)).abs() < 1.0e-4);
+        assert_eq!(grid.nearest(-4.0, -4.0), 0);
+        assert_eq!(grid.place(grid.nearest(1.9, 0.2)), (2.0, 0.0));
+        assert!((grid.slope(0.0, 0.0) - 101.0_f32.sqrt()).abs() < 1.0e-3);
+    }
+
+    #[test]
+    fn water_runs_downhill_and_gathers() {
+        // A trough falling to the east: everything gathers along its middle.
+        let mut land = Grid::new(20.0, 1.0);
+        for index in 0..land.values.len() {
+            let (x, z) = land.place(index);
+            land.values[index] = z.abs() * 0.5 - x * 0.1;
+        }
+        // A pit in it, which must fill and spill rather than swallow the stream.
+        let pit = land.nearest(0.0, 0.0);
+        land.values[pit] -= 3.0;
+        let flow = Flow::new(&land);
+        let mouth = land.nearest(20.0, 0.0);
+        let side = land.nearest(20.0, 15.0);
+        assert!(
+            flow.gathered[mouth] > 600.0,
+            "at the mouth: {}",
+            flow.gathered[mouth]
+        );
+        assert!(flow.gathered[side] < 30.0);
+        let stem = flow.main_stem(100.0);
+        assert!(stem.len() > 25, "{} points", stem.len());
+        // It runs up the trough's middle.
+        for &index in &stem {
+            assert!(land.place(index).1.abs() <= 2.0);
+        }
+        let cut = flow.cut(&land);
+        assert!(cut[mouth] > cut[side]);
+    }
+}

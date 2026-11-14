@@ -26,7 +26,10 @@ pub mod tyre;
 pub mod vehicle;
 
 pub use driver::{Asked, Driver};
+pub use spec::Transfer;
 pub use spec::{SpecError, VehicleSpec};
 pub use surface::Surface;
 pub use tyre::Tyre;
-pub use vehicle::{Body, Contact, Controls, Flat, Ground, Telemetry, Vehicle, Wheel, SUBSTEPS};
+pub use vehicle::{
+    Body, Contact, Controls, DriveMode, Flat, Ground, Telemetry, Vehicle, Wheel, SUBSTEPS,
+};

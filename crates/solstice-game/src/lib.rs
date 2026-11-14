@@ -8,6 +8,7 @@
 //! * [`play`]: a running game, built from a baked scene's gameplay files.
 //! * [`track`]: `.track` files, a circuit's centre line and what lies beside it; [`race`], which
 //!   times laps round it; and [`drive`], the player's car, its camera and its instruments.
+//! * [`ground`]: a map of what open country is made of, for land that is not a circuit.
 //!
 //! None of it touches the GPU. The viewers move the renderer's instances, and its camera, as
 //! [`play::Play::frame`] tells them.
@@ -17,6 +18,7 @@ use solstice_asset::MAX_COORDINATE;
 pub mod actor;
 pub mod animation;
 pub mod drive;
+pub mod ground;
 pub mod input;
 pub mod play;
 pub mod race;
@@ -25,6 +27,7 @@ pub mod track;
 
 pub use actor::{ActorFile, Mesh, Property, PropertyKind};
 pub use drive::Hud;
+pub use ground::SurfaceMap;
 pub use input::{Binding, Device, Devices, InputMap};
 pub use play::{Message, Play, View};
 pub use scene::{missing_files, ActorLine, Blocker, SceneGame, GAME_FILE};

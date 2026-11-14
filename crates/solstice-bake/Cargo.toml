@@ -14,6 +14,7 @@ solstice-game.workspace = true
 solstice-script.workspace = true
 solstice-import.workspace = true
 solstice-procgen.workspace = true
+solstice-vehicle.workspace = true
 glam.workspace = true
 rayon.workspace = true
 rustc-hash.workspace = true

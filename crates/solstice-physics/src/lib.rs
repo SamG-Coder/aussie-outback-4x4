@@ -334,6 +334,23 @@ impl Physics {
             .map(|(_, distance)| from.y - distance)
     }
 
+    /// The height of the land itself under a place, if the scene has a grid of heights:
+    /// not of a wall, a tree or a car that stands on it. For a camera to keep above.
+    pub fn land_below(&self, from: Vec3) -> Option<f32> {
+        let land =
+            |_: ColliderHandle, collider: &Collider| collider.shape().as_heightfield().is_some();
+        let queries = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.bodies,
+            &self.colliders,
+            QueryFilter::new().exclude_sensors().predicate(&land),
+        );
+        let ray = Ray::new(to_vector(from), -Vector::Y);
+        queries
+            .cast_ray(&ray, 10_000.0, true)
+            .map(|(_, distance)| from.y - distance)
+    }
+
     /// One fixed step: takes in new actors, moves kinematic ones to where their transforms say,
     /// steps the simulation, walks the characters, and writes back what physics moved.
     pub fn step(&mut self, world: &mut World) {

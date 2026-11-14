@@ -1,0 +1,7 @@
+# The Ford F-150 Raptor R the player drives. Its model is made from the owner's download by
+# tools/blender/prepare_raptor.py into target/outback/raptor.glb, and is not kept in the
+# repository: it is CC BY-NC-SA, by Ddiaz Design.
+name raptor
+mesh ../../target/outback/raptor.glb 1
+vehicle raptor.vehicle
+camera 0 1.7 0

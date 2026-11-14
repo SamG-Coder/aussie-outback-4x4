@@ -20,6 +20,7 @@
 //! input cove/play.input                # the input actions, if not the built-in ones
 //! track circuit/circuit.track          # a circuit: its centre line, and what lies beside it
 //! circuit 1900                         # the land, road and planting round that track, this wide
+//! outback 1000                         # a square of bush this wide, with a four-wheel-drive track
 //! land 10 6                            # the terrain in bands: sand this far in, then dirt, then grass
 //! path 22 0 60 -30 3                   # a dirt path: from x z, to x z, width
 //! yard -21 -21 21 21                   # a dirt yard: opposite corners x z
@@ -41,6 +42,7 @@ use solstice_asset::{
 };
 use solstice_builder::{build_virtual_mesh, BuildOptions};
 use solstice_game::{resolve, ActorFile, ActorLine, Blocker, InputMap, SceneGame, GAME_FILE};
+// (`ActorFile` is also what says whether an actor is a car, for the bush's start.)
 use solstice_import::{append_model, import_gltf, ImportOptions, ModelPlacements};
 use solstice_procgen::noise::fbm;
 use solstice_procgen::surface::TILE_METRES;
@@ -128,6 +130,8 @@ pub(crate) enum Command {
     Track(String),
     /// The land round the scene's track, this many metres across.
     Circuit(f32),
+    /// A square of bush this many metres across, with its own track (`outback.rs`).
+    Outback(f32),
 }
 
 pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
@@ -336,6 +340,16 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
         "track" => {
             expect(1)?;
             Command::Track(values[0].to_string())
+        }
+        "outback" => {
+            expect(1)?;
+            let size = number(0)?;
+            if !(200.0..=2000.0).contains(&size) {
+                return Err(format!(
+                    "a square of bush is 200 to 2000 metres across, not {size}"
+                ));
+            }
+            Command::Outback(size)
         }
         "circuit" => {
             expect(1)?;
@@ -874,6 +888,11 @@ pub fn build(path: &Path, texture_size: Option<u32>) -> Result<(SceneAsset, Vec<
 pub(crate) const TERRAIN_SOURCE: &str = "terrain";
 /// The id under which it maps a circuit's land, road and planting.
 pub(crate) const CIRCUIT_SOURCE: &str = "circuit";
+/// The names the bush's track and the map of its ground go by among a scene's gameplay files.
+const OUTBACK_TRACK: &str = "outback.track";
+const OUTBACK_SURFACES: &str = "outback.surfaces";
+/// And the list of the plants a car flattens, which a viewer reads (`apps/viewer/src/play.rs`).
+const OUTBACK_PLANTS: &str = "outback.plants";
 
 /// Builds a scene from its commands, with files named relative to `base`. Returns it with any
 /// import warnings. Commands from a project are mapped to the instances they made.
@@ -892,6 +911,7 @@ pub(crate) fn build_commands(
     let mut land_plan = crate::land::Plan::default();
     let mut water = None;
     let mut circuit = None;
+    let mut outback = None;
     // Whether there has been a circuit, and a line of land, to refuse the two together.
     let (mut has_land, mut has_circuit) = (false, false);
     // Grouped by file, keeping first-seen order, so that each model is imported only once.
@@ -924,7 +944,7 @@ pub(crate) fn build_commands(
             Command::Water { .. } => Some("water"),
             _ => None,
         };
-        let circuits = matches!(command, Command::Circuit(_));
+        let circuits = matches!(command, Command::Circuit(_) | Command::Outback(_));
         has_land |= land.is_some();
         has_circuit |= circuits;
         if (land.is_some() || circuits) && has_land && has_circuit {
@@ -1088,6 +1108,7 @@ pub(crate) fn build_commands(
             Some(Command::Input(input)) => gameplay.set_input(base, &input).map_err(at)?,
             Some(Command::Track(track)) => gameplay.set_track(base, &track).map_err(at)?,
             Some(Command::Circuit(size)) => circuit = Some(size),
+            Some(Command::Outback(size)) => outback = Some(size),
         }
     }
 
@@ -1221,6 +1242,68 @@ pub(crate) fn build_commands(
         }
         scene.ground = Some(built.ground);
         gameplay.game.blockers.extend(built.blockers);
+    }
+    // A square of bush builds its own land, track and planting, and from the same design the
+    // ground to drive on, the map of what it is made of, and the track's line.
+    if let Some(size) = outback {
+        if gameplay.game.track.is_some() {
+            return Err("`outback` finds its own track: leave out the `track` line".into());
+        }
+        scene.collide.resize(scene.instances.len(), Collide::Auto);
+        let first = scene.instances.len() as u32;
+        let built = crate::outback::build(&mut scene, size)?;
+        scene.collide.resize(scene.instances.len(), Collide::None);
+        if mapped {
+            scene.sources.push(Source {
+                id: CIRCUIT_SOURCE.to_owned(),
+                instances: first..scene.instances.len() as u32,
+                placement: Mat4::IDENTITY,
+            });
+        }
+        scene.ground = Some(built.ground);
+        gameplay.game.blockers.extend(built.blockers);
+        for (name, text) in [
+            (OUTBACK_TRACK, built.track),
+            (OUTBACK_SURFACES, built.surfaces),
+            (OUTBACK_PLANTS, built.plants),
+        ] {
+            gameplay.files.push(GameFile {
+                name: name.to_owned(),
+                text,
+            });
+        }
+        gameplay.game.track = Some(OUTBACK_TRACK.to_owned());
+        gameplay.game.surfaces = Some(OUTBACK_SURFACES.to_owned());
+        let still = scene.still_water.get_or_insert_with(StillWater::default);
+        still.ponds.extend(built.ponds);
+        still.ponds.truncate(8);
+        // A car belongs at the track's start, which only the design knows: say where, if the
+        // scene has one somewhere else.
+        let (start, yaw) = built.start;
+        println!(
+            "  the track starts at {:.2} {:.2} {:.2}, facing {:.1}",
+            start.x, start.y, start.z, yaw
+        );
+        for line in &gameplay.game.actors {
+            let drives = gameplay
+                .files
+                .iter()
+                .find(|file| file.name == line.file)
+                .and_then(|file| ActorFile::parse(&file.text).ok())
+                .is_some_and(|actor| actor.vehicle.is_some());
+            let off = line.position - start;
+            if drives && (off.x.hypot(off.z) > 3.0 || off.y.abs() > 0.5) {
+                return Err(format!(
+                    "{} is at {}, off the track: its start is `{:.2} {:.2} {:.2} {:.1}`",
+                    line.file,
+                    line.position,
+                    start.x,
+                    start.y + 0.05,
+                    start.z,
+                    yaw
+                ));
+            }
+        }
     }
     scene.gameplay = gameplay.finish();
 

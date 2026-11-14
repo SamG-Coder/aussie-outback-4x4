@@ -34,6 +34,10 @@ wgpu.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 env_logger = "0.11"
+# Gamepads, natively: the browser build reads them from the page (docs/gameplay.md).
+gilrs = "0.11"
+# PlayStation controllers, which Windows shows only as bare HID devices (`src/sony.rs`).
+hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 png = "0.17"
 pollster.workspace = true
 winit = "0.30"

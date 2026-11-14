@@ -101,9 +101,21 @@ look_round key KeyJ -1
 look_over gamepad right_y
 look_over key KeyI
 look_over key KeyK -1
+# The mouse swings the view right round the car, and up over it.
+orbit mouse x -0.0032
+orbit_up mouse y 0.0026
 # P hands the car to a driver of its own, round the circuit, and takes it back.
 autopilot key KeyP
 autopilot gamepad start
+# A four-wheel drive: T moves its transfer case on, from two-wheel drive to four high to four
+# low; G locks its differentials, the rear, then both, then neither.
+drive_mode key KeyT
+drive_mode gamepad west
+diff_lock key KeyG
+diff_lock gamepad south
+# Y lets its tyres down for mud and sand, and pumps them up again for hard ground.
+tyres key KeyY
+tyres gamepad up
 ";
 
 /// A kind of input device.

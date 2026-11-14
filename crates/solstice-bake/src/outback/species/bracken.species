@@ -1,0 +1,9 @@
+# Austral bracken (Pteridium esculentum): the fern of every dry forest floor and track
+# edge, knee to waist high, in drifts.
+height 0.12
+trunk radius=0.012 flare=0.1 gnarl=0.1
+crown even
+bark stringybark
+# Each stub carries fronds that stand up from the ground and bow over at their tips.
+level per_metre=90 span=0.1..1 angle=8..40 length=0.6 radius=0.5 gnarl=0.1
+leaves fern_fronds per_metre=60 length=0.5..0.95 width=0.22 variants=0.3,0.3,0.2,0.2 normals=0.4 lean=2.2

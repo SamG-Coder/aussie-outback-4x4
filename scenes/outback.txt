@@ -1,0 +1,8 @@
+# Wombat Creek: a square kilometre of Victorian foothill bush, with a four-wheel-drive track
+# looping through it, over two fords, up both sides' hills and through the bog flats.
+# Make the truck's model first (tools/blender/prepare_raptor.py). Everything else is built
+# from the `outback` line: the land, the creek, the track, and what grows.
+texture_size 1024
+camera -150 74 -150 0.4 -0.1
+outback 1000
+actor outback/raptor.actor -158.09 70.73 -160.11 177.1

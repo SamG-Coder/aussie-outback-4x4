@@ -103,11 +103,35 @@ pub fn asked(input: &Input) -> Asked {
     }
 }
 
-/// How hard the car that drives itself corners and brakes, in metres a second squared: within
-/// what a racing car on slicks does, with room to spare.
-const SELF_CORNERING: f32 = 13.0;
-const SELF_BRAKING: f32 = 12.0;
-const SELF_TOP_SPEED: f32 = 80.0;
+/// How hard a car that drives itself corners and brakes, in metres a second squared, and how
+/// fast it will go, in metres a second.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Pace {
+    pub cornering: f32,
+    pub braking: f32,
+    pub top_speed: f32,
+    /// How far ahead along the track it steers for, in metres: so far, and so much more for
+    /// each metre a second it is going.
+    pub looks: (f32, f32),
+}
+
+impl Pace {
+    /// Round a circuit: within what a racing car on slicks does, with room to spare.
+    pub const RACING: Self = Self {
+        cornering: 13.0,
+        braking: 12.0,
+        top_speed: 80.0,
+        looks: (7.0, 0.55),
+    };
+    /// Along a bush track: what loose clay lets a truck do, at a pace to see the country by.
+    pub const TOURING: Self = Self {
+        cornering: 2.4,
+        braking: 2.8,
+        top_speed: 11.0,
+        // A track a car's width wide is followed closely, or its bends are cut through trees.
+        looks: (3.6, 0.42),
+    };
+}
 
 /// What a car driving itself round a track asks for, for showing a circuit off and for trying
 /// one: it steers for the middle of the road a way ahead, further the faster it goes, and
@@ -120,27 +144,49 @@ pub fn autopilot(
     forward: Vec3,
     speed: f32,
     hint: Option<usize>,
+    pace: &Pace,
+    caution: Option<&dyn Fn(Vec3) -> f32>,
 ) -> (Asked, usize) {
     let place = track.locate(position, hint);
     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
-    let (target, _, _) = track.place(place.along + 7.0 + speed.abs() * 0.55);
+    let (target, _, _) = track.place(place.along + pace.looks.0 + speed.abs() * pace.looks.1);
     let to = flat(target - position).normalize_or_zero();
     // Above zero when the target is to the right, which is the way steering above zero turns.
     let turn = -flat(forward).normalize_or_zero().cross(to).y;
 
     // How fast each stretch of road ahead can be taken, and so how fast the car may be going
     // now and still slow for it in the distance there is.
-    let mut limit = SELF_TOP_SPEED;
+    let mut limit = pace.top_speed;
     let mut ahead = 0.0_f32;
     while ahead < 260.0 {
         let at = |d: f32| flat(track.place(place.along + ahead + d).0);
         let (a, b, c) = (at(-6.0), at(0.0), at(6.0));
         let bend = 2.0 * (b - a).cross(c - b).length()
             / ((b - a).length() * (c - b).length() * (c - a).length()).max(1.0e-6);
-        let through = (SELF_CORNERING / bend.max(1.0e-4)).sqrt();
+        let through = (pace.cornering / bend.max(1.0e-4)).sqrt();
         let room = (ahead - 10.0).max(0.0);
-        limit = limit.min((through * through + 2.0 * SELF_BRAKING * room).sqrt());
+        limit = limit.min((through * through + 2.0 * pace.braking * room).sqrt());
         ahead += 8.0;
+    }
+    // And for what the ground ahead is: `caution` says how fast a place may be crossed, a ford
+    // or a bog at a crawl, and a track that drops away and comes back, as at a washout, is
+    // crossed at one too.
+    if let Some(caution) = caution {
+        let mut ahead = 0.0_f32;
+        while ahead <= 24.0 {
+            let at = |d: f32| track.place(place.along + ahead + d).0;
+            let (before, here, after) = (at(-3.0), at(0.0), at(3.0));
+            let dip = (before.y + after.y - 2.0 * here.y).abs();
+            let mut slow = caution(here);
+            if dip > 0.22 {
+                slow = slow.min(2.2);
+            } else if dip > 0.1 {
+                slow = slow.min(4.0);
+            }
+            let room = (ahead - 5.0).max(0.0);
+            limit = limit.min((slow * slow + 2.0 * pace.braking * room).sqrt());
+            ahead += 3.0;
+        }
     }
     let asked = Asked {
         throttle: ((limit - speed) * 0.6).clamp(0.0, 1.0),
@@ -231,6 +277,10 @@ pub struct Look {
     pub around: f32,
     /// Over it: at 1 the camera is tipped up high above the car, at -1 down low behind it.
     pub over: f32,
+    /// How far the mouse or the stick has swung the view round the car this frame, in radians,
+    /// above zero to the left, and how far it has tipped it up over the car.
+    pub orbit: f32,
+    pub orbit_up: f32,
 }
 
 /// How far round the car a stick held right over looks, in radians, and how far up and down
@@ -254,6 +304,18 @@ pub struct Chase {
     around: f32,
     over: f32,
     started: bool,
+    /// Where the mouse or the stick has swung the view to, round the car and over it, in
+    /// radians: it stays there until it is swung again.
+    orbit: f32,
+    tilt: f32,
+    /// How far the camera is lifted to keep the land out of the way, in metres, eased.
+    lift: f32,
+    /// How much bigger than a racing car what it follows is: a truck is followed from further
+    /// back and higher. Zero stands for one.
+    pub reach: f32,
+    /// Where the driver's eyes are, and the front of the car, from its origin, if they are
+    /// not a racing car's: for the views from on the car.
+    pub eyes: Option<[Vec3; 2]>,
 }
 
 /// Where a camera is, and the way it looks.
@@ -272,7 +334,17 @@ fn turn(from: f32, to: f32) -> f32 {
 impl Chase {
     /// The camera for a frame `seconds` long, for a car drawn at `car`, going at `speed` metres
     /// a second, with the player looking as `look` says.
-    pub fn frame(&mut self, car: Mat4, speed: f32, look: Look, seconds: f32) -> Shot {
+    ///
+    /// `land` gives the land's height under a place, if it is known: the camera is kept above
+    /// it, and lifted as far as it takes to see the car over a rise between them.
+    pub fn frame(
+        &mut self,
+        car: Mat4,
+        speed: f32,
+        look: Look,
+        seconds: f32,
+        land: Option<&dyn Fn(Vec3) -> Option<f32>>,
+    ) -> Shot {
         let (_, rotation, origin) = car.to_scale_rotation_translation();
         let forward = rotation * Vec3::NEG_Z;
         let heading = (-forward.x).atan2(-forward.z);
@@ -286,12 +358,22 @@ impl Chase {
         let follow = 1.0 - (-seconds / LOOK_EASE).exp();
         self.around += (around - self.around) * follow;
         self.over += (over - self.over) * follow;
+        // The mouse and the stick swing the view freely: all the way round, and from low
+        // behind the car to high over it. It stays where it is put.
+        if look.orbit != 0.0 || look.orbit_up != 0.0 {
+            self.orbit = turn(0.0, self.orbit + look.orbit);
+            self.tilt = (self.tilt + look.orbit_up).clamp(-0.3, 1.05);
+        }
+        let reach = if self.reach > 0.0 { self.reach } else { 1.0 };
         let Some((back, up, ease)) = self.view.following() else {
             self.started = false;
+            let eyes = self
+                .eyes
+                .unwrap_or([Vec3::new(0.0, 1.02, -0.45), Vec3::new(0.0, 0.52, -2.05)]);
             let eye = if self.view == CameraView::Bonnet {
-                Vec3::new(0.0, 1.02, -0.45)
+                eyes[0]
             } else {
-                Vec3::new(0.0, 0.52, -2.05)
+                eyes[1]
             };
             // From on the car, the stick turns the driver's head: to the side, and no further.
             let head = self.around.clamp(-1.9, 1.9);
@@ -312,15 +394,30 @@ impl Chase {
         self.yaw += turn(self.yaw, heading) * follow;
         self.height += (origin.y - self.height) * (1.0 - (-seconds / 0.09).exp());
         // Looking to the right is from over the car's left shoulder.
-        let round = self.yaw + behind - self.around;
+        let round = self.yaw + behind - self.around + self.orbit;
         let away = Vec3::new(round.sin(), 0.0, round.cos());
+        let (back, up) = (back * reach, up * reach);
         let back = back + (speed.abs() / 85.0).min(1.0) * 0.9;
         // Tipped up over the car, or down behind it: the camera's arm swings about the car.
-        let (sin, cos) = self.over.sin_cos();
+        let (sin, cos) = (self.over + self.tilt).sin_cos();
         let (back, up) = (back * cos - up * sin, (up * cos + back * sin).max(0.35));
-        let position = Vec3::new(origin.x, self.height, origin.z) + away * back + Vec3::Y * up;
+        let mut position = Vec3::new(origin.x, self.height, origin.z) + away * back + Vec3::Y * up;
         // Looking at a point above the car and a little ahead of it.
-        let target = origin + Vec3::Y * 0.85 - away * 1.2;
+        let target = origin + Vec3::Y * (0.85 * reach) - away * 1.2;
+        // The land comes first: the camera is never under it, and where a rise stands
+        // between it and the car it climbs until it sees over. Up quickly, down slowly.
+        if let Some(land) = land {
+            let mut needed = 0.0_f32;
+            for (share, clear) in [(0.35, 0.25), (0.6, 0.3), (0.82, 0.4), (1.0, 0.7)] {
+                let at = target.lerp(position, share);
+                if let Some(ground) = land(at + Vec3::Y * 40.0) {
+                    needed = needed.max((ground + clear - at.y) / share);
+                }
+            }
+            let pace = if needed > self.lift { 0.07 } else { 0.6 };
+            self.lift += (needed - self.lift) * (1.0 - (-seconds / pace).exp());
+            position.y += self.lift.max(0.0);
+        }
         let to = target - position;
         Shot {
             position,
@@ -343,6 +440,32 @@ pub struct Hud {
     pub lap: Option<Lap>,
     pub track: String,
     pub view: CameraView,
+    /// Each wheel, where it meets the ground: for what it throws up.
+    pub wheels: [HudWheel; 4],
+    /// The way the car points, and how fast it is going, in the world.
+    pub forward: Vec3,
+    pub velocity: Vec3,
+    /// Whether the car has a transfer case: only then is its setting shown.
+    pub four_wheel_drive: bool,
+    /// How far its nose is up, and how far it leans to its right, in degrees.
+    pub pitch: f32,
+    pub roll: f32,
+}
+
+/// One wheel of the player's car, where it meets the ground.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HudWheel {
+    /// Where its tyre touches, in the world.
+    pub at: Vec3,
+    pub on_ground: bool,
+    pub surface: solstice_physics::vehicle::Surface,
+    /// How fast its tread passes over the ground, in metres a second: above zero spinning
+    /// faster than it rolls, below it locked or dragging.
+    pub slip: f32,
+    /// How far it has sunk into the ground, in metres, and how hard it is pressed to it, as a
+    /// share of its load standing still.
+    pub sink: f32,
+    pub load: f32,
 }
 
 impl Hud {
@@ -368,6 +491,27 @@ impl Hud {
         }
         if t.stability_active {
             line.push_str("   ESC");
+        }
+        if self.four_wheel_drive {
+            line.push_str("   ");
+            line.push_str(t.drive.name());
+            match (t.front_locked, t.rear_locked) {
+                (true, true) => line.push_str("  diffs locked"),
+                (false, true) => line.push_str("  rear diff locked"),
+                (true, false) => line.push_str("  front diff locked"),
+                (false, false) => {}
+            }
+            if t.descent_active {
+                line.push_str("  HDC");
+            }
+            if t.aired_down {
+                line.push_str("  tyres down");
+            }
+            // The inclinometer: a truck goes over somewhere past forty degrees of lean.
+            line.push_str(&format!(
+                "   pitch {:+3.0}°  roll {:+3.0}°",
+                self.pitch, self.roll
+            ));
         }
         if let Some(lap) = &self.lap {
             let time = |seconds: Option<f64>| seconds.map_or("-:--.---".to_owned(), format_time);
@@ -429,7 +573,7 @@ mod tests {
             Vec3::new(10.0, 2.0, 5.0),
         );
         let ahead = Look::default();
-        let shot = chase.frame(car, 0.0, ahead, 1.0 / 60.0);
+        let shot = chase.frame(car, 0.0, ahead, 1.0 / 60.0, None);
         assert!(shot.position.x < 10.0 - 4.0, "behind: {}", shot.position);
         assert!((shot.position.z - 5.0).abs() < 1.0e-3 && shot.position.y > 3.0);
         assert!(
@@ -446,12 +590,12 @@ mod tests {
             back: true,
             ..Look::default()
         };
-        let shot = chase.frame(car, 0.0, back, 1.0 / 60.0);
+        let shot = chase.frame(car, 0.0, back, 1.0 / 60.0, None);
         assert!(shot.position.x > 14.0);
         assert!((turn(shot.yaw, std::f32::consts::FRAC_PI_2)).abs() < 1.0e-3);
         // When the car turns, the camera comes round after it, not at once.
         let turned = Mat4::from_rotation_translation(Quat::IDENTITY, Vec3::new(10.0, 2.0, 5.0));
-        let first = chase.frame(turned, 30.0, ahead, 1.0 / 60.0);
+        let first = chase.frame(turned, 30.0, ahead, 1.0 / 60.0, None);
         assert!(
             first.position.x < 9.0 && first.position.z < 6.5,
             "{}",
@@ -459,7 +603,7 @@ mod tests {
         );
         let mut shot = first;
         for _ in 0..120 {
-            shot = chase.frame(turned, 30.0, ahead, 1.0 / 60.0);
+            shot = chase.frame(turned, 30.0, ahead, 1.0 / 60.0, None);
         }
         assert!((shot.position.x - 10.0).abs() < 0.05 && shot.position.z > 9.0);
         assert!(shot.yaw.abs() < 0.01);
@@ -475,7 +619,7 @@ mod tests {
             Quat::from_rotation_y(0.5) * Quat::from_rotation_x(0.1),
             Vec3::new(1.0, 2.0, 3.0),
         );
-        let shot = chase.frame(car, 20.0, Look::default(), 1.0 / 60.0);
+        let shot = chase.frame(car, 20.0, Look::default(), 1.0 / 60.0, None);
         assert!((shot.yaw - 0.5).abs() < 1.0e-4 && (shot.pitch - 0.1).abs() < 1.0e-4);
         assert!(shot.position.distance(Vec3::new(1.0, 2.0, 3.0)) < 1.3);
         // The stick turns the driver's head: to the right is a lower yaw.
@@ -485,7 +629,7 @@ mod tests {
         };
         let mut turned = shot;
         for _ in 0..60 {
-            turned = chase.frame(car, 20.0, right, 1.0 / 60.0);
+            turned = chase.frame(car, 20.0, right, 1.0 / 60.0, None);
         }
         assert!(
             turned.yaw < 0.5 - 1.5 && turned.yaw > 0.5 - 2.0,
@@ -506,7 +650,7 @@ mod tests {
                 view,
                 ..Chase::default()
             };
-            let shot = chase.frame(car, 0.0, Look::default(), 1.0 / 60.0);
+            let shot = chase.frame(car, 0.0, Look::default(), 1.0 / 60.0, None);
             let away = shot.position.length();
             assert!(away > last * 1.3, "{view:?} is {away} m away, after {last}");
             // And looks down at the car from behind it.
@@ -525,9 +669,9 @@ mod tests {
         let car = Mat4::IDENTITY;
         let mut chase = Chase::default();
         let settle = |chase: &mut Chase, look: Look| {
-            let mut shot = chase.frame(car, 0.0, look, 1.0 / 60.0);
+            let mut shot = chase.frame(car, 0.0, look, 1.0 / 60.0, None);
             for _ in 0..90 {
-                shot = chase.frame(car, 0.0, look, 1.0 / 60.0);
+                shot = chase.frame(car, 0.0, look, 1.0 / 60.0, None);
             }
             shot
         };
@@ -571,6 +715,7 @@ mod tests {
                 ..Look::default()
             },
             1.0 / 60.0,
+            None,
         );
         assert!(first.position.distance(ahead.position) < 3.5);
         // Let go, and it comes back behind.

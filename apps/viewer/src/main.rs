@@ -34,6 +34,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+mod sony;
+
+#[cfg(not(target_arch = "wasm32"))]
 mod native {
     use glam::Vec3;
     use solstice_asset::paged::PagedScene;
@@ -824,6 +827,15 @@ mod native {
                 keys: HashSet::new(),
                 captured_mouse: false,
                 weather_index: 0,
+                // A machine with no way to read gamepads plays on with its keys.
+                pads: match gilrs::Gilrs::new() {
+                    Ok(pads) => Some(pads),
+                    Err(error) => {
+                        log::warn!("gamepads can't be read: {error}");
+                        None
+                    }
+                },
+                sony: crate::sony::SonyPad::new(),
             };
             event_loop.run_app(&mut app)?;
             Ok(())
@@ -1447,6 +1459,53 @@ mod native {
         captured_mouse: bool,
         /// Which built-in weather the C key moved to last.
         weather_index: usize,
+        /// The gamepads plugged in, if they can be read.
+        pads: Option<gilrs::Gilrs>,
+        /// A PlayStation controller, which is read by itself.
+        sony: Option<crate::sony::SonyPad>,
+    }
+
+    /// Hands the game what the first gamepad plugged in is doing: each button by how far it is
+    /// pressed, so that the triggers are pedals, and each stick, by the names the standard
+    /// layout gives them (`solstice_game::input`).
+    fn read_pads(pads: &mut gilrs::Gilrs, devices: &mut solstice_game::Devices) {
+        use gilrs::{Axis, Button};
+        // Its events are what keeps its picture of each pad up to date.
+        while pads.next_event().is_some() {}
+        let Some((_, pad)) = pads.gamepads().next() else {
+            return;
+        };
+        const BUTTONS: [(Button, &str); 16] = [
+            (Button::South, "south"),
+            (Button::East, "east"),
+            (Button::West, "west"),
+            (Button::North, "north"),
+            (Button::LeftTrigger, "l1"),
+            (Button::RightTrigger, "r1"),
+            (Button::LeftTrigger2, "l2"),
+            (Button::RightTrigger2, "r2"),
+            (Button::Select, "select"),
+            (Button::Start, "start"),
+            (Button::LeftThumb, "l3"),
+            (Button::RightThumb, "r3"),
+            (Button::DPadUp, "up"),
+            (Button::DPadDown, "down"),
+            (Button::DPadLeft, "left"),
+            (Button::DPadRight, "right"),
+        ];
+        for (button, name) in BUTTONS {
+            let value = pad.button_data(button).map_or(0.0, |data| data.value());
+            devices.gamepad_button(name, value);
+        }
+        // A stick pushed away is above zero here, and below it in the standard layout.
+        for (axis, name, sign) in [
+            (Axis::LeftStickX, "left_x", 1.0),
+            (Axis::LeftStickY, "left_y", -1.0),
+            (Axis::RightStickX, "right_x", 1.0),
+            (Axis::RightStickY, "right_y", -1.0),
+        ] {
+            devices.gamepad_axis(name, pad.value(axis) * sign);
+        }
     }
 
     impl App {
@@ -1557,6 +1616,13 @@ mod native {
             let mut driving = false;
             if let Some((play, watch)) = &mut state.play {
                 watch.check(play, delta);
+                if let Some(pads) = &mut self.pads {
+                    read_pads(pads, &mut play.devices);
+                }
+                // A PlayStation controller, if there is one, has the last word.
+                if let Some(sony) = &mut self.sony {
+                    sony.read(&mut play.devices, delta);
+                }
                 log_messages(play.frame(&mut state.renderer, &mut state.camera.camera, delta));
                 // Driving, the title is the dashboard: speed, gear, revs and lap times.
                 if let Some(hud) = play.play.hud() {

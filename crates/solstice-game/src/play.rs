@@ -100,6 +100,8 @@ pub struct Play {
     flying: bool,
     /// The circuit, if the scene is one.
     track: Option<Rc<Track>>,
+    /// How wet the ground is, from 0 to 1, as whoever runs the weather last said.
+    wetness: Rc<Cell<f32>>,
     /// The camera that follows the player's car.
     chase: Chase,
     /// The player's car's instruments, as of the latest frame.
@@ -107,6 +109,9 @@ pub struct Play {
     /// What the timing of laps has to say, for the viewer to show.
     race_log: Rc<RefCell<Vec<String>>>,
 }
+
+/// How fast a stick held right over swings the view round a car, in radians a second.
+const STICK_ORBIT: f32 = 2.4;
 
 impl Play {
     /// Builds the game in a baked scene's gameplay `files`. `instance` gives where the bake
@@ -172,6 +177,29 @@ impl Play {
                 place.surface
             });
         }
+        // Open country has a map of its ground, which says more than a track's edges can.
+        let ground: Option<Rc<crate::SurfaceMap>> = match &scene.surfaces {
+            None => None,
+            Some(name) => match file(name).map(|text| crate::SurfaceMap::parse(text)) {
+                Some(Ok(map)) => {
+                    let map = Rc::new(map);
+                    let tyres = map.clone();
+                    physics
+                        .borrow_mut()
+                        .set_surfaces(move |point| tyres.at(point));
+                    Some(map)
+                }
+                Some(Err(e)) => {
+                    errors.push(format!("{name}: {e}"));
+                    None
+                }
+                None => {
+                    errors.push(format!("{name}: missing from the scene's gameplay"));
+                    None
+                }
+            },
+        };
+        let mapped = ground.is_some();
         if let Some(collision) = collision {
             physics.borrow_mut().add_scene(collision, &instance);
         }
@@ -350,9 +378,26 @@ impl Play {
         let circuit = track.clone();
         // Whether the car is driving itself round the circuit, and where on it it last was.
         let (mut itself, mut last_at) = (false, None);
+        // How long the car driving itself has been asking to go and going nowhere.
+        let mut stuck_for = 0.0_f32;
+        // Where it was when it last got anywhere: a car wedged in a hole can spin its wheels
+        // and shake without going anywhere at all.
+        let mut last_place = Vec3::ZERO;
         // Whether the player's own gearbox is automatic, while the car drives itself.
         let mut players_gearbox = true;
+        let wetness: Rc<Cell<f32>> = Rc::default();
+        let rained = wetness.clone();
+        // On a bush track a car that drives itself tours; round a circuit, it races.
+        let pace = if mapped {
+            drive::Pace::TOURING
+        } else {
+            drive::Pace::RACING
+        };
         schedule.add(TickGroup::PrePhysics, "driving", move |world| {
+            // Every car's tyres are on ground as wet as the weather has made it.
+            for (_, car) in world.entities.query_mut::<(Entity, &mut Car)>() {
+                car.vehicle.set_wetness(rained.get());
+            }
             let Some(entity) = driven else {
                 return;
             };
@@ -375,6 +420,13 @@ impl Play {
                     if itself {
                         players_gearbox = car.driver.automatic;
                         car.driver.automatic = true;
+                        // Off the road it drives as anyone would: both axles driven, and
+                        // the rear differential locked.
+                        if mapped {
+                            car.vehicle
+                                .set_drive_mode(solstice_physics::vehicle::DriveMode::FourHigh);
+                            car.vehicle.set_lockers(false, true);
+                        }
                     } else {
                         car.driver.automatic = players_gearbox;
                     }
@@ -392,12 +444,50 @@ impl Play {
                         transform.rotation * Vec3::NEG_Z,
                         car.vehicle.telemetry().speed,
                         last_at,
+                        &pace,
+                        // On mapped ground it goes by what is ahead: a crawl through water
+                        // and bog, slowly over rock and mud.
+                        ground
+                            .as_ref()
+                            .map(|map| {
+                                let map = map.clone();
+                                move |point: Vec3| match map.at(point) {
+                                    Surface::Ford | Surface::Bog => 2.6_f32,
+                                    Surface::Rock => 3.2,
+                                    Surface::Mud => 5.0,
+                                    _ => f32::INFINITY,
+                                }
+                            })
+                            .as_ref()
+                            .map(|caution| caution as &dyn Fn(Vec3) -> f32),
                     );
                     (asked, last_at) = (driven, Some(at));
                 }
             }
+            let (shift_drive, shift_lock, air) = (
+                !away && world.input().pressed("drive_mode"),
+                !away && world.input().pressed("diff_lock"),
+                !away && world.input().pressed("tyres"),
+            );
             if let Ok(mut car) = world.entities.get::<&mut Car>(entity) {
                 car.asked = asked;
+                // A four-wheel drive's lever, and its lockers: the rear, then both, then none.
+                if shift_drive {
+                    let next = car.vehicle.drive_mode().next();
+                    car.vehicle.set_drive_mode(next);
+                }
+                if shift_lock {
+                    let (front, rear) = match car.vehicle.lockers() {
+                        (false, false) => (false, true),
+                        (false, true) => (true, true),
+                        _ => (false, false),
+                    };
+                    car.vehicle.set_lockers(front, rear);
+                }
+                if air {
+                    let aired = car.vehicle.aired_down();
+                    car.vehicle.set_aired_down(!aired);
+                }
             }
             // Put back on the track when the player asks, and when the car has fallen far
             // below it: off a cliff, or into the sea.
@@ -409,9 +499,29 @@ impl Play {
                     at.translation.y < track.samples[place.sample].position.y - drive::FALLEN
                 })
             });
-            if let (true, Some(track)) = (reset || fallen, &circuit) {
+            // A car driving itself that has gone nowhere for five seconds is stuck: against a
+            // tree, in a bog, or on its side. It is put back, as a player would ask to be.
+            let here = world
+                .entities
+                .get::<&Transform>(entity)
+                .map_or(Vec3::ZERO, |at| at.translation);
+            if !itself || here.distance(last_place) > 1.5 {
+                last_place = here;
+                stuck_for = 0.0;
+            } else {
+                stuck_for += STEP_SECONDS as f32;
+            }
+            // Going nowhere for two seconds, it locks the front differential as well.
+            if itself && mapped && stuck_for > 2.0 {
+                if let Ok(mut car) = world.entities.get::<&mut Car>(entity) {
+                    car.vehicle.set_lockers(true, true);
+                }
+            }
+            let stuck = stuck_for > 6.0;
+            if let (true, Some(track)) = (reset || fallen || stuck, &circuit) {
                 drive::put_back(world, entity, track);
                 last_at = None;
+                stuck_for = 0.0;
             }
         });
         Physics::install(&physics, &mut schedule);
@@ -431,8 +541,11 @@ impl Play {
                 };
                 // Off the track: every wheel that is on the ground is on neither asphalt nor
                 // kerb.
+                // On mapped ground the loop is a track through the bush, not a road with
+                // edges: wherever a car goes on its way round counts.
                 let mut grounded = car.vehicle.wheels.iter().filter(|wheel| wheel.on_ground);
-                let off_track = grounded.clone().next().is_some()
+                let off_track = !mapped
+                    && grounded.clone().next().is_some()
                     && grounded
                         .all(|wheel| !matches!(wheel.surface, Surface::Asphalt | Surface::Kerb));
                 for event in lap.step(track, transform.translation, off_track, STEP_SECONDS) {
@@ -505,6 +618,7 @@ impl Play {
             viewer: Vec3::ZERO,
             flying: false,
             track,
+            wetness,
             chase: Chase::default(),
             hud: None,
             race_log,
@@ -514,6 +628,12 @@ impl Play {
     /// The circuit, if the scene is one.
     pub fn track(&self) -> Option<&Track> {
         self.track.as_deref()
+    }
+
+    /// Says how wet the ground is, from 0, dry, to 1, soaked: whoever runs the weather tells
+    /// the game, and every car's tyres feel it from the next step.
+    pub fn set_wetness(&self, wetness: f32) {
+        self.wetness.set(wetness.clamp(0.0, 1.0));
     }
 
     /// The player's car's instruments as of the latest frame, if the player drives a car.
@@ -706,12 +826,31 @@ impl Play {
             let telemetry = *car.vehicle.telemetry();
             let look = drive::Look {
                 back: input.held("look_back"),
-                around: input.value("look_round"),
-                over: input.value("look_over"),
+                // The right stick and the mouse do the same thing: swing the view, which
+                // then stays where it was put. A stick held over turns it at a steady rate.
+                around: 0.0,
+                over: 0.0,
+                orbit: (input.value("orbit") - input.value("look_round") * STICK_ORBIT)
+                    * seconds as f32,
+                orbit_up: (input.value("orbit_up") + input.value("look_over") * STICK_ORBIT * 0.6)
+                    * seconds as f32,
             };
+            // A truck is followed from further off than a racing car, and seen out of from
+            // higher up.
+            let body = car.vehicle.spec();
+            if body.body_size.z > 4.8 || body.centre.y > 0.55 {
+                let tall = 1.0 + (body.centre.y - 0.4).max(0.0) * 0.8;
+                self.chase.reach = (body.body_size.z / 4.5).max(1.0) * tall;
+                self.chase.eyes = Some([
+                    Vec3::new(0.0, body.body_at.y + body.body_size.y * 0.42, -0.25),
+                    Vec3::new(0.0, body.body_at.y - 0.2, -(body.body_size.z * 0.5 + 0.35)),
+                ]);
+            }
+            let physics = self.physics.borrow();
+            let land = |at: Vec3| physics.land_below(at);
             let shot = self
                 .chase
-                .frame(world, telemetry.speed, look, seconds as f32);
+                .frame(world, telemetry.speed, look, seconds as f32, Some(&land));
             // Filled in place each frame: the lap's times are copied into what the last frame
             // had, and the track's name is set once.
             let hud = self.hud.get_or_insert_with(|| Hud {
@@ -727,6 +866,12 @@ impl Play {
                     .map(|track| track.name.clone())
                     .unwrap_or_default(),
                 view: self.chase.view,
+                wheels: Default::default(),
+                forward: Vec3::NEG_Z,
+                velocity: Vec3::ZERO,
+                four_wheel_drive: false,
+                pitch: 0.0,
+                roll: 0.0,
             });
             hud.telemetry = telemetry;
             hud.limit = car.vehicle.spec().engine.limit;
@@ -734,6 +879,29 @@ impl Play {
             hud.brake = car.controls.brake;
             hud.steer = car.controls.steer;
             hud.view = self.chase.view;
+            hud.four_wheel_drive = car.vehicle.spec().transfer.is_some();
+            let (_, rotation, origin) = world.to_scale_rotation_translation();
+            // How far its nose is up, and how far it leans to its right, as an inclinometer
+            // on the dash shows them.
+            let (_, pitch, roll) = rotation.to_euler(glam::EulerRot::YXZ);
+            (hud.pitch, hud.roll) = (pitch.to_degrees(), -roll.to_degrees());
+            hud.forward = rotation * Vec3::NEG_Z;
+            hud.velocity = hud.forward * telemetry.speed;
+            let spec = car.vehicle.spec();
+            let (front, rear) = spec.static_loads(9.81);
+            for (index, shown) in hud.wheels.iter_mut().enumerate() {
+                let wheel = &car.vehicle.wheels[index];
+                let axle = spec.axle(index);
+                let (hub, _) = car.vehicle.wheel_pose(index);
+                *shown = drive::HudWheel {
+                    at: origin + rotation * (hub - Vec3::Y * axle.radius),
+                    on_ground: wheel.on_ground,
+                    surface: wheel.surface,
+                    slip: wheel.speed * axle.radius - telemetry.speed,
+                    sink: wheel.sink,
+                    load: wheel.load / if index < 2 { front } else { rear },
+                };
+            }
             match (entities.get::<&Lap>(player.entity).ok(), &mut hud.lap) {
                 (Some(lap), Some(shown)) => shown.clone_from(&lap),
                 (Some(lap), shown) => *shown = Some((*lap).clone()),

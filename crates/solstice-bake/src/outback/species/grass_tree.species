@@ -1,0 +1,10 @@
+# A grass tree (Xanthorrhoea australis): a short black trunk, charred by every fire it has
+# lived through, under a great tussock of blades as long as an arm that arch out and hang
+# round it as a skirt.
+height 1.1
+trunk radius=0.15 flare=0.12 gnarl=0.08
+crown even
+bark ironbark
+# The crown: short stubs at the very top that the blades spring from.
+level per_metre=46 span=0.8..1 angle=12..70 length=0.13 radius=0.22 gnarl=0.1
+leaves grass_tree_leaves per_metre=640 length=0.7..1.1 width=0.012 variants=0.42,0.3,0.1,0.18 normals=0.3 lean=0.8

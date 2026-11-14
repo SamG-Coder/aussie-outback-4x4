@@ -1,0 +1,11 @@
+# A silver wattle (Acacia dealbata): a small, quick tree of gullies and track sides, with a
+# smooth dark stem, feathery blue-grey foliage, and in late winter a crown of gold.
+height 7
+trunk radius=0.11 flare=0.25 gnarl=0.1
+crown round
+bark beech_bark
+level per_metre=2.4 span=0.3..0.97 angle=56..30 length=0.5 radius=0.5 upturn=0.2 droop=0.08 gnarl=0.35
+level per_metre=3.6 span=0.2..1 angle=48 length=0.42 radius=0.55 droop=0.25 gnarl=0.5
+level per_metre=8 span=0.15..1 angle=50 length=0.3 radius=0.6 droop=0.2 gnarl=0.5
+# Sprays of leaflets; for a spray, width is each leaflet's length as a share of the spray's.
+leaves wattle_leaves per_metre=30 length=0.11..0.17 width=0.3 variants=0.38,0.3,0.14,0.18 normals=0.5

@@ -1,0 +1,10 @@
+# Regrowth: a young gum a few years after a fire or a fallen tree let the light in. A thin,
+# smooth pole with a narrow crown of leaves bigger and bluer than a grown tree's.
+height 7
+trunk radius=0.075 flare=0.2 gnarl=0.06
+crown profile 0.5 0.9 1 0.7
+bark gum_bark
+level per_metre=2.6 span=0.3..0.98 angle=48..26 length=0.36 radius=0.5 upturn=0.25 droop=0.04 gnarl=0.3
+level per_metre=5 span=0.2..1 angle=46 length=0.45 radius=0.55 droop=0.3 gnarl=0.5
+level per_metre=7 span=0.2..1 angle=48 length=0.4 radius=0.6 droop=0.6 gnarl=0.5
+leaves gum_leaves per_metre=50 length=0.1..0.17 width=0.28 variants=0.2,0.3,0.35,0.15 normals=0.45 lean=1.2
