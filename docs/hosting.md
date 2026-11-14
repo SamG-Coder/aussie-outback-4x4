@@ -65,6 +65,12 @@ build is packed and put in R2, which wrangler does itself, as it is small:
 ```bash
 python scripts/package-release.py     # the zip, and maps.txt, in target/release-pack/
 wrangler r2 object put rust4x4-assets/download/AussieOutback4x4-windows.zip --file target/release-pack/AussieOutback4x4-windows.zip --content-type application/zip --remote
+# The Android app (docs/android.md), the same way.
+wrangler r2 object put rust4x4-assets/download/AussieOutback4x4.apk --file target/android-pack/AussieOutback4x4.apk --content-type application/vnd.android.package-archive --remote
+# The home page says how big each download is and names its build in its link: after either
+# has changed, put the page up again. This does it without building the browser version.
+bash scripts/build-home.sh
+cd site && ../target/tools/wrangler/node_modules/.bin/wrangler pages deploy --branch main --commit-dirty=true
 ```
 
 A map baked again has to go to R2 too, with the two lists that say what it is now: `maps.txt`,

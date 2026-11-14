@@ -95,6 +95,7 @@ def main():
     (game / "scenes").mkdir()
     shutil.copy(ROOT / "scenes" / "outback.world", game / "scenes")
     shutil.copy(ROOT / "android" / "game.txt", game)
+    shutil.copy(ROOT / "android" / "CREDITS.txt", game)
     (game / "assets" / "sounds").mkdir(parents=True)
     for sound in sorted((ROOT / "assets" / "sounds").glob("*.wav")):
         # A file whose name starts with `_` is there to be listened to, and one with a dot in
