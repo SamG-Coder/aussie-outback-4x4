@@ -4,10 +4,12 @@
 
 - `target/release-pack/AussieOutback4x4-windows.zip`: the game's program, its pages, its
   sounds, the two runtime files the program needs from Microsoft's Visual C++ runtime, a
-  Play.bat to start it with, and the credits. About 30 MB.
+  `game.txt` that says what the program does when it is opened, and the credits. About 40 MB.
+  The program is the engine's viewer, marked as a program with a window and no console; with
+  `game.txt` beside it, opening it is starting the game (apps/viewer/src/game.rs).
 - `target/release-pack/maps.txt`: the game's maps, each with a version, which is the start of
   its file's SHA-256. The maps are not in the zip: the game fetches them from the site the
-  first time it is run (`viewer --fetch-maps`, apps/viewer/src/fetch.rs), and again when a
+  first time it is opened, in its own window (apps/viewer/src/fetch.rs), and again when a
   map's version there is not the one it has, a piece at a time and only the pieces it has
   not got. So a new program is a small download, and a new map is its changed pieces.
 
@@ -31,46 +33,40 @@ MAPS = [
     ("blackwood", "Blackwood Gully"),
 ]
 
-PLAY = r"""@echo off
-rem Aussie Outback 4x4. Anything after the name is passed on to the game, for example:
-rem   Play --size 2560x1440
-rem   Play --weather storm --weathered 900      (start in a downpour, ground already soaked)
-rem What the game says as it runs is kept in save\game.log, to look at if something goes wrong.
-setlocal EnableExtensions
-cd /d "%~dp0"
-if not exist save mkdir save
+GAME = """# Aussie Outback 4x4: what AussieOutback4x4.exe does when it is opened. It reads this as it
+# starts (apps/viewer/src/game.rs in the engine).
+title Aussie Outback 4x4
 
-rem The maps are big, and are not in the download: the game fetches them into the assets
-rem folder the first time, and afterwards only the pieces of a map that have changed. What
-rem the maps have in common is downloaded once, and a download that is stopped carries on
-rem where it stopped.
-rem The program is named by where this file is: some machines will not run one from the folder
-rem they are in by its bare name.
-"%~dp0AussieOutback4x4.exe" --fetch-maps https://rust4x4.com https://rust4x4.pages.dev
-if not errorlevel 1 goto play
-if exist "assets\hub.solstice" goto play
-echo.
-echo Aussie Outback 4x4 downloads its maps the first time it is played, and could not get
-echo them. Check the internet connection and open Play.bat again: it carries on where it stopped.
-pause
-exit /b 1
+# What it is run with. More can be added to the line, or given to the program by hand:
+#   --size 2560x1440
+#   --weather storm --weathered 900      (start in a downpour, ground already soaked)
+run --world scenes/outback.world --ui ui --size 1920x1080 --time 10:00 --weather fair
 
-:play
-"%~dp0AussieOutback4x4.exe" --world scenes\outback.world --ui ui --size 1920x1080 --time 10:00 --weather fair %* 2> "save\game.log"
-exit /b 0
+# Where its maps are fetched from, the first that answers. They are big, and are not in the
+# download: the game fetches them into the assets folder the first time it is opened, and
+# afterwards only the pieces of a map that have changed. What the maps have in common comes
+# down once, and a download that is stopped carries on where it stopped.
+maps https://rust4x4.com https://rust4x4.pages.dev
+
+# What the game says as it runs, to look at if something goes wrong.
+log save/game.log
 """
 
 CREDITS = """Aussie Outback 4x4 (pre-alpha)
 https://rust4x4.com
 
-To play: open Play.bat. The first time, it downloads the game's maps into the assets folder
-(about 1.3 GB to download, 1.9 GB on the disk), which needs the internet; after that only the
-pieces of a map that have changed are fetched.
+To play: open AussieOutback4x4.exe. The first time, it downloads the game's maps into the
+assets folder (about 1.3 GB to download, 1.9 GB on the disk), which needs the internet, and
+its loading screen says how far along that is; after that only the pieces of a map that have
+changed are fetched. Closed part of the way, it carries on where it stopped.
 Windows may ask before running a program it has not seen before: choose "More info", then
 "Run anyway". It needs Windows 10 or 11, 64-bit, and a graphics card with 6 GB or more. Menus
 need Microsoft's WebView2, which Windows 11 has and Windows 10 gets with Edge.
 
 To update the game, unzip a new download over this folder: the maps you have are kept.
+(A Play.bat left from an earlier download is no longer needed, and can be deleted.)
+
+What the game is started with is in game.txt, and what it says as it runs in save\\game.log.
 
 Controls are under "Controls" on the title screen.
 
@@ -95,19 +91,40 @@ its licence allows.
 """
 
 
+def windowed(program):
+    """A program's bytes, marked as a program with a window: opened with a double click, it is
+    given no console. Which it is, is one number in the file's header, the Subsystem (2 with
+    a window, 3 with a console), and nothing else about the program differs: it is what
+    Microsoft's `editbin /SUBSYSTEM:WINDOWS` changes. The engine's viewer stays a console
+    program, as its other uses want; the game is the same file with this set."""
+    data = bytearray(program)
+    header = int.from_bytes(data[0x3C:0x40], "little")
+    if data[header : header + 4] != b"PE\0\0":
+        sys.exit("the program is not a Windows program")
+    # After the signature (4) and the file header (20), 68 bytes into the optional header.
+    at = header + 4 + 20 + 68
+    if int.from_bytes(data[at : at + 2], "little") != 3:
+        sys.exit("the program is not a console program to begin with")
+    data[at : at + 2] = (2).to_bytes(2, "little")
+    return bytes(data)
+
+
 def main():
-    files = []  # (path on disk, or text; name in the zip; stored without squeezing)
+    files = []  # (path on disk, or its contents; name in the zip; stored without squeezing)
 
     def add(source, name, stored=False):
         if isinstance(source, Path) and not source.exists():
             sys.exit(f"{source} is missing")
         files.append((source, f"{NAME}/{name}", stored))
 
-    add(ROOT / "target" / "release" / "viewer.exe", "AussieOutback4x4.exe")
+    program = ROOT / "target" / "release" / "viewer.exe"
+    if not program.exists():
+        sys.exit(f"{program} is missing")
+    add(windowed(program.read_bytes()), "AussieOutback4x4.exe")
     system = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
     for runtime in ["vcruntime140.dll", "vcruntime140_1.dll"]:
         add(system / runtime, runtime)
-    add(PLAY.replace("\n", "\r\n"), "Play.bat")
+    add(GAME.replace("\n", "\r\n"), "game.txt")
     add(CREDITS.replace("\n", "\r\n"), "CREDITS.txt")
     add(ROOT / "scenes" / "outback.world", "scenes/outback.world")
     for page in sorted((ROOT / "ui").rglob("*")):
@@ -130,7 +147,7 @@ def main():
                 zipped.writestr(zipfile.ZipInfo(name), source, compress_type=how)
     print(f"{pack}: {len(files)} files, {pack.stat().st_size / 1e6:.0f} MB")
 
-    # The maps: what Play.bat is to have, a line each: NAME VERSION MEGABYTES TITLE.
+    # The maps: what the game is to have, a line each: NAME VERSION MEGABYTES TITLE.
     lines = []
     for name, title in MAPS:
         scene = ROOT / "assets" / f"{name}.solstice"

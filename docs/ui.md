@@ -127,12 +127,39 @@ ahead in degrees, whether the truck is in its ring, and how far through holding 
 | `do WHAT` | Chosen in a menu: `start`, `pause`, `resume`, `restart`, `hub`, `title`, `quit`, `enter`, `roam`, `laps`, `leave`. |
 | `set time N` / `set weather N` | Which time of day, and which weather, the next track is driven in. |
 | `log TEXT` | Something for the game's log: a mistake in the page. |
+| `grab` | On the desktop: pressed where there is nothing, while driving. Take hold of the mouse, to look round with. |
 
-The page passes the keys and the mouse on because, once clicked, it is what they go to: on
-the desktop the web view is a window over the game's, and in a browser the page is over the
-canvas. A controller is read by the game itself. Where the page shows nothing at all a click
-goes through it to the game's window, which takes hold of the mouse to look round with, but
-only while driving; so every button has a little colour behind it.
+Who has the keys and the mouse is not the same in the two places.
+
+In a browser the page is over the canvas, and once clicked it is what they go to: so it
+passes the keys and the mouse on, with `key` and `mouse`, and takes hold of the mouse itself
+(pointer lock) when it is clicked where there is nothing, while driving.
+
+On the desktop the web view is a window over the game's, and if it were let it would take a
+click, and with the click the keyboard: the game's window would then no longer be the one in
+use, and would hear no keys. So the view is made deaf (`deafen` in `overlay.rs`: the window is
+disabled, which the system passes over when it looks for what a click is on). It is shown and
+is given nothing. Every key and click is the game's window's, as with no pages at all, and the
+game says to the page what the mouse did: `ui.pointer("move" | "down" | "up", x, y)`. The page
+finds the button under it, takes it in hand as the mouse passes, and chooses it when the
+mouse is pressed and let go on it. Pressed on nothing while driving, it says `grab`, and the
+game takes hold of the mouse; Escape lets it go. A controller is read by the game itself.
+
+## Before there is a map: a game that was downloaded
+
+The game somebody downloads is the program, the pages and the sounds, and no maps
+(docs/hosting.md). Beside the program is a `game.txt`, which says what the program does when it
+is opened with nothing asked of it (`apps/viewer/src/game.rs`): what it is run with, the sites
+its maps are fetched from, and the file its log goes to. So opening the program is starting
+the game; there is nothing else to open.
+
+With maps to fetch, the window opens before there is a scene to draw in it (`Lobby` in
+`main.rs`). The pages are shown their loading screen for the map the game starts in, and
+`ui.stream` says along the top what is being downloaded and how much of it has come, as it
+does in a browser. When the maps are here the first is read and the game begins in the same
+window. If the map it starts in could not be had, `ui.stuck(why)` says so on that screen, which
+waits to be closed; with that map here and others missing, the game is played with what there
+is, and their signs say they cannot be driven yet.
 
 ## Working on the pages
 

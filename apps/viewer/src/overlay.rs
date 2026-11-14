@@ -2,15 +2,16 @@
 //! the same pages the browser build shows over its canvas (`ui/`, docs/ui.md).
 //!
 //! The view is see-through wherever its page is, so the scene shows under the instruments. It
-//! is a window of its own on top of the game's, so it is what the mouse clicks and, once
-//! clicked, what the keyboard types into. The page therefore passes on what it does not use:
-//! the keys held, and the mouse's movement while it has hold of the pointer. That is also what
-//! a page has to do in a browser, where the game is a canvas under it, so the page is the same
-//! in both.
+//! is a window of its own on top of the game's, and left to itself it would take the mouse's
+//! clicks, and with a click the keyboard: what is typed would then go to the page and not to
+//! the game, and the game's window, no longer the one in use, stops being drawn. So the view
+//! is made deaf ([`deafen`]): it is shown and is given nothing. Every click and key is the
+//! game's window's, as with no view at all, and the game tells the page where the mouse is
+//! and when it is pressed ([`Overlay::pointer`]); the page works out what is under it.
 //!
 //! What passes between them is text. The game tells the page what there is to show, as JSON,
-//! by calling the page's `ui.receive`; the page tells the game what was done, a line at a
-//! time, in words (`key KeyW 1`, `mouse 4 -2`, `do resume`).
+//! by calling the page's `ui.receive`, and what the mouse does, with `ui.pointer`; the page
+//! tells the game what was done, a line at a time, in words (`do resume`, `grab`).
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -117,6 +118,9 @@ impl Overlay {
             .build_as_child(window)
             .map_err(|error| log::warn!("no menus: {error}"))
             .ok()?;
+        deafen(window);
+        // And what is typed is the game's window's from the start.
+        let _ = view.focus_parent();
         Some(Self { view, said })
     }
 
@@ -136,6 +140,17 @@ impl Overlay {
         }
     }
 
+    /// Tells the page what the mouse did, `move`, `down` or `up`, and where, in the window's
+    /// own pixels: the page is not given the mouse itself.
+    pub fn pointer(&self, what: &str, x: f64, y: f64, scale: f64) {
+        // A page is laid out in its own pixels, which are the window's over its scale.
+        self.run(&format!(
+            "window.ui&&window.ui.pointer&&window.ui.pointer('{what}',{:.1},{:.1})",
+            x / scale,
+            y / scale
+        ));
+    }
+
     /// Runs a script in the page: for trying the pages without a hand on the mouse.
     pub fn run(&self, script: &str) {
         if let Err(error) = self.view.evaluate_script(script) {
@@ -148,6 +163,69 @@ impl Overlay {
         std::mem::take(&mut *self.said.borrow_mut())
     }
 }
+
+/// Makes the web view over a window deaf: the mouse's clicks on it, and so the keyboard, go
+/// to the window under it. A window that is disabled is passed over when the system looks for
+/// what a click is on, and everything inside it with it; it is drawn just the same.
+#[cfg(windows)]
+fn deafen(window: &Window) {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    #[repr(C)]
+    #[derive(Clone, Copy, Default)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetWindow(window: isize, which: u32) -> isize;
+        fn EnableWindow(window: isize, enable: i32) -> i32;
+        fn GetClientRect(window: isize, rect: *mut [i32; 4]) -> i32;
+        fn ClientToScreen(window: isize, point: *mut Point) -> i32;
+        fn WindowFromPoint(point: Point) -> isize;
+    }
+    const GW_CHILD: u32 = 5;
+    let Ok(RawWindowHandle::Win32(handle)) = window.window_handle().map(|handle| handle.as_raw())
+    else {
+        return;
+    };
+    // The view is the window's one child.
+    unsafe {
+        let game = handle.hwnd.get();
+        let view = GetWindow(game, GW_CHILD);
+        if view == 0 {
+            log::warn!("menus: the web view was not found to take the mouse from");
+            return;
+        }
+        EnableWindow(view, 0);
+        // Said in the log, as it is what the menus working by the mouse rests on: which
+        // window the system now takes a click in the middle of the game's to be on. If
+        // another program's window is over the game's just then, it is that one, and nothing
+        // is learnt.
+        let mut rect = [0_i32; 4];
+        let mut middle = Point::default();
+        if GetClientRect(game, &mut rect) != 0 {
+            middle = Point {
+                x: rect[2] / 2,
+                y: rect[3] / 2,
+            };
+            ClientToScreen(game, &mut middle);
+        }
+        let under = WindowFromPoint(middle);
+        if under == game {
+            log::info!("menus: the mouse is the game's window's");
+        } else if under == view || GetWindow(view, GW_CHILD) == under {
+            log::warn!("menus: the web view still takes the mouse");
+        } else {
+            log::info!(
+                "menus: another window is over the game's, so whose the mouse is was not seen"
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn deafen(_: &Window) {}
 
 #[cfg(test)]
 mod tests {

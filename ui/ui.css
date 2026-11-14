@@ -156,7 +156,7 @@ body.pad .hints span[data-hint]::before { border-radius: 50%; padding: 0; }
 .banner kbd { margin: 0; }
 body.pad .banner kbd { border-radius: 50%; padding: 0; }
 .banner i { position: absolute; left: 0; bottom: 0; height: 0.3rem; width: 0; background: var(--ochre); }
-.banner:hover { background: rgba(60, 36, 16, 0.9); }
+.banner:hover, .banner.over { background: rgba(60, 36, 16, 0.9); }
 
 /* The inclinometer: the truck from the side and from behind, tipped as it is. */
 .tilt { left: 2.6rem; bottom: 2.4rem; display: flex; gap: 1.1rem; }
@@ -251,5 +251,6 @@ kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem
   background: repeating-linear-gradient(-58deg, var(--ochre) 0 0.5rem, transparent 0.5rem 1rem);
   animation: roll 0.7s linear infinite; }
 @keyframes roll { to { transform: translateX(-1.18rem); } }
+#loading.stuck .tread { visibility: hidden; }
 .tip { margin-top: 2rem; max-width: 34rem; padding-left: 1.1rem; border-left: 0.2rem solid var(--ochre); font-size: 1.15rem; color: var(--bone); }
 .tip b { display: block; margin-bottom: 0.3rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ochre); }

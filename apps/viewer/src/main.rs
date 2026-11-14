@@ -13,6 +13,9 @@
 //! viewer --fetch-maps [--into FOLDER] SITE...
 //! ```
 //!
+//! With a `game.txt` beside the program it is a game that was downloaded, and that file says
+//! what it is run with, where its maps are fetched from and where its log goes (`game.rs`).
+//!
 //! `--play` runs the scene's game, if it has one: its actors move, the camera is the player's,
 //! and keys and the mouse are its input. Its scripts are reloaded from `--scripts` (by default
 //! `scenes`, where scene text files live) when they change on disk. **V** leaves the player
@@ -32,18 +35,33 @@ fn main() {}
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // `viewer --fetch-maps SITE...` fetches a game's maps and draws nothing (`fetch.rs`).
-    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    let mut arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments
         .first()
         .is_some_and(|first| first == "--fetch-maps")
     {
         std::process::exit(fetch::run(&arguments[1..]));
     }
-    native::run()
+    // A game that was downloaded says beside the program what the program is to do.
+    let game = game::Game::beside_program();
+    let mut sites = Vec::new();
+    if let Some(game) = &game {
+        arguments = game.arguments(arguments);
+        sites = game.maps.clone();
+    }
+    native::start_log(game.as_ref().and_then(|game| game.log_file()));
+    let result = native::run(arguments, sites);
+    if let Err(error) = &result {
+        log::error!("{error}");
+        game::alert(&error.to_string());
+    }
+    result
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod fetch;
+#[cfg(not(target_arch = "wasm32"))]
+mod game;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod overlay;
@@ -77,7 +95,7 @@ mod native {
     use winit::application::ApplicationHandler;
     use winit::dpi::PhysicalSize;
     use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent};
-    use winit::event_loop::{ActiveEventLoop, EventLoop};
+    use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
     use winit::keyboard::{KeyCode, PhysicalKey};
     use winit::window::{CursorGrabMode, Window, WindowId};
 
@@ -568,7 +586,7 @@ mod native {
         files
     }
 
-    fn parse_args() -> Result<Options, String> {
+    fn parse_args(arguments: Vec<String>) -> Result<Options, String> {
         let mut options = Options {
             stream: false,
             budget: StreamingBudget::default(),
@@ -618,7 +636,7 @@ mod native {
                 .map(|part| part.parse::<f32>().map_err(|e| format!("{part}: {e}")))
                 .collect()
         };
-        let mut args = std::env::args().skip(1);
+        let mut args = arguments.into_iter();
         while let Some(arg) = args.next() {
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
             match arg.as_str() {
@@ -904,12 +922,35 @@ mod native {
         Ok(scene)
     }
 
-    pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-        env_logger::Builder::from_env(
+    /// Starts the log: on the console, or in a game's own file, where what stops the program
+    /// is written too, as there is then no console for it to be said on.
+    pub fn start_log(file: Option<std::fs::File>) {
+        let mut log = env_logger::Builder::from_env(
             env_logger::Env::default().default_filter_or("info,wgpu_core=warn,wgpu_hal=warn"),
-        )
-        .init();
-        let mut options = parse_args()?;
+        );
+        if let Some(file) = file {
+            log.target(env_logger::Target::Pipe(Box::new(file)));
+            std::panic::set_hook(Box::new(|panic| {
+                log::error!("{panic}");
+                crate::game::alert(&format!("The game has stopped.\n\n{panic}"));
+            }));
+        }
+        log.init();
+    }
+
+    /// Reads a scene: all of it, or what says where the rest of it is.
+    fn read_source(options: &Options, path: &PathBuf) -> Result<Source, Box<dyn std::error::Error>> {
+        Ok(if options.stream {
+            Source::Streamed(read_manifest(path)?)
+        } else {
+            Source::Loaded(load_scene(path)?)
+        })
+    }
+
+    /// Does what the arguments say. `sites` are where a game's maps are fetched from before
+    /// it is played, in its window: none, and they are taken to be here.
+    pub fn run(arguments: Vec<String>, sites: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+        let mut options = parse_args(arguments)?;
         let shell = match &options.world {
             None => None,
             Some(path) => {
@@ -939,22 +980,27 @@ mod native {
                 Some(shell)
             }
         };
-        let scene = if options.stream {
-            Source::Streamed(read_manifest(&options.scene)?)
+        // A game whose maps are to be fetched opens its window first, and reads its scene
+        // when it has come (`Lobby`).
+        let windowed = options.instances_near.is_none()
+            && options.flyover.is_none()
+            && options.capture.is_none();
+        let scene = if windowed && !sites.is_empty() {
+            None
         } else {
-            Source::Loaded(load_scene(&options.scene)?)
+            Some(read_source(&options, &options.scene)?)
         };
-        if let Some(near) = options.instances_near {
+        if let (Some(near), Some(scene)) = (options.instances_near, &scene) {
             scene.list_instances(near);
             return Ok(());
         }
-        if options.flyover.is_some() {
-            let Source::Loaded(scene) = &scene else {
+        if let (true, Some(scene)) = (options.flyover.is_some(), &scene) {
+            let Source::Loaded(scene) = scene else {
                 return Err("flyovers load the whole scene, so they can't use --stream".into());
             };
             flyover(&options, scene)
-        } else if options.capture.is_some() {
-            capture(&options, &scene)
+        } else if let (true, Some(scene)) = (options.capture.is_some(), &scene) {
+            capture(&options, scene)
         } else {
             let event_loop = EventLoop::new()?;
             let started = (
@@ -980,7 +1026,12 @@ mod native {
                 },
                 sony: crate::sony::SonyPad::new(),
                 shell,
+                sites,
+                lobby: None,
                 loading: None,
+                look: false,
+                cursor: (0.0, 0.0),
+                cursor_told: true,
                 quit: false,
                 started,
             };
@@ -1618,11 +1669,22 @@ mod native {
         /// The scene to read next, and when it was asked for: a moment is left for the pages
         /// to say so before the window stops answering to read it.
         loading: Option<(String, Option<Sky>, Instant)>,
+        /// The page asked for the mouse to be taken hold of, to look round with.
+        look: bool,
+        /// Where the mouse is over the window, in its pixels, and whether the page has been
+        /// told of it there.
+        cursor: (f64, f64),
+        cursor_told: bool,
         /// The hour and the weather the game was started in, which the hub is always in.
         started: (Option<f32>, Weather, f32),
         quit: bool,
         options: Options,
-        scene: Source,
+        /// The scene being shown. None only before a game's first map has come.
+        scene: Option<Source>,
+        /// The sites a game's maps are fetched from before it starts, if any.
+        sites: Vec<String>,
+        /// The window while they are fetched, before there is a scene to draw in it.
+        lobby: Option<Lobby>,
         state: Option<WindowState>,
         input: CameraInput,
         keys: HashSet<KeyCode>,
@@ -1633,6 +1695,59 @@ mod native {
         pads: Option<gilrs::Gilrs>,
         /// A PlayStation controller, which is read by itself.
         sony: Option<crate::sony::SonyPad>,
+    }
+
+    /// What the fetching of a game's maps says to its window, from a thread of its own.
+    enum Fetched {
+        /// How far along the download of the map called `title` is, in bytes.
+        Progress { title: String, done: u64, of: u64 },
+        /// It is over, and every map is here, or is not.
+        Done(bool),
+    }
+
+    /// Tells the window how the fetching goes, and the log what is said of it.
+    struct ToWindow(mpsc::Sender<Fetched>);
+
+    impl crate::fetch::Tell for ToWindow {
+        fn say(&mut self, line: &str) {
+            log::info!("maps: {}", line.trim());
+        }
+
+        fn progress(&mut self, title: &str, done: u64, of: u64) {
+            let _ = self.0.send(Fetched::Progress {
+                title: title.to_owned(),
+                done,
+                of,
+            });
+        }
+    }
+
+    /// A game's window before there is a map to draw in it: its pages alone, on their loading
+    /// screen, saying how far along the maps' download is. When the maps have come, the one
+    /// the game starts in is read, and the game begins in the same window.
+    struct Lobby {
+        /// Before the window, so that it goes first when both go.
+        overlay: Option<crate::overlay::Overlay>,
+        window: Arc<Window>,
+        said: mpsc::Receiver<Fetched>,
+        /// What the pages show: the loading screen, for the map the game starts in.
+        screen: String,
+        /// What they say of the download, as their `ui.stream` takes it.
+        stream: String,
+        /// The pages have been told all of that as it now is.
+        told: bool,
+        /// The fetching is over, and since when: the map is read a moment after, so that
+        /// the pages have said so before the window stops to read it.
+        fetched: Option<Instant>,
+        /// Why the game cannot start, if it cannot: said on the pages, which wait to be closed.
+        stuck: Option<String>,
+    }
+
+    /// What `ui.stream` is told: what is coming, how much of it has, in words and as a share,
+    /// and whether more is coming now.
+    fn stream_told(what: &str, much: &str, share: f64, busy: bool) -> String {
+        serde_json::json!({ "what": what, "much": much, "share": share, "busy": busy, "fades": false })
+            .to_string()
     }
 
     /// Hands the game what the first gamepad plugged in is doing: each button by how far it is
@@ -1679,10 +1794,12 @@ mod native {
     }
 
     impl App {
-        fn create_state(
+        /// Opens the window, and lays the game's pages over it if it has any.
+        fn open_window(
             &self,
             event_loop: &ActiveEventLoop,
-        ) -> Result<WindowState, Box<dyn std::error::Error>> {
+        ) -> Result<(Arc<Window>, Option<crate::overlay::Overlay>), Box<dyn std::error::Error>>
+        {
             let attributes = Window::default_attributes()
                 .with_title("Solstice")
                 .with_inner_size(PhysicalSize::new(self.options.size.0, self.options.size.1));
@@ -1699,6 +1816,153 @@ mod native {
                 .ui
                 .as_ref()
                 .and_then(|folder| crate::overlay::Overlay::new(&window, folder));
+            Ok((window, overlay))
+        }
+
+        /// Opens a game's window before its maps are here, and starts fetching them.
+        fn open_lobby(
+            &mut self,
+            event_loop: &ActiveEventLoop,
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let (window, overlay) = self.open_window(event_loop)?;
+            let (sender, said) = mpsc::channel();
+            let sites = self.sites.clone();
+            std::thread::spawn(move || {
+                let whole = crate::fetch::fetch_maps(
+                    &crate::fetch::Curl,
+                    &sites,
+                    Path::new("assets"),
+                    &mut ToWindow(sender.clone()),
+                );
+                let _ = sender.send(Fetched::Done(whole));
+            });
+            let screen = match &self.shell {
+                Some(shell) => shell.heading_out(),
+                None => serde_json::json!({ "screen": "loading", "map": {} }).to_string(),
+            };
+            self.lobby = Some(Lobby {
+                overlay,
+                window,
+                said,
+                screen,
+                stream: stream_told("Checking the maps", "", 0.0, true),
+                told: false,
+                fetched: None,
+                stuck: None,
+            });
+            Ok(())
+        }
+
+        /// A step of the wait for a game's maps: hears how the fetching goes, tells the pages,
+        /// and when it is over reads the map the game starts in and begins.
+        fn wait_for_maps(&mut self, event_loop: &ActiveEventLoop) {
+            let Some(lobby) = self.lobby.as_mut() else {
+                return;
+            };
+            while let Ok(said) = lobby.said.try_recv() {
+                lobby.told = false;
+                match said {
+                    Fetched::Progress { title, done, of } => {
+                        let much = format!("{:.0} of {:.0} MB", done as f64 / 1.0e6, of as f64 / 1.0e6);
+                        let share = if of == 0 { 1.0 } else { done as f64 / of as f64 };
+                        // With no pages, the window's title is all there is to say it on.
+                        lobby.window.set_title(&format!("Downloading {title}: {much}"));
+                        lobby.stream = stream_told(&format!("Downloading {title}"), &much, share, true);
+                    }
+                    Fetched::Done(whole) => {
+                        if !whole {
+                            log::warn!("maps: not all of the maps are here");
+                        }
+                        lobby.window.set_title("Loading");
+                        lobby.stream = stream_told("Loading", "", 0.0, true);
+                        lobby.fetched = Some(Instant::now());
+                    }
+                }
+            }
+            if let Some(overlay) = &mut lobby.overlay {
+                // A page that has just loaded has been told nothing yet.
+                if overlay.take().iter().any(|line| line == "hello") {
+                    lobby.told = false;
+                }
+                if !lobby.told {
+                    lobby.told = true;
+                    overlay.show(&lobby.screen);
+                    match &lobby.stuck {
+                        None => overlay.run(&format!(
+                            "window.ui&&window.ui.stream&&window.ui.stream({})",
+                            lobby.stream
+                        )),
+                        Some(why) => overlay.run(&format!(
+                            "window.ui&&window.ui.stuck&&window.ui.stuck({})",
+                            serde_json::json!(why)
+                        )),
+                    }
+                }
+            }
+            let ready = lobby
+                .fetched
+                .is_some_and(|since| since.elapsed().as_secs_f32() > 0.4);
+            if !ready || lobby.stuck.is_some() {
+                return;
+            }
+            // The map the game starts in. Without it there is nothing to play; with it, the
+            // game is played with what there is, and a map that did not come is fetched the
+            // next time.
+            let path = self.options.scene.clone();
+            match read_source(&self.options, &path) {
+                Err(error) => {
+                    log::error!("{error}");
+                    lobby.window.set_title("The maps could not be downloaded");
+                    lobby.stuck = Some(if path.exists() {
+                        format!("{error}")
+                    } else {
+                        "The game downloads its maps the first time it is played, and could not get \
+                         them. Check the internet connection and open the game again: it carries on \
+                         where it stopped."
+                            .to_owned()
+                    });
+                    lobby.told = false;
+                    if lobby.overlay.is_none() {
+                        crate::game::alert(lobby.stuck.as_deref().unwrap_or_default());
+                        event_loop.exit();
+                    }
+                }
+                Ok(scene) => {
+                    self.scene = Some(scene);
+                    let lobby = self.lobby.take().expect("just seen");
+                    match self.create_state(lobby.window, lobby.overlay) {
+                        Ok(state) => {
+                            if let Some(overlay) = &state.overlay {
+                                overlay.run("window.ui&&window.ui.stream&&window.ui.stream(null)");
+                            }
+                            state.window.request_redraw();
+                            self.state = Some(state);
+                            self.enter_scene();
+                        }
+                        Err(error) => {
+                            log::error!("{error}");
+                            crate::game::alert(&error.to_string());
+                            event_loop.exit();
+                        }
+                    }
+                }
+            }
+        }
+
+        /// Tells the game's shell of the scene now shown: its trailheads, and where it starts.
+        fn enter_scene(&mut self) {
+            if let (Some(shell), Some(scene)) = (&mut self.shell, &self.scene) {
+                shell.enter(&with_trial_place(scene.gameplay()));
+            }
+        }
+
+        /// Starts drawing the scene in a window, and its game if it has one.
+        fn create_state(
+            &self,
+            window: Arc<Window>,
+            overlay: Option<crate::overlay::Overlay>,
+        ) -> Result<WindowState, Box<dyn std::error::Error>> {
+            let scene = self.scene.as_ref().ok_or("there is no scene to show")?;
             let instance = create_instance();
             let surface = instance.create_surface(window.clone())?;
             let gpu = pollster::block_on(Gpu::request_within(
@@ -1716,9 +1980,9 @@ mod native {
             config.present_mode = wgpu::PresentMode::AutoVsync;
             surface.configure(&gpu.device, &config);
 
-            let (mut renderer, reader) = self.scene.renderer(&gpu, config.format, &self.options);
+            let (mut renderer, reader) = scene.renderer(&gpu, config.format, &self.options);
             let bob = bobbing(&self.options, &mut renderer);
-            let play = start_play(&self.options, &self.scene, &mut renderer).map(|mut play| {
+            let play = start_play(&self.options, scene, &mut renderer).map(|mut play| {
                 // A game in a window is heard: its sounds are beside the scenes.
                 play.with_sound(std::path::Path::new("assets/sounds"));
                 let watch = ScriptWatch::new(&play, &self.options.scripts);
@@ -1737,7 +2001,7 @@ mod native {
                 camera: FlyCamera::new(
                     self.options
                         .camera
-                        .unwrap_or_else(|| initial_camera(self.scene.viewpoint())),
+                        .unwrap_or_else(|| initial_camera(scene.viewpoint())),
                 ),
                 last_frame: Instant::now(),
                 title_timer: 0.0,
@@ -1770,13 +2034,9 @@ mod native {
                 clock.time.hours = hours;
             }
             let path = PathBuf::from(scene);
-            let source = if self.options.stream {
-                Source::Streamed(read_manifest(&path)?)
-            } else {
-                Source::Loaded(load_scene(&path)?)
-            };
+            let source = read_source(&self.options, &path)?;
             self.options.scene = path;
-            self.scene = source;
+            let scene = self.scene.insert(source);
             let Some(state) = self.state.as_mut() else {
                 return Ok(());
             };
@@ -1784,10 +2044,9 @@ mod native {
             state.play = None;
             state.bob = None;
             let (mut renderer, reader) =
-                self.scene
-                    .renderer(&state.gpu, state.config.format, &self.options);
+                scene.renderer(&state.gpu, state.config.format, &self.options);
             state.bob = bobbing(&self.options, &mut renderer);
-            state.play = start_play(&self.options, &self.scene, &mut renderer).map(|mut play| {
+            state.play = start_play(&self.options, scene, &mut renderer).map(|mut play| {
                 match sound {
                     Some(sound) => play.give_sound(sound),
                     None => play.with_sound(Path::new("assets/sounds")),
@@ -1800,13 +2059,11 @@ mod native {
             state.camera = FlyCamera::new(
                 self.options
                     .camera
-                    .unwrap_or_else(|| initial_camera(self.scene.viewpoint())),
+                    .unwrap_or_else(|| initial_camera(scene.viewpoint())),
             );
             // The time it took to read is not a frame's worth of driving.
             state.last_frame = Instant::now();
-            if let Some(shell) = &mut self.shell {
-                shell.enter(&with_trial_place(self.scene.gameplay()));
-            }
+            self.enter_scene();
             Ok(())
         }
 
@@ -1862,6 +2119,15 @@ mod native {
             // What the pages say: the keys and the mouse they were given, and what was chosen
             // in a menu.
             let said = state.overlay.as_mut().map(|o| o.take()).unwrap_or_default();
+            // Where the mouse has got to, for the page to show what it is over: once a frame
+            // at most, and not while the mouse is held to look round with.
+            if !self.cursor_told && !self.captured_mouse {
+                self.cursor_told = true;
+                if let Some(overlay) = &state.overlay {
+                    let scale = state.window.scale_factor();
+                    overlay.pointer("move", self.cursor.0, self.cursor.1, scale);
+                }
+            }
             if let Some((play, watch)) = &mut state.play {
                 watch.check(play, delta);
                 play.lamps = dark;
@@ -1945,6 +2211,7 @@ mod native {
                     }
                     for order in shell.take_orders() {
                         match order {
+                            Order::Look => self.look = true,
                             Order::Quit => self.quit = true,
                             Order::Load { map, scene, sky } => {
                                 log::info!("going to {map}: {scene}");
@@ -2011,27 +2278,49 @@ mod native {
 
     impl ApplicationHandler for App {
         fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-            if self.state.is_some() {
+            if self.state.is_some() || self.lobby.is_some() {
                 return;
             }
-            match self.create_state(event_loop) {
-                Ok(state) => {
-                    self.state = Some(state);
-                    if let Some(shell) = &mut self.shell {
-                        shell.enter(&with_trial_place(self.scene.gameplay()));
-                    }
-                }
-                Err(error) => {
-                    log::error!("{error}");
-                    event_loop.exit();
-                }
+            // With no scene yet, a game's maps are still to come: its window, and the wait.
+            let opened = if self.scene.is_none() {
+                self.open_lobby(event_loop)
+            } else {
+                self.open_window(event_loop)
+                    .and_then(|(window, overlay)| self.create_state(window, overlay))
+                    .map(|state| {
+                        self.state = Some(state);
+                        self.enter_scene();
+                    })
+            };
+            if let Err(error) = opened {
+                log::error!("{error}");
+                crate::game::alert(&error.to_string());
+                event_loop.exit();
             }
+        }
+
+        fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+            // Drawing a scene keeps itself going, a frame asking for the next. Waiting for
+            // maps there is nothing drawn, so the wait is looked in on by the clock.
+            if self.lobby.is_some() {
+                self.wait_for_maps(event_loop);
+            }
+            event_loop.set_control_flow(if self.lobby.is_some() {
+                ControlFlow::WaitUntil(Instant::now() + std::time::Duration::from_millis(50))
+            } else {
+                ControlFlow::Wait
+            });
         }
 
         fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
             match event {
                 WindowEvent::CloseRequested => event_loop.exit(),
                 WindowEvent::Resized(size) => {
+                    if let Some(lobby) = &self.lobby {
+                        if let Some(overlay) = &lobby.overlay {
+                            overlay.resize(&lobby.window);
+                        }
+                    }
                     if let Some(state) = self.state.as_mut() {
                         if size.width > 0 && size.height > 0 {
                             state.config.width = size.width;
@@ -2107,15 +2396,36 @@ mod native {
                                 .mouse_button(name, state == ElementState::Pressed);
                         }
                     }
-                    // A click takes hold of the mouse to look round with: in a game with
-                    // menus, only while driving, or it would be taken from the menus.
-                    let driving = self
-                        .shell
-                        .as_ref()
-                        .is_none_or(|shell| shell.screen() == Screen::Drive);
-                    if state == ElementState::Pressed && button == MouseButton::Left && driving {
+                    // Over a game's pages the mouse is the pages' to be told of: they work out
+                    // what was clicked, and ask for the mouse to be held if it was nothing,
+                    // while driving. With no pages, a click takes hold of it.
+                    let paged = self.state.as_ref().is_some_and(|s| s.overlay.is_some());
+                    if paged && !self.captured_mouse && button == MouseButton::Left {
+                        if let Some(s) = &self.state {
+                            if let Some(overlay) = &s.overlay {
+                                let what = if state == ElementState::Pressed {
+                                    "down"
+                                } else {
+                                    "up"
+                                };
+                                overlay.pointer(
+                                    what,
+                                    self.cursor.0,
+                                    self.cursor.1,
+                                    s.window.scale_factor(),
+                                );
+                            }
+                        }
+                    } else if !paged
+                        && state == ElementState::Pressed
+                        && button == MouseButton::Left
+                    {
                         self.set_mouse_capture(true);
                     }
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.cursor = (position.x, position.y);
+                    self.cursor_told = false;
                 }
                 WindowEvent::Focused(false) => {
                     self.keys.clear();
@@ -2128,6 +2438,10 @@ mod native {
                     if self.quit {
                         event_loop.exit();
                         return;
+                    }
+                    // The page asked for the mouse to be held, to look round with.
+                    if std::mem::take(&mut self.look) {
+                        self.set_mouse_capture(true);
                     }
                     // A menu has the mouse back.
                     if self.captured_mouse

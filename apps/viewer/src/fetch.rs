@@ -1,8 +1,10 @@
-//! Fetches the game's maps from its site, before it is played: `viewer --fetch-maps SITE...`.
+//! Fetches the game's maps from its site, before it is played.
 //!
 //! A download of the game is its program, pages and sounds; its maps, which are most of it,
-//! are fetched here the first time it is run, and again when one has changed. They are
-//! fetched in pieces, and only the pieces that are not here already (docs/hosting.md):
+//! are fetched here the first time it is run, and again when one has changed: by the game
+//! itself as it opens, which says how it goes in its own window (`game.rs`, and the lobby in
+//! `main.rs`), or by hand, `viewer --fetch-maps SITE...`, which says it on the console. They
+//! are fetched in pieces, and only the pieces that are not here already (docs/hosting.md):
 //!
 //! * The site has `scenes/maps.txt`, a line a map, `NAME VERSION MEGABYTES TITLE`, and beside
 //!   each map `NAME.solstice.chunks`, a line a piece of it, `OFFSET LENGTH HASH`: the file cut
@@ -25,8 +27,52 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// The most that is asked for in one request, when pieces side by side are all wanted.
-const RUN_BYTES: u64 = 32 * 1024 * 1024;
+/// The most that is asked for in one request, when pieces side by side are all wanted. How
+/// far along a download is, is known a request at a time: so not so much that it seems to
+/// have stopped, and not so little that the site is asked a thousand times.
+const RUN_BYTES: u64 = 16 * 1024 * 1024;
+
+/// Who is told how the fetching goes: the console, or the game's own window.
+pub trait Tell {
+    /// Something to say, a line of it.
+    fn say(&mut self, line: &str);
+    /// How far along the download of the map called `title` is, in bytes.
+    fn progress(&mut self, title: &str, done: u64, of: u64);
+}
+
+/// The console: lines, and a bar that is written over as it fills.
+#[derive(Default)]
+pub struct Console {
+    /// A bar is on the line the cursor is on.
+    barred: bool,
+}
+
+impl Tell for Console {
+    fn say(&mut self, line: &str) {
+        if std::mem::take(&mut self.barred) {
+            println!();
+        }
+        println!("{line}");
+    }
+
+    fn progress(&mut self, _: &str, done: u64, of: u64) {
+        let share = if of == 0 {
+            1.0
+        } else {
+            done as f64 / of as f64
+        };
+        let filled = (share * 30.0).round() as usize;
+        print!(
+            "\r    [{}{}] {:4.0} of {:.0} MB",
+            "#".repeat(filled),
+            ".".repeat(30 - filled),
+            done as f64 / 1.0e6,
+            of as f64 / 1.0e6
+        );
+        let _ = std::io::stdout().flush();
+        self.barred = true;
+    }
+}
 
 /// One of the game's maps, as the site lists it.
 #[derive(Clone, Debug, PartialEq)]
@@ -129,8 +175,18 @@ pub struct Curl;
 
 impl Curl {
     fn run(arguments: &[&str]) -> Result<Vec<u8>, String> {
-        let output = Command::new("curl")
+        let mut curl = Command::new("curl");
+        // A game in a window has no console, and each `curl` would open one of its own for
+        // as long as it ran.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            curl.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = curl
             .args(["-s", "-S", "-f", "-L", "--retry", "3", "--retry-delay", "2"])
+            .args(["--connect-timeout", "15"])
             .args(arguments)
             .output()
             .map_err(|error| format!("curl could not be run: {error}"))?;
@@ -208,27 +264,15 @@ fn read_at(file: &mut File, offset: u64, length: u64) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
-/// How far along a map is, said on one line that is written over as it goes.
-fn progress(done: u64, of: u64) {
-    let share = if of == 0 {
-        1.0
-    } else {
-        done as f64 / of as f64
-    };
-    let filled = (share * 30.0).round() as usize;
-    print!(
-        "\r    [{}{}] {:4.0} of {:.0} MB",
-        "#".repeat(filled),
-        ".".repeat(30 - filled),
-        done as f64 / 1.0e6,
-        of as f64 / 1.0e6
-    );
-    let _ = std::io::stdout().flush();
-}
-
 /// Makes sure a map is on the disk at the version listed: puts it together from what is here
 /// and what has to be downloaded. Returns how many bytes were downloaded.
-pub fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Result<u64, String> {
+pub fn fetch_map(
+    wire: &dyn Wire,
+    site: &str,
+    folder: &Path,
+    map: &Listed,
+    tell: &mut dyn Tell,
+) -> Result<u64, String> {
     let file = folder.join(format!("{}.solstice", map.name));
     let version = folder.join(format!("{}.version", map.name));
     let kept = folder.join(format!("{}.solstice.chunks", map.name));
@@ -244,7 +288,12 @@ pub fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Re
     let Some((text, listed)) = list.and_then(|text| pieces(&text).map(|listed| (text, listed)))
     else {
         // No list of its pieces: the whole file, as it is.
-        println!("  {}: {} MB to download", map.title, map.megabytes);
+        tell.say(&format!(
+            "  {}: {} MB to download",
+            map.title, map.megabytes
+        ));
+        // With no pieces, how far along it is cannot be said: only that it has begun.
+        tell.progress(&map.title, 0, u64::from(map.megabytes) * 1_000_000);
         wire.download(&url, &part)?;
         finish(&part, &file, &version, &map.version)?;
         let _ = std::fs::remove_file(&kept);
@@ -291,12 +340,12 @@ pub fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Re
         }
     }
     let to_fetch: u64 = wanted.iter().map(|&index| listed[index].length).sum();
-    println!(
+    tell.say(&format!(
         "  {}: {:.0} MB to download, {:.0} MB already here",
         map.title,
         to_fetch as f64 / 1.0e6,
         copied as f64 / 1.0e6
-    );
+    ));
 
     let mut fetched = 0;
     for run in runs(&wanted, &listed, RUN_BYTES) {
@@ -304,7 +353,7 @@ pub fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Re
             listed[run.start].offset,
             listed[run.end - 1].offset + listed[run.end - 1].length,
         );
-        progress(fetched, to_fetch);
+        tell.progress(&map.title, fetched, to_fetch);
         let bytes = wire.get(&url, Some((from, to)))?;
         for piece in &listed[run] {
             let start = (piece.offset - from) as usize;
@@ -320,8 +369,7 @@ pub fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Re
         fetched += to - from;
     }
     if to_fetch > 0 {
-        progress(fetched, to_fetch);
-        println!();
+        tell.progress(&map.title, fetched, to_fetch);
     }
     out.flush()
         .map_err(|error| format!("{}: {error}", part.display()))?;
@@ -351,9 +399,9 @@ fn finish(part: &Path, file: &Path, version: &Path, is: &str) -> Result<(), Stri
 /// Fetches every map the first of `sites` that answers lists, into `folder`. Returns whether
 /// every one of them is there, and says what it did as it goes. With no site answering it
 /// says so, and the maps that are there can still be played.
-pub fn fetch_maps(wire: &dyn Wire, sites: &[String], folder: &Path) -> bool {
+pub fn fetch_maps(wire: &dyn Wire, sites: &[String], folder: &Path, tell: &mut dyn Tell) -> bool {
     if let Err(error) = std::fs::create_dir_all(folder) {
-        println!("{}: {error}", folder.display());
+        tell.say(&format!("{}: {error}", folder.display()));
         return false;
     }
     let found = sites.iter().find_map(|site| {
@@ -364,27 +412,27 @@ pub fn fetch_maps(wire: &dyn Wire, sites: &[String], folder: &Path) -> bool {
         (!maps.is_empty()).then(|| (site.to_owned(), maps))
     });
     let Some((site, maps)) = found else {
-        println!(
+        tell.say(&format!(
             "The maps could not be checked: {} did not answer.",
             sites.join(" and ")
-        );
+        ));
         return false;
     };
     let (mut whole, mut fetched) = (true, 0);
-    println!("Checking the maps...");
+    tell.say("Checking the maps...");
     for map in &maps {
-        match fetch_map(wire, &site, folder, map) {
+        match fetch_map(wire, &site, folder, map, tell) {
             Ok(bytes) => fetched += bytes,
             Err(error) => {
-                println!("\n  {} could not be fetched: {error}", map.title);
+                tell.say(&format!("  {} could not be fetched: {error}", map.title));
                 whole = false;
             }
         }
     }
     if fetched > 0 {
-        println!("Downloaded {:.0} MB.", fetched as f64 / 1.0e6);
+        tell.say(&format!("Downloaded {:.0} MB.", fetched as f64 / 1.0e6));
     } else if whole {
-        println!("The maps are up to date.");
+        tell.say("The maps are up to date.");
     }
     whole
 }
@@ -411,7 +459,12 @@ pub fn run(arguments: &[String]) -> i32 {
         println!("--fetch-maps expects the site the maps are on");
         return 2;
     }
-    i32::from(!fetch_maps(&Curl, &sites, &folder))
+    i32::from(!fetch_maps(
+        &Curl,
+        &sites,
+        &folder,
+        &mut Console::default(),
+    ))
 }
 
 #[cfg(test)]
@@ -458,6 +511,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(&folder);
         std::fs::create_dir_all(&folder).expect("a folder to try it in");
         folder
+    }
+
+    /// Told how it goes, and keeps what it was told.
+    #[derive(Default)]
+    struct Kept {
+        lines: Vec<String>,
+        progress: Vec<(String, u64, u64)>,
+    }
+
+    impl Tell for Kept {
+        fn say(&mut self, line: &str) {
+            self.lines.push(line.to_owned());
+        }
+
+        fn progress(&mut self, title: &str, done: u64, of: u64) {
+            self.progress.push((title.to_owned(), done, of));
+        }
+    }
+
+    /// Fetches a map and says nothing of it.
+    fn fetch_map(wire: &dyn Wire, site: &str, folder: &Path, map: &Listed) -> Result<u64, String> {
+        super::fetch_map(wire, site, folder, map, &mut Kept::default())
     }
 
     fn map(name: &str, version: &str) -> Listed {
@@ -591,6 +666,49 @@ mod tests {
             std::fs::read(other.join("m.solstice")).expect("it is there"),
             new
         );
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn how_far_along_it_is_is_told_from_nothing_to_all_of_it() {
+        let folder = folder("told");
+        let (file, list) = cut(&[&[1; 40], &[2; 40], &[3; 40]]);
+        let mut site = Site::default();
+        site.files
+            .insert("s/scenes/m.solstice".into(), file.clone());
+        site.files
+            .insert("s/scenes/m.solstice.chunks".into(), list.into_bytes());
+        site.files
+            .insert("s/scenes/maps.txt".into(), b"m 1 1 The Map\n".to_vec());
+        let mut kept = Kept::default();
+        assert!(fetch_maps(
+            &site,
+            &["nowhere".to_owned(), "s/".to_owned()],
+            &folder,
+            &mut kept
+        ));
+        assert_eq!(
+            kept.progress.first(),
+            Some(&("The Map".to_owned(), 0, 120))
+        );
+        assert_eq!(
+            kept.progress.last(),
+            Some(&("The Map".to_owned(), 120, 120))
+        );
+        assert!(kept.lines.iter().any(|line| line.contains("Downloaded")));
+        // Up to date: nothing more is said to be coming.
+        let mut kept = Kept::default();
+        assert!(fetch_maps(&site, &["s".to_owned()], &folder, &mut kept));
+        assert!(kept.progress.is_empty());
+        // And with no site answering, that is said, and it is not whole.
+        let mut kept = Kept::default();
+        assert!(!fetch_maps(
+            &site,
+            &["nowhere".to_owned()],
+            &folder,
+            &mut kept
+        ));
+        assert!(kept.lines.iter().any(|line| line.contains("did not answer")));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

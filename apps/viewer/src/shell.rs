@@ -265,6 +265,9 @@ pub enum Order {
     },
     /// Close the game.
     Quit,
+    /// Take hold of the mouse, to look round the truck with: the page was clicked where
+    /// there is nothing to click, while driving.
+    Look,
 }
 
 /// The game round the driving.
@@ -515,6 +518,7 @@ impl Shell {
             }
             // Something the page wants written down: a mistake in it, most likely.
             ["log", ..] => log::info!("page: {}", &line[3..].trim()),
+            ["grab"] if self.screen == Screen::Drive => self.orders.push(Order::Look),
             // A page that has just loaded has been told nothing yet.
             ["hello"] => self.told_screen = None,
             // The page is no longer what is typed into: nothing is held any more.
@@ -662,6 +666,21 @@ impl Shell {
             state["near"] = self.nearest(hud);
         }
         Some(state.to_string())
+    }
+
+    /// What the pages are told before there is a map to draw: that the one the game starts
+    /// in is on its way. Their loading screen, as when a map is left for another.
+    pub fn heading_out(&self) -> String {
+        let map = self.world.map(&self.map);
+        json!({
+            "screen": Screen::Loading.name(),
+            "mode": self.mode.name(),
+            "pad": false,
+            "nav": [],
+            "map": map.map(|map| self.described(map)),
+            "hub": self.map == self.world.hub,
+        })
+        .to_string()
     }
 
     /// A map as the pages are told of it.

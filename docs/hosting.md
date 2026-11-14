@@ -29,9 +29,12 @@ The pieces are big on purpose: each is one request to the site's functions, whic
 (below). A whole map is some 300 pieces, and pieces side by side come in one request.
 
 The Windows version is the same maps, read from the same place and by the same lists. Its
-download is the program, its pages and its sounds; its `Play.bat` first runs the program as
-`--fetch-maps` (`apps/viewer/src/fetch.rs`), which reads `scenes/maps.txt` and, for each map it
-has not got at that version, the map's `.chunks`. It puts the map together in its `assets`
+download is the program, its pages and its sounds, and a `game.txt` that says what the program
+does when it is opened (`apps/viewer/src/game.rs`): what it is run with, and the sites its maps
+are on. Opened, the game shows its window and its loading screen, and behind it fetches the
+maps (`apps/viewer/src/fetch.rs`; by hand, `viewer --fetch-maps SITE...`), saying along the top
+how far along each is. That reads `scenes/maps.txt` and, for each map it has not got at that
+version, the map's `.chunks`. It puts the map together in its `assets`
 folder a piece at a time: a piece that is in a map already there, another map or the last
 version of this one, is copied from the disk, and only the rest are downloaded, with `curl`,
 pieces side by side in one request, each checked against its hash. So what the maps share is

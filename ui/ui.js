@@ -298,7 +298,40 @@ function stream(told) {
   if (!told.busy && told.fades !== false) streamGone = setTimeout(() => { bar.hidden = true; }, 4000);
 }
 
+// On the desktop the page is not given the mouse: the game's window has it, and says here
+// what it did, `move`, `down` or `up`, and where. A button under it is taken in hand as the
+// mouse passes, and chosen when the mouse is pressed and let go on it. Pressed where there is
+// nothing, while driving, the game is asked to take hold of the mouse, to look round with.
+let pressed = null;
+function pointer(what, x, y) {
+  const button = document.elementFromPoint(x, y)?.closest("button") ?? null;
+  for (const other of document.querySelectorAll("button.over")) if (other !== button) other.classList.remove("over");
+  if (button) button.classList.add("over");
+  if (what === "move" && button?.closest("nav")) holdButton(button);
+  if (what === "down") {
+    pressed = button;
+    if (!button && state.screen === "drive" && !opened) say("grab");
+  }
+  if (what === "up") {
+    if (button && button === pressed) button.click();
+    pressed = null;
+  }
+}
+
+// The game cannot start, and why: said on the loading screen, where its tip was, with nothing
+// turning. It waits there to be closed.
+function stuck(why) {
+  el("stream").hidden = true;
+  el("loading").classList.add("stuck");
+  setText("loading-kicker", "Not yet heading out to");
+  setText("loading-tip-head", "No maps yet");
+  setText("loading-tip", why);
+  setText("loading-foot", "Close the window to leave");
+}
+
 window.ui = {
+  pointer,
+  stuck,
   receive(told) {
     const nav = told.nav || [];
     state = told;
@@ -322,6 +355,8 @@ addEventListener("contextmenu", (event) => event.preventDefault());
 // go of it, which the page is not told of as a key, so letting go while driving pauses.
 let moved = [0, 0];
 addEventListener("mousedown", (event) => {
+  // In a browser. On the desktop the game's window has the mouse, and this is never heard.
+  if (window.ipc) return;
   if (state.screen === "drive" && !opened && !event.target.closest("button")) body.requestPointerLock();
 });
 addEventListener("mousemove", (event) => {
