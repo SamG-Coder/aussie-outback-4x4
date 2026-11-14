@@ -43,6 +43,8 @@ gilrs = "0.11"
 # PlayStation controllers, which Windows shows only as bare HID devices (`src/sony.rs`).
 hidapi = { version = "2.6", default-features = false, features = ["windows-native"] }
 png = "0.17"
+# The hash a piece of a map is known by, when a game's maps are fetched (`src/fetch.rs`).
+sha2 = "0.10"
 pollster.workspace = true
 winit = "0.30"
 # The game's menus and instruments, natively: the same pages the browser shows, in a web view

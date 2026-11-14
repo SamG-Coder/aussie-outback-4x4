@@ -5279,6 +5279,7 @@ dependencies = [
  "png 0.17.16",
  "pollster",
  "serde_json",
+ "sha2",
  "solstice-asset",
  "solstice-game",
  "solstice-render",

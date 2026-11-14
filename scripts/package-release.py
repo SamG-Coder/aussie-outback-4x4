@@ -6,9 +6,10 @@
   sounds, the two runtime files the program needs from Microsoft's Visual C++ runtime, a
   Play.bat to start it with, and the credits. About 30 MB.
 - `target/release-pack/maps.txt`: the game's maps, each with a version, which is the start of
-  its file's SHA-256. The maps are not in the zip: Play.bat downloads them from the site the
-  first time, and again only when a map's version there is not the one it has. So a new
-  program is a small download, and a new map is that map's alone.
+  its file's SHA-256. The maps are not in the zip: the game fetches them from the site the
+  first time it is run (`viewer --fetch-maps`, apps/viewer/src/fetch.rs), and again when a
+  map's version there is not the one it has, a piece at a time and only the pieces it has
+  not got. So a new program is a small download, and a new map is its changed pieces.
 
 Build and bake first (bake.bat), and make the sounds (docs/sound.md). Putting both on the
 site, with the maps, is docs/hosting.md.
@@ -38,58 +39,33 @@ rem What the game says as it runs is kept in save\game.log, to look at if someth
 setlocal EnableExtensions
 cd /d "%~dp0"
 if not exist save mkdir save
-if not exist assets mkdir assets
 
-rem The maps are big, and are not in the download: they are fetched here the first time, and
-rem again only when one has changed. A download that is stopped carries on where it stopped.
-set "SITE=https://rust4x4.com"
-curl -s -f -m 20 -o "save\maps.txt" "%SITE%/scenes/maps.txt"
-if not errorlevel 1 goto listed
-set "SITE=https://rust4x4.pages.dev"
-curl -s -f -m 20 -o "save\maps.txt" "%SITE%/scenes/maps.txt"
-if not errorlevel 1 goto listed
+rem The maps are big, and are not in the download: the game fetches them into the assets
+rem folder the first time, and afterwards only the pieces of a map that have changed. What
+rem the maps have in common is downloaded once, and a download that is stopped carries on
+rem where it stopped.
+rem The program is named by where this file is: some machines will not run one from the folder
+rem they are in by its bare name.
+"%~dp0AussieOutback4x4.exe" --fetch-maps https://rust4x4.com https://rust4x4.pages.dev
+if not errorlevel 1 goto play
 if exist "assets\hub.solstice" goto play
 echo.
-echo Aussie Outback 4x4 downloads its maps the first time it is played, and could not
-echo reach rust4x4.com. Check the internet connection and open Play.bat again.
-pause
-exit /b 1
-
-:listed
-set /a COUNT=0
-set /a AT=0
-for /f "usebackq tokens=1-3*" %%a in ("save\maps.txt") do set /a COUNT+=1
-for /f "usebackq tokens=1-3*" %%a in ("save\maps.txt") do call :map %%a %%b %%c "%%d"
-if exist "assets\hub.solstice" goto play
-echo.
-echo The maps could not be downloaded. Open Play.bat again to carry on where it stopped.
+echo Aussie Outback 4x4 downloads its maps the first time it is played, and could not get
+echo them. Check the internet connection and open Play.bat again: it carries on where it stopped.
 pause
 exit /b 1
 
 :play
-AussieOutback4x4.exe --world scenes\outback.world --ui ui --size 1920x1080 --time 10:00 --weather fair %* 2> "save\game.log"
-exit /b 0
-
-rem One map: its file's name, its version, its size in megabytes and what it is called.
-:map
-set /a AT+=1
-set "HAVE="
-if exist "assets\%1.version" set /p HAVE=<"assets\%1.version"
-if "%HAVE%"=="%2" if exist "assets\%1.solstice" exit /b 0
-echo.
-echo Downloading map %AT% of %COUNT%: %~4, %3 MB
-curl -f -L -C - --retry 5 --retry-delay 3 --progress-bar -o "assets\%1.%2.part" "%SITE%/scenes/%1.solstice"
-if errorlevel 1 exit /b 1
-move /y "assets\%1.%2.part" "assets\%1.solstice" >nul
->"assets\%1.version" echo %2
+"%~dp0AussieOutback4x4.exe" --world scenes\outback.world --ui ui --size 1920x1080 --time 10:00 --weather fair %* 2> "save\game.log"
 exit /b 0
 """
 
 CREDITS = """Aussie Outback 4x4 (pre-alpha)
 https://rust4x4.com
 
-To play: open Play.bat. The first time, it downloads the game's maps (about 1.9 GB) into the
-assets folder, which needs the internet; after that only a map that has changed is fetched.
+To play: open Play.bat. The first time, it downloads the game's maps into the assets folder
+(about 1.3 GB to download, 1.9 GB on the disk), which needs the internet; after that only the
+pieces of a map that have changed are fetched.
 Windows may ask before running a program it has not seen before: choose "More info", then
 "Run anyway". It needs Windows 10 or 11, 64-bit, and a graphics card with 6 GB or more. Menus
 need Microsoft's WebView2, which Windows 11 has and Windows 10 gets with Edge.

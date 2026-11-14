@@ -28,10 +28,15 @@ and 248 MB; then the hub again, 9 and 13 MB.
 The pieces are big on purpose: each is one request to the site's functions, which are counted
 (below). A whole map is some 300 pieces, and pieces side by side come in one request.
 
-The Windows version is the same maps, read from the same place. Its download is the program,
-its pages and its sounds; its `Play.bat` fetches `scenes/maps.txt` and then whichever maps it
-has not got, or has an old version of, into its `assets` folder, carrying on where it stopped
-if it is interrupted. So a new program is a small download, and a new map is that map's alone.
+The Windows version is the same maps, read from the same place and by the same lists. Its
+download is the program, its pages and its sounds; its `Play.bat` first runs the program as
+`--fetch-maps` (`apps/viewer/src/fetch.rs`), which reads `scenes/maps.txt` and, for each map it
+has not got at that version, the map's `.chunks`. It puts the map together in its `assets`
+folder a piece at a time: a piece that is in a map already there, another map or the last
+version of this one, is copied from the disk, and only the rest are downloaded, with `curl`,
+pieces side by side in one request, each checked against its hash. So what the maps share is
+downloaded once (1267 MB for the four, not 1870), a map baked again costs its changed pieces,
+and a download that is stopped carries on where it stopped. A new program is a small download.
 
 ```text
 https://rust4x4.com/                   the home page                      Pages
@@ -93,7 +98,8 @@ wrangler r2 object put rust4x4-assets/scenes/hub.solstice.chunks --file ../../..
 - **The functions**: every range of a map that is read, and every download, is one request to
   a Pages Function, and the free plan allows 100,000 of those a day across the account. A
   player new to a map makes about 180 in the first half minute and 300 at the very most; one
-  who has been there before, hardly any. If that is ever not enough, give the bucket
+  who has been there before, hardly any. The Windows game fetching all four maps makes about
+  sixty, in pieces of up to 32 MB. If that is ever not enough, give the bucket
   an address of its own (R2, the bucket, Settings, Custom Domains: `assets.rust4x4.com`), allow
   the site to read it (a CORS rule for `https://rust4x4.com` with the `Range` header), and say
   so in `scripts/build-game-web.sh`: `<meta name="solstice-scenes" content="https://assets.rust4x4.com/scenes/">`.

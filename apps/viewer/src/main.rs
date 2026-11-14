@@ -10,6 +10,7 @@
 //!        [--press ACTION@FRAME]... [--hold KEY@FROM-TO]... [--mouse PIXELS@FRAME]...]
 //! viewer [SCENE] --game DIR [the same as with --play]
 //! viewer [SCENE] --instances-near x,y,z,radius
+//! viewer --fetch-maps [--into FOLDER] SITE...
 //! ```
 //!
 //! `--play` runs the scene's game, if it has one: its actors move, the camera is the player's,
@@ -30,8 +31,19 @@ fn main() {}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // `viewer --fetch-maps SITE...` fetches a game's maps and draws nothing (`fetch.rs`).
+    let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if arguments
+        .first()
+        .is_some_and(|first| first == "--fetch-maps")
+    {
+        std::process::exit(fetch::run(&arguments[1..]));
+    }
     native::run()
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+mod fetch;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod overlay;
