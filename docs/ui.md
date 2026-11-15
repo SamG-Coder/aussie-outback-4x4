@@ -55,17 +55,29 @@ In a ring, a banner says what it leads to. Holding the bottom button of a contro
 or F for half a second, or clicking the banner, opens that map's card: its picture, what it
 is like, and what to drive it in and for:
 
-- **Time**: dawn, day, dusk or night.
-- **Weather**: clear, fair, overcast, or a storm, which starts with the ground already soaked.
-- **Free roam**, with no clock, or **Timed laps**, against the best lap kept for that map.
-  A map with no `length` in the world file has no track to time, a town or the road, and is
-  only driven to.
+- **Class**: which of the five classes of truck the track is run in, each with its icon,
+  and under them the class's bronze, silver and gold times and what each pays, or that it
+  has been won. The times are worked out from the track when its map is entered, so a map
+  never driven to shows none yet.
+- **Time**: dawn, day, dusk or night. Night adds half to what a timed run pays.
+- **Weather**: clear, fair, overcast, or a storm, which starts with the ground already soaked
+  and adds half to what a timed run pays. The one picked to begin with is the day's own
+  (the calendar's).
+- **Free roam**, with no clock; **Practice**, against the clock lap after lap with nothing at
+  stake; or a **Timed run**, the one lap that counts. A map with no `length` in the world
+  file has no track to time, a town or the road, and is only driven to.
+
+Timed runs, their classes, medals, purses, the other drivers and the watching of their runs
+are set out in docs/campaign.md (Timed runs). The rules are in `apps/viewer/src/timed.rs`
+and `crates/solstice-game/src/par.rs`; the watching is `apps/viewer/src/cinema.rs`.
 
 Either reads the map's scene into the same window, behind a loading screen with the map's
 picture. From a map, the pause menu goes back to the hub, which is always as the game was
 started. A map whose scene is not baked yet is still on the signs, and its card says so.
 
-The best lap of each map is kept in `save/profile.txt`.
+The best lap of each map is kept in `save/profile.txt`, with what has been won in each class
+of it (`run MAP CLASS MEDAL SECONDS`), each map's gold times as last worked out (`par MAP ...`),
+the class last chosen (`class N`) and the game's own seed for its weather (`seed N`).
 
 ## Time
 
@@ -87,9 +99,17 @@ a material of their own, and the game tells the renderer to glow them red.
 ## The screens
 
 `title`, `drive`, `pause`, `offer` (a trailhead's card), `shed`, `sleep`, `buyer` (the gold
-buyer's card) and `loading`. Behind the title the
-game runs with nobody at the controls and the view goes slowly round the truck; paused,
-offered a map or loading, the game is not stepped at all.
+buyer's card), `loading`, and for a track driven against the clock `lineup` (the class, the
+times to beat and who set them, before the start), `watch` (another driver's run, which any
+button skips) and `result` (a timed run's time, medal and purse). Behind the title and the
+line-up the game runs with nobody at the controls and the view goes slowly round the truck;
+while a run is watched the game drives the truck and the camera is the shot's
+(`Shell::view`); paused, offered a map, looking at a result or loading, the game is not
+stepped at all.
+
+The pages have three more of their own, opened over the game's: `controls`, `map`, and
+`calendar` (from the pause menu and the shed: four weeks of days, each one's weather as far
+as it is forecast, and what falls due, docs/campaign.md).
 
 Menus are worked with the mouse, with the arrows and Enter and Escape, or with a controller's
 d-pad or left stick and its bottom and right buttons. Escape, or Start, pauses.
@@ -328,6 +348,23 @@ the tray; `pays`, what it would fetch, and `rate`, the price of a kilogram; and 
 sale just made, if one was (`count`, `kilos`, `paid`). A map has `timed`, whether it has a
 track to time: one that has not is offered without laps.
 
+For a track driven against the clock there is more. `class` is the class chosen, from 0.
+With a trailhead's card: `classes`, each class of the map (`name`, `medals` and `purses`,
+bronze's first, or null where the times are not known yet, `held`, the best medal won,
+`best`, and `rivals`, the three other drivers: `name`, `truck`, `paint`, `medal`, `time`);
+`bonus`, what each time of day and each weather adds to a purse in hundredths; and `today`,
+which weather is the day's own. On the track: `run`, the class being driven as one of
+`classes` is told, with `night`, `rain`, `bonus`, `hour` and `weather`; while the clock runs,
+`pace`: `gaps`, how far behind each medal's time the lap is here (ahead, below zero), `on`,
+the best medal it is still inside, and `ghosts`, where each of the others would be by now
+(`medal`, `x`, `z`, `done`). Watching: `watch` (`name`, `truck`, `paint`, `medal`, `class`,
+`time`, `clock`, `shot`, `shots`). After a timed run: `result` (`time`, `valid`, `medal`,
+`held`, `best`, `record`, `medals`, `firsts`, each a `medal` and its `purse`, `repeat`,
+`night`, `rain`, `paid`, and `grams`, the gold put in the tray). Paused and in the shed:
+`calendar` (`day`, `weekday`, `date`, `month`, `months`, `sky`, `days`, each a `day`, `date`,
+`month`, `when` (`past`, `today`, `forecast`, `outlook` or `later`), `sky` and `due`, and
+`next`, what is due next and in how many days).
+
 `nav` is how a menu was moved from the keys or a controller since the pages were last told:
 `up`, `down`, `left`, `right`, `accept`, `back`. `pad` says a controller was used last, so the
 pages name its buttons. `near` is the nearest trailhead: how far, which way from straight
@@ -341,8 +378,8 @@ ahead in degrees, whether the truck is in its ring, and how far through holding 
 | `key CODE 1` / `key CODE 0` | A key went down or up, by its `KeyboardEvent.code`. |
 | `mouse X Y` | The mouse moved, while the page had hold of it. |
 | `blur` | The page is no longer typed into: nothing is held. |
-| `do WHAT` | Chosen in a menu: `start`, `pause`, `resume`, `restart`, `hub`, `title`, `quit`, `enter`, `roam`, `laps`, `leave`, in the shed `sleep` and `walk`, and at the gold buyer's `sell` and `walk`. |
-| `set time N` / `set weather N` | Which time of day, and which weather, the next track is driven in. |
+| `do WHAT` | Chosen in a menu: `start`, `pause`, `resume`, `restart`, `hub`, `title`, `quit`, `enter`, `roam`, `practice`, `timed`, `leave`, in the shed `sleep` and `walk`, at the gold buyer's `sell` and `walk`, at the line `go`, `watch0` to `watch2` (bronze's driver to gold's) and `roam`, while watching `skip`, and after a run `again`, `roam` and `hub`. |
+| `set time N` / `set weather N` / `set class N` | Which time of day, which weather and which class the next track is driven in. |
 | `log TEXT` | Something for the game's log: a mistake in the page. |
 | `grab` | On the desktop: pressed where there is nothing, while driving. Take hold of the mouse, to look round with. |
 | `touch X Y` | The controls drawn on a screen that is touched: steering, and the pedals, each from -1 to 1 (right, and braking, above zero). |
@@ -398,9 +435,12 @@ They need no game. Opened in a browser on their own they show made-up readings:
 python -m http.server 8765 --directory ui
 ```
 
-then `http://localhost:8765/index.html?screen=drive&mode=laps&map=1`. `screen` is any screen's
-name, or `controls`; `pad` shows a controller's buttons; `inside` and `unbuilt` show a ring's
-banner and a map not yet made; `still` stops the fades, for a picture.
+then `http://localhost:8765/index.html?screen=drive&mode=timed&map=1`. `screen` is any screen's
+name, or `controls`, `map` or `calendar`; `mode` is `roam`, `practice` or `timed`; `class=N`
+chooses a class, from 0; `foul` is a night in a storm; with `screen=result`, `repeat` and
+`void` show a run that won nothing new and one with no time; `unknown` shows a trailhead
+whose times are not known yet; `pad` shows a controller's buttons; `inside` and `unbuilt`
+show a ring's banner and a map not yet made; `still` stops the fades, for a picture.
 
 On the desktop the pages are read from `ui/` as they are asked for, so a page changed on disk
 is the changed page the next time the game is started.
@@ -442,7 +482,9 @@ scene. The page that is loaded again is `game.html`, inside another that stays, 
 a browser lets start only after a key or a click, and would otherwise fall silent at every
 map until something was pressed again. The inner page's address says where the game has got
 to: `scene`, `map`, `mode`, `drive`, and
-`time`, `weather` and `soaked` if they were chosen. Best laps are kept in the browser's own
+`time`, `weather` and `soaked` if they were chosen. The mode carries the class, the time of
+day and the weather with it after dots (`timed.4.3.3`), so that the page that follows knows
+what a run pays. Best laps and what has been won are kept in the browser's own
 storage. The sound is the browser's to mix (docs/sound.md), and starts with the first key or
 click, which is when a browser lets a page be heard.
 
@@ -450,7 +492,14 @@ click, which is when a browser lets a page be heard.
 
 - In a browser: going from map to map without loading the page again.
 - Going back to the hub puts the truck at the camp, not at the trailhead it left from.
-- Restarting a map reads its scene again, which takes as long as going to it did.
+- Restarting a map in free roam reads its scene again, which takes as long as going to it
+  did. (Against the clock it goes back to the line.)
+- The others in a timed run are times, dots on the map and a cinematic of the map's own
+  truck in their colour: their own trucks on the track wait for a truck being a file of
+  its own (docs/campaign.md).
+- The game's own driver does not get round Wombat Creek: it is put back again and again
+  about a hundred metres in (-164, 55, -55). A watched run cuts away after twelve seconds
+  of a shot, so it shows as a truck that stops.
 - Settings (sound levels, units, the controls themselves) have no screen.
 - The high beams cast no shadows, and do not light dust or rain.
 - Holding the controller's bottom button in a ring also works the diff locks, which it is
