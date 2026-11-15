@@ -131,6 +131,9 @@ struct Scrub {
     squares: std::collections::HashMap<(i32, i32), Vec<u32>>,
 }
 
+/// How fast the detector's coil is swung, against how fast its sweep is counted on.
+const SWEEPS: f32 = 1.9;
+
 /// The size of those squares, in metres: more than a truck's length.
 const SCRUB_SQUARE: f32 = 8.0;
 
@@ -241,6 +244,10 @@ struct Soundscape {
     random: u32,
     /// The detector in the driver's hand, on foot: how strong its signal is, from 0 to 1.
     detector: Option<f32>,
+    /// Where the detector's coil is in its sweep, from 0, passing the middle, round to 1,
+    /// passing it again the other way; and how far its hum has wandered from its note.
+    sweep: f32,
+    waver: f32,
     /// How much the engine is running, from 0, switched off, to 1.
     running: f32,
     /// Sounds to play once, as the game asked for them.
@@ -358,7 +365,40 @@ impl Soundscape {
         } else {
             self.in_water = [false; 4];
         }
+        // The detector, as a gold detector sounds. It does not beep: it hums, low and
+        // steady (its threshold), and gold is heard as that hum changing. Each time the coil
+        // passes the middle of its sweep the hum dips a little, rises and swells, and falls
+        // back; by how much, and for how long, says how near the gold is. A long way off it
+        // is a flicker in the hum; nearer, a clear rise with every pass; and over the gold
+        // the hum stays high and loud, and wails as the coil goes over.
         let (detector, asked) = (self.detector, std::mem::take(&mut self.asked));
+        let mut tone = (0.0_f32, 1.0_f32);
+        if let Some(signal) = detector {
+            // A threshold is never quite still.
+            self.waver = (self.waver + (self.chance() - 0.5) * 0.012) * 0.92;
+            tone = (0.2, 1.0 + self.waver);
+            if signal > 0.0 {
+                let over = signal >= crate::gold::OVER;
+                let near = (signal / crate::gold::OVER).min(1.0);
+                let strength = 0.07 + 0.93 * near.powf(1.5);
+                // How far the coil is from the middle of its sweep, in sweeps: before it
+                // below zero, after it above.
+                let pass = if self.sweep < 0.5 {
+                    self.sweep
+                } else {
+                    self.sweep - 1.0
+                };
+                // A near target is heard for more of the sweep than a far one.
+                let wide = 0.07 + 0.17 * near;
+                let mut swell = (-(pass / wide).powi(2)).exp();
+                let dip = (-((pass + 1.7 * wide) / (0.8 * wide)).powi(2)).exp();
+                if over {
+                    swell = swell.max(0.72);
+                }
+                tone.0 += 0.72 * strength * swell;
+                tone.1 += 1.2 * strength * swell - 0.1 * strength * dip;
+            }
+        }
         self.sounds.frame(|ask| {
             ask.engine(engine);
             for (name, (gain, pitch)) in TYRE_LOOPS.iter().zip(loops) {
@@ -372,11 +412,9 @@ impl Soundscape {
             for (name, gain, pitch) in once {
                 ask.once(name, gain, pitch);
             }
-            // The detector: its hum while it is carried, and its tone over a target, louder
-            // and higher the nearer the coil is.
-            if let Some(signal) = detector {
-                ask.looping("detector_hum", 0.34, 1.0);
-                ask.looping("detector_tone", 0.75 * signal.powf(1.5), 0.6 + 0.9 * signal);
+            // The detector's hum, while it is in hand.
+            if detector.is_some() {
+                ask.looping("detector_tone", tone.0, tone.1);
             }
             for name in asked {
                 ask.once(name, 0.9, 1.0);
@@ -538,6 +576,8 @@ impl PlayMode {
             since: [1.0; 3],
             random: 0x9E37_79B9,
             detector: None,
+            sweep: 0.0,
+            waver: 0.0,
             running: 1.0,
             asked: Vec::new(),
         });
@@ -617,7 +657,10 @@ impl PlayMode {
                         self.walked.1 + (pace.min(5.0) - self.walked.1) * (seconds * 6.0).min(1.0),
                     );
                     self.swept += seconds * (1.2 + self.walked.1 * 0.9);
-                    let sweep = 0.24 * (self.swept * 1.9).sin() * (self.walked.1 / 1.5).min(1.0);
+                    // Standing, it is still swept, gently: a detector hears only what
+                    // its coil passes over.
+                    let sweep =
+                        0.24 * (self.swept * SWEEPS).sin() * (self.walked.1 / 1.5).clamp(0.4, 1.0);
                     let swing = facing * Quat::from_rotation_y(sweep);
                     let grip = walker + facing * GRIP;
                     // The ground under where the coil is, if it is near the driver's own.
@@ -729,6 +772,8 @@ impl PlayMode {
             since: [1.0; 3],
             random: 0x9E37_79B9,
             detector: None,
+            sweep: 0.0,
+            waver: 0.0,
             running: 1.0,
             asked: Vec::new(),
         });
@@ -855,6 +900,8 @@ impl PlayMode {
             None => self.spray.rest(renderer),
         }
         if let Some(sound) = &mut self.sound {
+            // The coil passes the middle of its sweep twice in each swing (`place_carried`).
+            sound.sweep = (self.swept * SWEEPS / std::f32::consts::PI).rem_euclid(1.0);
             sound.frame(self.play.hud(), flattened, renderer, seconds);
         }
         self.frames += 1;

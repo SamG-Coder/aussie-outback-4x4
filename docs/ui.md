@@ -106,8 +106,16 @@ trailhead to a track, and comes back.
 - **The detector.** Out of the truck the driver has a gold detector
   (`scenes/outback/detector.actor`, its model made in Blender by
   `tools/blender/detector/build.py`, its origin its grip). In their hands, its signal is
-  stronger the nearer its coil is to gold: the pages show it as a bar, and it is heard, a
-  tone that rises and grows louder over a hum. Standing over gold, the button digs, and the
+  stronger the nearer it is to gold (`Gold::signal`): the pages show it as a bar, and it
+  is heard, which is how gold is found. It sounds as a gold detector does. It does not
+  beep: it hums, low and steady, its threshold (`tools/audio/detector.py` makes the hum),
+  and gold is heard as the hum changing. Each time the coil passes the middle of its sweep
+  the hum dips a little, rises in pitch and swells, and falls back, and by how much says
+  how near the gold is (`Soundscape::frame` in `apps/viewer/src/play.rs`). It hears a long
+  way, 45 m: out there it is a flicker in the hum; nearer, a clear rise with every pass,
+  higher, louder and longer; and over the gold the hum stays high and loud, and wails as
+  the coil goes over. So the driver walks whichever way makes it rise. The coil is swept
+  faster the faster they walk, and gently while they stand. Standing over gold, the button digs, and the
   nugget comes out of the ground onto it.
   - It is held as it is used (`place_carried` in `apps/viewer/src/play.rs`): its grip in
     the driver's right hand, its shaft tipped about the grip until the coil is just over

@@ -36,8 +36,13 @@ use glam::{Quat, Vec3};
 use solstice_asset::GameFile;
 
 /// How far off the detector hears gold, and how near the driver stands to dig it: in metres.
-const HEARS: f32 = 15.0;
+/// It hears a long way, faintly: gold is a few places in kilometres of bush, and a driver
+/// walking the track is to be told that there is some off to one side, and then led to it.
+const HEARS: f32 = 45.0;
 const DIGS: f32 = 1.7;
+/// The signal there is at the edge of where gold can be dug: at this or more, the driver
+/// is over it, and the detector says so with one unbroken tone.
+pub const OVER: f32 = 0.88;
 /// How near a nugget is to be picked up, how near the edge of the truck's tray the driver
 /// stands to put one in it, and how near the chest.
 const REACH: f32 = 1.7;
@@ -578,7 +583,13 @@ impl Gold {
             .chain(lying)
             .map(|at| flat(at, stands.walker))
             .fold(f32::MAX, f32::min);
-        (1.0 - nearest / HEARS).clamp(0.0, 1.0)
+        // From nothing at the edge of its hearing, evenly up to `OVER` at the edge of where
+        // the gold can be dug, and from there to 1 right on top of it.
+        if nearest <= DIGS {
+            OVER + (1.0 - OVER) * (1.0 - nearest / DIGS)
+        } else {
+            OVER * (1.0 - (nearest - DIGS) / (HEARS - DIGS)).clamp(0.0, 1.0)
+        }
     }
 
     fn held(&self) -> Option<usize> {
@@ -1172,6 +1183,15 @@ mod tests {
         gold.enter(&files(), 11);
         let mut bodies: Vec<(u32, Vec3, Quat)> = Vec::new();
         let over = gold.buried[0];
+        // It is heard from a long way off, faintly, and not from further; and the signal
+        // says that the driver is over it just where it can be dug.
+        // (Where there is no other gold about to be heard instead.)
+        let mut alone = Gold::default();
+        alone.bury(over);
+        let off = |metres: f32| alone.signal(&stands(over + Vec3::X * metres));
+        assert!(off(40.0) > 0.0 && off(40.0) < 0.15 && off(50.0) == 0.0);
+        assert!(off(20.0) > off(30.0) && off(8.0) > off(20.0));
+        assert!(off(DIGS + 0.3) < OVER && off(DIGS - 0.3) > OVER && off(0.0) > 0.99);
         // The signal rises as the driver nears it, and over it there is something to dig.
         assert!(
             gold.signal(&stands(over + Vec3::X * 6.0)) < gold.signal(&stands(over + Vec3::X * 1.0))
