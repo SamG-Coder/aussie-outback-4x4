@@ -136,6 +136,8 @@ pub(crate) enum Command {
     /// A square of bush this many metres across, of some country, and for a hub the names of
     /// the maps its trailheads lead to.
     Outback(f32, crate::outback::Country, Vec<String>),
+    /// A proving ground for mud, built as a square of bush is (`crate::outback::proving`).
+    Proving,
     /// This scene lends every mesh and texture it has to the scenes read with it
     /// (`crate::lend`), and, if so, has in it as well what every square of bush is made of.
     Lends(bool),
@@ -347,6 +349,12 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
         "track" => {
             expect(1)?;
             Command::Track(values[0].to_string())
+        }
+        // A proving ground for mud: four lanes of different ground on a flat of bush
+        // (`outback::proving`).
+        "proving" => {
+            expect(0)?;
+            Command::Proving
         }
         "outback" => {
             let size = number(0)?;
@@ -995,6 +1003,7 @@ pub(crate) fn build_commands(
     let mut water = None;
     let mut circuit = None;
     let mut outback = None;
+    let mut proving = false;
     let mut lends = None;
     // Whether there has been a circuit, and a line of land, to refuse the two together.
     let (mut has_land, mut has_circuit) = (false, false);
@@ -1193,6 +1202,7 @@ pub(crate) fn build_commands(
             Some(Command::Track(track)) => gameplay.set_track(base, &track).map_err(at)?,
             Some(Command::Circuit(size)) => circuit = Some(size),
             Some(Command::Outback(size, country, leads)) => outback = Some((size, country, leads)),
+            Some(Command::Proving) => proving = true,
             Some(Command::Lends(stock)) => lends = Some(stock),
         }
     }
@@ -1344,13 +1354,20 @@ pub(crate) fn build_commands(
     }
     // A square of bush builds its own land, track and planting, and from the same design the
     // ground to drive on, the map of what it is made of, and the track's line.
-    if let Some((size, country, leads)) = outback {
+    // A proving ground is built as a square of bush is, from a design of its own.
+    let outback = outback.map(Some).or(proving.then_some(None));
+    if let Some(design) = outback {
         if gameplay.game.track.is_some() {
             return Err("`outback` finds its own track: leave out the `track` line".into());
         }
         scene.collide.resize(scene.instances.len(), Collide::Auto);
         let first = scene.instances.len() as u32;
-        let built = crate::outback::build(&mut scene, size, country, &leads, base)?;
+        let built = match design {
+            Some((size, country, leads)) => {
+                crate::outback::build(&mut scene, size, country, &leads, base)?
+            }
+            None => crate::outback::proving::build(&mut scene)?,
+        };
         scene.collide.resize(scene.instances.len(), Collide::None);
         if mapped {
             scene.sources.push(Source {

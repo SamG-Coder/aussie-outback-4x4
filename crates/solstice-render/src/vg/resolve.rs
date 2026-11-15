@@ -115,6 +115,8 @@ impl Resolve {
         .texture_array()
         .texture_array()
         .texture_array()
+        .texture_array()
+        // The ruts pressed into the ground.
         .texture_array();
         if glow {
             output_layout = output_layout.texture_array();
@@ -170,6 +172,7 @@ impl Resolve {
         visibility: &VisibilityBuffer,
         work: &CullWork,
         gbuffer: &GBuffer,
+        ruts: &wgpu::TextureView,
     ) -> ResolveBindings {
         ResolveBindings {
             data: {
@@ -218,6 +221,7 @@ impl Resolve {
                     wgpu::BindingResource::TextureView(&scene.textures.top.color_view),
                     wgpu::BindingResource::TextureView(&scene.textures.top.normal_view),
                     wgpu::BindingResource::TextureView(&scene.textures.top.material_view),
+                    wgpu::BindingResource::TextureView(ruts),
                 ]);
                 if let Some(glow) = &scene.glow_maps {
                     resources.push(wgpu::BindingResource::TextureView(glow));

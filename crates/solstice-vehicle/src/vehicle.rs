@@ -21,6 +21,7 @@
 //! [`Body`]), and adds what the collision did.
 
 use crate::drivetrain::{self, Coupling, Driveline, DrivenAxle};
+use crate::rut::Press;
 use crate::spec::{VehicleSpec, AIR_DENSITY, RPM_TO_RADIANS};
 use crate::surface::{bump, Surface};
 use crate::tyre::TyreCurves;
@@ -67,6 +68,25 @@ const RISE_SECONDS: f32 = 0.5;
 /// The drag of ploughing a rut, as a share of the tyre's load, for a rut as deep as the tyre's
 /// radius (Bekker's compaction resistance, near enough a straight line over the depths here).
 const RUT_DRAG: f32 = 0.35;
+/// A wheel that spins goes on digging where it stands: how far below the floor of its own
+/// rut it reaches for, as a multiple of what the ground says a spinning wheel digs.
+const DIG_ON: f32 = 0.25;
+/// The deepest a wheel can dig itself into ground, as multiples of how far it sinks there
+/// and of how far spinning digs it, and as a share of its own radius: by then it is on its
+/// axle.
+const DIG_SOFT: f32 = 1.5;
+const DIG_SPUN: f32 = 2.5;
+const DIG_RADIUS: f32 = 0.7;
+/// How many lugs a tyre's tread has round it: what it prints in soft ground.
+pub const TREAD_LUGS: f32 = 32.0;
+/// A tyre's width, as a multiple of its radius.
+const TYRE_WIDTH: f32 = 0.7;
+/// How far a tyre rolls, in metres, before the water it came out of a creek with is mostly
+/// off it, and the mud it came out of a bog with; and how far through water before that
+/// mud is washed off.
+const CARRIES_WATER: f32 = 18.0;
+const CARRIES_MUD: f32 = 30.0;
+const WASHES_MUD: f32 = 4.0;
 /// The most of a wheel's brake a four-wheel drive's traction control puts on to stop it
 /// spinning: enough to send a good share of the drive across an open differential, and less
 /// than locking it does.
@@ -101,6 +121,17 @@ pub struct Contact {
 pub trait Ground {
     /// What a ray from `from` along the unit vector `direction` meets first within `reach`.
     fn cast(&self, from: Vec3, direction: Vec3, reach: f32) -> Option<Contact>;
+
+    /// How far the ground at a place has been pressed down since it was made, in metres:
+    /// the depth of the rut there, below zero on the berm beside one ([`crate::rut`]).
+    /// Ground that keeps no ruts has none.
+    fn rut(&self, _at: Vec3) -> f32 {
+        0.0
+    }
+
+    /// Takes a tyre's mark: where its contact has been over a step, and how deep. Ground
+    /// that keeps no ruts does nothing with it.
+    fn press(&self, _press: &Press) {}
 }
 
 /// Flat ground at a height, of one surface: for tests, and for tuning a car.
@@ -308,6 +339,14 @@ pub struct Vehicle {
     wetness: f32,
     /// Whether its tyres are let down for soft ground.
     aired_down: bool,
+    /// Where each tyre met the ground in the last short step, if it did.
+    touching: [Option<Vec3>; 4],
+    /// Where each tyre's last mark on the ground ended, and where in its pattern each
+    /// tyre's tread is, in radians.
+    trail: [Option<glam::Vec2>; 4],
+    tread: [f32; 4],
+    /// What each tyre carries from where it has been, from 0 to 1: water, and mud.
+    carried: [(f32, f32); 4],
     telemetry: Telemetry,
 }
 
@@ -346,6 +385,10 @@ impl Vehicle {
             lockers: (false, false),
             wetness: 0.0,
             aired_down: false,
+            touching: [None; 4],
+            trail: [None; 4],
+            tread: [0.0; 4],
+            carried: [(0.0, 0.0); 4],
             spec,
             telemetry: Telemetry::default(),
         }
@@ -452,6 +495,88 @@ impl Vehicle {
         self.clutch_torque = 0.0;
         self.traction_share = 1.0;
         self.rear_slide = 0.0;
+        self.touching = [None; 4];
+        self.trail = [None; 4];
+    }
+
+    /// What each tyre carries from where it has been, from 0 to 1: water, then mud. A
+    /// tyre out of a creek leaves wet tracks; one out of a bog, muddy ones.
+    pub fn carried(&self) -> [(f32, f32); 4] {
+        self.carried
+    }
+
+    /// The deepest a wheel of this radius can dig itself into a surface, in metres: as far
+    /// as it sinks there and a spinning wheel digs, and no further than its axle.
+    fn deepest(&self, surface: Surface, radius: f32) -> f32 {
+        let grip = surface.grip();
+        let soft = grip.sink_at(self.wetness) * if self.aired_down { AIRED_SINK } else { 1.0 };
+        (soft * DIG_SOFT + grip.dig * DIG_SPUN).min(DIG_RADIUS * radius)
+    }
+
+    /// Leaves each tyre's mark on the ground it rolled over in the step just taken: a rut
+    /// as deep as the tyre has sunk, printed with its tread, and as wet and as churned as
+    /// the ground there is and as the tyre came to it.
+    fn mark(&mut self, body: &Body, ground: &dyn Ground, seconds: f32) {
+        use std::f32::consts::TAU;
+        for index in 0..4 {
+            let wheel = self.wheels[index];
+            let radius = self.spec.axle(index).radius;
+            let turned = wheel.speed * seconds * TREAD_LUGS;
+            let phase = self.tread[index];
+            self.tread[index] = (phase + turned).rem_euclid(TAU);
+            let rolled = (wheel.speed * radius * seconds).abs();
+            let (mut water, mut mud) = self.carried[index];
+            water *= (-rolled / CARRIES_WATER).exp();
+            mud *= (-rolled / CARRIES_MUD).exp();
+            let Some(at) = self.touching[index].filter(|_| wheel.load > 0.0) else {
+                self.carried[index] = (water, mud);
+                self.trail[index] = None;
+                continue;
+            };
+            let soil = wheel.surface.soil(self.wetness);
+            // No deeper than this ground can be pressed: a tyre still climbing out of a
+            // bog as it comes onto rock leaves the rock as it was.
+            let depth = wheel.sink.clamp(0.0, self.deepest(wheel.surface, radius));
+            // What the tyre picks up: water from a creek, which washes the mud off it, and
+            // mud from ground it has sunk into.
+            let sunk = (depth / 0.03).min(1.0);
+            if wheel.surface == Surface::Ford {
+                water = 1.0;
+                mud *= (-rolled / WASHES_MUD).exp();
+            } else {
+                water = water.max(soil.wet * sunk);
+                mud = mud.max(soil.churn * soil.wet * sunk);
+            }
+            self.carried[index] = (water, mud);
+            let to = glam::Vec2::new(at.x, at.z);
+            // A car put somewhere else between two steps leaves no strip from where it was.
+            let from = self.trail[index]
+                .filter(|from| from.distance(to) < 1.5)
+                .unwrap_or(to);
+            self.trail[index] = Some(to);
+            let heading = body.rotation * (Quat::from_rotation_y(-wheel.steer) * Vec3::NEG_Z);
+            let along = glam::Vec2::new(heading.x, heading.z).normalize_or_zero();
+            if along == glam::Vec2::ZERO {
+                continue;
+            }
+            // A tyre rolling prints its tread; one spinning or locked smears it.
+            let print = soil.print.max(0.5 * mud) * (1.0 - (wheel.slip_ratio.abs() - 0.06) / 0.3);
+            ground.press(&Press {
+                from,
+                to,
+                along,
+                half_width: 0.5 * TYRE_WIDTH * radius,
+                // The chord of the tyre below the ground's surface, and its own flat.
+                half_length: (2.0 * radius * (depth + 0.02)).sqrt().min(0.75 * radius),
+                depth,
+                berm: soil.berm,
+                phase: (phase, phase + turned),
+                print: print.clamp(0.0, 1.0),
+                wet: soil.wet.max(0.85 * water),
+                stays: soil.stays,
+                churn: soil.churn.max(0.7 * mud),
+            });
+        }
     }
 
     /// Sets every wheel rolling at the speed the car is going: for starting a car that is
@@ -617,6 +742,7 @@ impl Vehicle {
             let (abs, traction, stability) = self.substep(body, controls, ground, dt);
             aids = (aids.0 | abs, aids.1 | traction, aids.2 | stability);
         }
+        self.mark(body, ground, seconds);
 
         let acceleration = (body.velocity - before) / seconds;
         // What the driver feels: the acceleration, less gravity's.
@@ -678,15 +804,21 @@ impl Vehicle {
                 self.static_loads.1
             };
             let wheel = &mut self.wheels[index];
+            self.touching[index] = None;
             // A wall, or the underside of something, is not ground to stand on.
             let contact = ground
-                .cast(top, -up, reach + wheel.sink)
+                .cast(top, -up, reach + wheel.sink.max(0.0))
                 .filter(|contact| contact.normal.dot(up) >= 0.3 && contact.normal.is_finite());
             let Some(contact) = contact else {
                 // In the air, the tyre is out of whatever it had sunk into.
                 wheel.sink *= (-dt / RISE_SECONDS).exp();
                 continue;
             };
+            let point = top - up * contact.distance;
+            // What has been pressed into the ground here already: the floor of a rut, which
+            // the tyre stands on, or the berm beside one, which it rides over.
+            let floor = ground.rut(point);
+            let floor = if floor.is_finite() { floor } else { 0.0 };
             let grip = contact.surface.grip();
             // Soft ground gives until it carries the tyre: deeper the harder the tyre is
             // pressed, and deeper again under a wheel that spins and digs. It takes a moment
@@ -695,17 +827,27 @@ impl Vehicle {
             let wanted = if soft > 0.0 || grip.dig > 0.0 {
                 let pressed = (wheel.load / rest).clamp(0.0, 2.5);
                 let spinning = (wheel.slip_ratio.abs() - 0.15).clamp(0.0, 1.0);
-                soft * pressed.sqrt() + grip.dig * spinning * pressed.min(1.0)
+                let sunk = soft * pressed.sqrt() + grip.dig * spinning * pressed.min(1.0);
+                // A wheel that goes on spinning goes on digging: always a little below the
+                // floor of the hole it has made, until it is as deep as this ground lets a
+                // wheel dig itself.
+                let deepest = (soft * DIG_SOFT + grip.dig * DIG_SPUN).min(DIG_RADIUS * axle.radius);
+                let dug = floor + grip.dig * spinning * pressed.min(1.0) * DIG_ON;
+                sunk.max(dug.min(deepest))
             } else {
                 0.0
             };
-            let seconds = if wanted > wheel.sink {
+            // The tyre stands on the floor of whatever rut is here, and sinks below it only
+            // as far as it would have sunk in ground nobody had pressed.
+            let below = (wheel.sink - floor).max(0.0);
+            let wanted_below = (wanted - floor).max(0.0);
+            let seconds = if wanted_below > below {
                 SINK_SECONDS
             } else {
                 RISE_SECONDS
             };
-            wheel.sink += (wanted - wheel.sink) * (1.0 - (-dt / seconds).exp());
-            let point = top - up * contact.distance;
+            wheel.sink = floor + below + (wanted_below - below) * (1.0 - (-dt / seconds).exp());
+            self.touching[index] = Some(point);
             let rough = if grip.bump_height > 0.0 {
                 grip.bump_height * bump(point.x, point.z, grip.bump_length)
             } else {
@@ -796,7 +938,8 @@ impl Vehicle {
                 (true, true) => (AIRED_GRIP, 1.0),
                 (true, false) => (AIRED_ROAD_GRIP, AIRED_ROLLING),
             };
-            let drag = surface.rolling_at(rolling) * squirm + RUT_DRAG * wheel.sink / axle.radius;
+            let drag =
+                surface.rolling_at(rolling) * squirm + RUT_DRAG * wheel.sink.max(0.0) / axle.radius;
             patches[index] = Some(Patch {
                 point: contact.point,
                 normal: contact.normal,

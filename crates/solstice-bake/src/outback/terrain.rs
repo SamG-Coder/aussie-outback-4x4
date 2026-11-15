@@ -1530,7 +1530,8 @@ impl Plan {
             };
             let gone = (p - begin).dot((end - begin).normalize_or(Vec2::X));
             let aside = (p - street.middle).dot(Vec2::new(street.along.y, -street.along.x));
-            gone > 6.0 && gone < STREET + 25.0 && aside > -14.0 && aside < BLOCK + 30.0
+            // (Across the street from the block is the used-truck yard.)
+            gone > 6.0 && gone < STREET + 25.0 && aside > -36.0 && aside < BLOCK + 30.0
         };
         let legs = match ends {
             Some((begin, _)) => {

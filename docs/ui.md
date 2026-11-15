@@ -209,10 +209,34 @@ page is come to from its own place in the game and has one way out.
 
 It is looked at where it is done. The first truck, a free drive's and the garage are at the
 Crossroads, by the shed (the map `showroom`). What is done in the town is in the town
-(`showroom_town`, the town's own scene): the truck stands in the yard before Motor Spares,
-the hotel or the bank, facing the road, with the building behind it. Where is a
+(`showroom_town`, the town's own scene): the truck stands in the yard before Motor Spares
+or the bank, facing the road, with the building behind it; a used or a new truck is pulled
+out onto the apron of the used-truck yard across the road. Where is a
 `place stand:WHAT X Y Z YAW` of the town's places (`Town::stands`), which
 `shared::show_trucks` stands the trucks at and `PlayMode::stand` looks at.
+
+**Buying is on a bill.** Nothing is paid for as it is chosen. In the auto shop a part, a
+respray, an oil change or the mending of what the truck has hit (docs/damage.md) that is
+chosen goes in a cart (`fit:G:C`, `paint:HEX`, `oil`, `repair` put it in and take it out; what is owned already is fitted at once), and the truck is seen
+with the cart on it. `checkout` asks for the bill; a used truck (`buy:PLACE`) and a new one
+(`new:NAME`) ask for theirs straight away. The bill (`#yard-quote`, `Shell::quote_told`)
+lists what is bought, what of it is paid from hand and what goes on the debt, what would
+then be owed, what would come out each Friday and what the week's interest would be.
+`confirm` pays it; `reject` turns it down, and nothing has changed. The bank lends what
+credit allows (`Yard::quote`), and says so on the bill if it will not.
+
+**What is owed grows.** Each Friday the week's interest is added to the debt, 0.26% of it
+with no credit down to 0.10% with the best (`yard::INTEREST`), and then the repayment comes
+out: 1.7% of what is owed, and never less than $250 while that much is owed
+(`REPAYMENT_SHARE`, `REPAYMENT_LEAST`). So a bigger debt costs more a week, and paying it
+down makes the Fridays lighter.
+
+**New trucks** are on the `dealer` page, beside the used ones (tabs Used and New): every
+truck of the game by its grade, at its list price, new and with nothing on the clock.
+
+**A part is looked at close.** In the auto shop the view goes to whatever section is in
+hand (`focus:GROUP`, `PlayMode::showroom_camera`): the wheels, the front for a bar, the
+tray, underneath for suspension, the bonnet for the oil; `focus:off` is the whole truck.
 
 Everything there is to choose is in the strip along the bottom, the one in hand in the
 middle, and pressing on it chooses it: trucks, a first truck's colours, and in the auto
@@ -240,13 +264,45 @@ options, the calendar, the map), is a card in the middle.
 
 Everything is worked with the mouse, with the arrows and Enter and Escape, or with a
 controller's d-pad or left stick and its bottom and right buttons, and nothing needs the
-mouse. Escape, or Start, pauses.
+mouse. Escape, or Start, pauses. What to press is drawn along the bottom of each screen, as
+it is on whatever is in hand (Buttons, below).
 
 **Where things are done.** What a game is made of is out in it, not in a menu. The garage
-is at the shed. In the town the auto shop is behind the door of Motor Spares, the used
-trucks are asked about at the hotel's, and the bank is the bank: each a `place door:WHAT`
-of the town's places, walked up to on foot, where the button goes in; coming out, the
-driver is on foot at the door. Gold is sold from the tray in the buyer's yard.
+is at the shed. In the town the auto shop is behind the door of Motor Spares, the bank is
+the bank, and used and new trucks are at Ironbark Motors, the yard across the road: each a
+`place door:WHAT` of the town's places, walked up to on foot, where the button goes in;
+coming out, the driver is on foot at the door. The shed and the gold buyer's are gone into
+on foot as well as stopped at in a truck (`Shell::at_door`). Gold is sold from the tray in
+the buyer's yard, or carried in.
+
+**The used-truck yard** is across the road from the town: levelled ground, an office, a sign
+and a fence (`town.rs`: `LOT`, `OFFICE`; the model is `tools/blender/town/build.py`,
+`build_yard`). Six trucks are for sale a day (`yard::used`, from the game's number and the
+day, so the pool changes every day and is the same all day). They are not in the map's
+file. As a map with a yard is read, the day's trucks that are still for sale are put
+together from their packs and parked in its row (`place lot:N X Y Z YAW`,
+`shared::park_trucks`): each as it was made, in its listing's colour, with a box round it
+that stops whoever walks or drives into it, and before it a board with its price and how
+far it has been (`board.rs`: a white board, the words in red blocks, made as the map is
+read). A truck that is driven is the only one that wears a `Coat`; the parked ones are
+painted through the renderer's `resprays` (`Renderer::set_resprays`, eight runs of
+instances, each in a colour of its own).
+
+On foot within a few paces of one (`Shell::at_truck`), its tag is on the screen (`tag` in
+what the page is told: what it is, its year, how far it has been, its condition, what is
+asked, whether it is going cheap), and the button looks it over: the page of used trucks,
+at that truck, pulled out onto the apron with its place in the row empty
+(`PlayMode::display`). Bought, it is gone from the row (`Order::Unpark`) and is in the
+shed's garage. The office door opens the same page at the first of them.
+
+**Sleeping** is to a time of day, not only to the morning (`shell::SLEEPS`): Morning (6),
+Midday (12), Afternoon (3), Evening (6.30) and Night (10). The shed offers each that is six
+hours off or more (`SLEEP_LEAST`), saying how long the sleep is and whether it is tomorrow
+(`sleep:N`); past midnight it is the next day, and a Friday's repayment comes out.
+
+**A controller's look speed** is an option (Options, Controller: `option:look:N`, kept as
+`look N` in `save/options.txt`): from a little over half the speed it was made with to
+nearly two and a half times (`Shell::look_gain`, `Devices.look`).
 
 ## The day: the shed, and gold
 
@@ -413,6 +469,81 @@ The pause menu opens it whole, with the truck's arrow where the truck is and a l
 place. While driving, and on foot, it is in the corner at the lower left, small: north up,
 about 260 m across, the arrow in its middle turning as the truck does.
 
+## Buttons
+
+Wherever the pages say what to press they draw it, as it is on whatever is in hand: a key's
+cap and the mouse; an Xbox controller's A, B, X and Y in their colours, its bumpers and
+triggers, its sticks, d-pad, View and Menu; or a PlayStation's cross, circle, square and
+triangle, L1 to R3, Create and Options. The page draws them itself, as shapes (`ui/ui.js` and
+`ui/ui.css`, both under "Buttons"): they are sharp at any size, and nothing is downloaded.
+
+**What is in hand** is whatever was pressed last, and the shell says so (`Shell::before`). A
+controller's button, a trigger pulled or a stick pushed past half way makes it the
+controller; a key or a click of the mouse makes it the keyboard and mouse
+(`Devices::pressed_on`). A stick resting off its middle and a mouse that is only moved change
+nothing, so the buttons do not flicker. The pages are told at once, on any screen, in `pad`
+and `pad_kind` (`xbox` or `playstation`), and every button on them is drawn again.
+
+**Whose controller it is** is said by whoever reads it, and `PadKind::of` decides from its
+name and its maker's number; one that is nobody's in particular is drawn as an Xbox's. On
+the desktop that is `desktop.rs` (`gilrs`, or `sony.rs` for a PlayStation controller read
+directly); in a browser the viewer's page says `pad kind` and the `Gamepad.id`; on a phone
+`MainActivity.java` says `pad kind`, the maker's number and the name.
+
+**What is drawn is what is bound.** The pages name no key of their own. The shell tells them
+`binds`: every action of the map's `.input` file (`scenes/outback/game.input`) and of the
+menus (`MENU_INPUT` in `shell.rs`), and what is bound to it:
+
+```json
+"binds": { "steer":    { "key": ["KeyD", "ArrowRight", "-KeyA", "-ArrowLeft"], "pad": ["left_x"] },
+           "throttle": { "key": ["KeyW", "ArrowUp"], "pad": ["r2"] },
+           "orbit":    { "mouse": ["-x"] },
+           "enter":    { "key": ["Enter", "KeyF", "KeyE"], "pad": ["south"] } }
+```
+
+Each list is in the order the file binds them, and a `-` marks one bound backwards (a key
+that steers left). They come with every new screen and whenever they change, and the page
+keeps the last it was told; so a key changed in `game.input` is the key drawn everywhere,
+the options' two tabs included, with nothing changed in the pages.
+
+A page asks for buttons by action:
+
+| In the page | Draws |
+| --- | --- |
+| `<span class="glyphs" data-glyph="ACTIONS"></span>` | The buttons for those actions. |
+| `<span data-hint="accept">Select</span>` | The same, put before the words: a hint along the bottom of a screen. `accept`, `back`, `tabs` and `browse` are short for the menus' actions (`HINTS`); anything else is ACTIONS. |
+| `data-words="Hold {enter} to stop here"` | Words with buttons among them (the loading screen's tips). |
+| `data-kit="keys"` or `"pad"`, beside `data-glyph` | Always that device's, whatever is in hand: the options' two tabs. |
+
+ACTIONS is terms with spaces between them:
+
+| Term | Is |
+| --- | --- |
+| `throttle` | The first control bound to the action on the device in hand. An action that goes two ways on keys, `steer`, is the key for each way. |
+| `forward+`, `forward-` | One way of it. |
+| `run\|sprint` | The first of these that has anything bound on this device. |
+| `enter~KeyE` | That control, if it is one of the action's; else its first. |
+| `hold:enter` | The word Hold before it. |
+| `@mouse:left`, `@pad:south` | A control itself, bound or not: for what no action is bound to, such as clicking the map. |
+
+Both axes of a stick in one hint are drawn as the stick, one axis as the stick with arrows
+that way, the d-pad's arms as one d-pad, and the mouse's two ways as the mouse. A hint with
+nothing bound on the device in hand is not shown. `dress()` does the drawing, and is called
+whenever anything is shown, so anything put on the page after that needs no more than the
+attribute; `glyphs(ACTIONS)` gives the same as HTML.
+
+**To add a button** that is not yet drawn (a new control of a device, or another family of
+controller): give it a drawing in `ui/ui.js`, a function returning `gSvg(width, name, shapes)`
+32 units high, made of the classes in `ui/ui.css` (`g-b` a body, `g-f` what is lit, `g-s` a
+mark, `g-t` letters); name it in `gDraw`, which is given a control such as `pad:south`; and
+for a family add its letters or shapes to `G_FACE`, `G_SHOULDER` and `G_MIDDLE`, its name to
+`PadKind`, and what it calls itself to `PadKind::of`. **To add a hint**, write the element
+with its `data-glyph` or `data-hint`; if what it does is new, bind an action to it in
+`game.input` or `MENU_INPUT` first. Size is `--glyph` on the element or anything it is in.
+
+A screen with tabs (the options) is turned to the next tab or the one before with Q and E
+or the bumpers (`menu_prev`, `menu_next`), wherever the hand is.
+
 ## Trying it without playing it
 
 The game can play itself, to see that a thing works, where nobody sees or hears it:
@@ -452,7 +583,7 @@ Text, both ways, so that the same pages work wherever the shell runs.
 or a menu is worked; while driving, about 24 times a second.
 
 ```json
-{ "screen": "drive", "mode": "laps", "hub": false, "pad": false, "nav": [],
+{ "screen": "drive", "mode": "laps", "hub": false, "pad": false, "pad_kind": "xbox", "nav": [],
   "map":  { "name": "wombat", "title": "Wombat Creek Track", "about": "...", "kind": "Fire trail",
             "length": "3.5 km", "best": 312.48, "built": true },
   "offer": { ...a map, when its card is open... },
@@ -500,8 +631,10 @@ the best medal it is still inside, and `ghosts`, where each of the others would 
 `next`, what is due next and in how many days).
 
 `nav` is how a menu was moved from the keys or a controller since the pages were last told:
-`up`, `down`, `left`, `right`, `accept`, `back`. `pad` says a controller was used last, so the
-pages name its buttons. `near` is the nearest trailhead: how far, which way from straight
+`up`, `down`, `left`, `right`, `accept`, `back`, and `prev` and `next` for a screen's tabs.
+`pad` says a controller was used last, `pad_kind` whose it is (`xbox` or `playstation`), and
+`binds`, with every new screen, what is bound to each action: so the pages draw the buttons
+there are (Buttons, above). `near` is the nearest trailhead: how far, which way from straight
 ahead in degrees, whether the truck is in its ring, and how far through holding the button.
 
 **From the pages**: a line at a time.
@@ -520,6 +653,7 @@ ahead in degrees, whether the truck is in its ring, and how far through holding 
 | `look X Y` | On foot, a finger dragged across a touched screen by this much: looking round. |
 | `touched` | The screen was touched while a controller was in use: draw the controls on it again. |
 | `pad here` / `pad gone` | A controller was plugged in, or the last one taken out. |
+| `pad kind NAME` | What that controller says it is: a browser's `Gamepad.id`, or its maker's number and its name. Whose buttons to draw is told from it. |
 | `pad button NAME V` / `pad axis NAME V` | A controller, where the game cannot read one itself and the page's host reads it for it (a phone, docs/android.md). |
 
 Who has the keys and the mouse is not the same in the two places.
@@ -573,8 +707,11 @@ then `http://localhost:8765/index.html?screen=drive&mode=timed&map=1`. `screen` 
 name, or `controls`, `map` or `calendar`; `mode` is `roam`, `practice` or `timed`; `class=N`
 chooses a class, from 0; `foul` is a night in a storm; with `screen=result`, `repeat` and
 `void` show a run that won nothing new and one with no time; `unknown` shows a trailhead
-whose times are not known yet; `pad` shows a controller's buttons; `inside` and `unbuilt`
-show a ring's banner and a map not yet made; `still` stops the fades, for a picture.
+whose times are not known yet; `pad` shows an Xbox controller's buttons and `pad=ps` a
+PlayStation's; `inside` and `unbuilt` show a ring's banner and a map not yet made; `still`
+stops the fades, for a picture. A real controller plugged in is in hand as soon as anything
+on it is pressed, and a key pressed is the keyboard again, as in the game: the buttons drawn
+change with them.
 
 On the desktop the pages are read from `ui/` as they are asked for, so a page changed on disk
 is the changed page the next time the game is started.

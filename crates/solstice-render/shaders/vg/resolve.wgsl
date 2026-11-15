@@ -13,6 +13,7 @@
 #include "common/frame.wgsl"
 #include "common/wetness.wgsl"
 #include "rain/surface.wgsl"
+#include "ground/ruts.wgsl"
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> vis_depth: array<u32>;
@@ -56,9 +57,11 @@ fn triangle_word(word: u32) -> u32 {
 @group(1) @binding(12) var top_color: texture_2d_array<f32>;
 @group(1) @binding(13) var top_normal: texture_2d_array<f32>;
 @group(1) @binding(14) var top_material: texture_2d_array<f32>;
+// The ruts tyres have pressed into the ground, round the camera: ground/ruts.wgsl.
+@group(1) @binding(15) var rut_map: texture_2d_array<f32>;
 // glow:begin
 // The emissive maps, for a scene that has any. Compiled out of one that hasn't.
-@group(1) @binding(15) var glow_maps: texture_2d_array<f32>;
+@group(1) @binding(16) var glow_maps: texture_2d_array<f32>;
 // `flags` above this bit: one more than the material's layer among the emissive maps, or zero.
 const MATERIAL_GLOW_SHIFT: u32 = 16u;
 // `Material.emissive` of a material with a map is the map's light taken over its surface, as this
@@ -210,6 +213,20 @@ struct Coated {
     normal: vec3f,
 }
 
+// A paint's new colour, where the texture is the colour the paint was made in: by its
+// colour and not its shade, so that a shadow painted into it is still there.
+fn resprayed(albedo: vec3f, was: vec3f, paint: vec3f) -> vec3f {
+    let value = max(albedo.r, max(albedo.g, albedo.b));
+    let was_value = max(was.r, max(was.g, was.b));
+    if was_value <= 0.0 {
+        return albedo;
+    }
+    let hue = albedo / max(value, 1.0e-4);
+    let was_hue = was / was_value;
+    let share = (1.0 - smoothstep(0.18, 0.5, distance(hue, was_hue))) * smoothstep(0.015, 0.06, value);
+    return mix(albedo, paint * clamp(value / was_value, 0.0, 1.5), share);
+}
+
 // Gives a surface of whatever is driven the colour its paint is to be, and lays on it its
 // rust, its dust and its mud. `world` is where the point is and `local` where it is in its
 // own mesh, which for a wheel turns with the wheel.
@@ -243,16 +260,7 @@ fn coat(material: Material, surface: Coated, world: vec3f, local: vec3f) -> Coat
         + frame.coat_z.xyz * (fine.w + speck.w * 0.6);
 
     if (material.flags & MATERIAL_PAINT) != 0u {
-        // The paint's new colour, where the texture is the colour the paint was made in:
-        // by its colour and not its shade, so that a shadow painted into it is still there.
-        let value = max(out.albedo.r, max(out.albedo.g, out.albedo.b));
-        let was_value = max(frame.coat_was.r, max(frame.coat_was.g, frame.coat_was.b));
-        if was_value > 0.0 {
-            let hue = out.albedo / max(value, 1.0e-4);
-            let was_hue = frame.coat_was / was_value;
-            let paint = (1.0 - smoothstep(0.18, 0.5, distance(hue, was_hue))) * smoothstep(0.015, 0.06, value);
-            out.albedo = mix(out.albedo, frame.coat_paint * clamp(value / was_value, 0.0, 1.5), paint);
-        }
+        out.albedo = resprayed(out.albedo, frame.coat_was, frame.coat_paint);
         // Rust, where water sits: low on the panels and round the wheel arches, in blotches
         // that spread as it gets worse, and run down from where they begin.
         if frame.coat_rust > 0.0 {
@@ -439,7 +447,23 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         normal = -normal;
     }
     // The geometry's own normal, before any normal map, for water to pool against.
-    let surface_normal = normal;
+    var surface_normal = normal;
+    // Ground that tyres have pressed is seen where the eye's ray meets it as it is now,
+    // not as the land was made (ground/ruts.wgsl): there its textures are laid, and that
+    // way it faces. `ground` is that place; `world` stays the land's own, for what moves.
+    let is_ground = (material.flags & MATERIAL_BLENDS) != 0u && material.texture_layer >= 0;
+    var ground = world;
+    var rut = Rut(false, world, 0.0, normal, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    let footprint = sqrt(length(dp_dx) * length(dp_dy));
+    if is_ground && frame.rut_window.z > 0.0 {
+        rut = rut_trace(world, normal, footprint);
+        if rut.near {
+            ground = rut.at;
+            normal = rut.normal;
+        }
+    }
+    // How much of the ground here is mud, to be drawn as mud.
+    var mud_share = 0.0;
 
     var albedo = material.base_color.rgb;
     var roughness = material.roughness;
@@ -460,7 +484,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             // across, as sand blows over a path and grass creeps onto it, not one smooth line.
             var breakup = vec3f(0.0);
             if max(shares.x, max(shares.y, shares.z)) < 0.999 {
-                let p = vec3f(world.x, 0.0, world.z);
+                let p = vec3f(ground.x, 0.0, ground.z);
                 let sand = gradient_noise(p * 0.45, 811u).x + 0.5 * gradient_noise(p * 1.3, 812u).x;
                 let dirt = gradient_noise(p * 0.45 + 17.0, 813u).x + 0.5 * gradient_noise(p * 1.3 + 17.0, 814u).x;
                 // Faded out with each share, so a kind leaves off smoothly before it is skipped.
@@ -475,7 +499,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                 }
                 let m = materials[index + k];
                 let scale = m.uv_scale;
-                layers[k] = layer_of(m, world.xz * scale, dp_dx.xz * scale, dp_dy.xz * scale);
+                layers[k] = layer_of(m, ground.xz * scale, dp_dx.xz * scale, dp_dy.xz * scale);
                 // Each texture's relief, from its cavity: what stands proud shows first where
                 // two kinds meet, so grass shows on the bumps and sand settles in the hollows.
                 scores[k] = shares[k] + breakup[k] + layers[k].cavity * BLEND_RELIEF;
@@ -491,6 +515,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
                     surface.roughness += layers[k].roughness * blend[k];
                     surface.metallic += layers[k].metallic * blend[k];
                     surface.tangent += layers[k].tangent * blend[k];
+                    if (materials[index + k].flags & MATERIAL_MUD) != 0u {
+                        mud_share += blend[k];
+                    }
                 }
             }
             // The tangent frame follows the world's x and z, as all three are laid.
@@ -538,6 +565,37 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         metallic = material.metallic * first + m1.metallic * second + m2.metallic * third;
     }
 
+    // The ground as it lies and as tyres have left it: mud drawn as mud, wet at its heart
+    // and cracked at its rim, and where it was pressed, churned soil with the tread's
+    // print in it and water standing in the ruts (ground/ruts.wgsl).
+    var ground_wet = 0.0;
+    var ground_pool = 0.0;
+    var ground_shade = 1.0;
+    if is_ground && (mud_share > 0.02 || rut.near) {
+        let rain_state = rain.rain;
+        var lies = Ground(albedo, roughness, cavity, normal, surface_normal, 0.0, 0.0, 1.0);
+        lies = mud_lies(lies, mud_share, ground, footprint, rain_state.z, rain_state.w);
+        lies = rut_shade(lies, rut, mud_share, rain_state.w);
+        albedo = lies.albedo;
+        roughness = lies.roughness;
+        cavity = lies.cavity;
+        normal = lies.normal;
+        surface_normal = lies.surface_normal;
+        ground_wet = lies.wet;
+        ground_pool = lies.pool;
+        ground_shade = lies.shade;
+    }
+
+    // Trucks that stand about are each in a colour of their own.
+    if (material.flags & MATERIAL_PAINT) != 0u {
+        for (var run = 0u; run < 8u; run++) {
+            let respray = frame.resprays[run];
+            if entry.instance - respray.first < respray.count {
+                albedo = resprayed(albedo, respray.was, respray.paint);
+            }
+        }
+    }
+
     // What is driven wears its coat: its paint's colour, and its rust, dust and mud.
     if entry.instance - frame.coat_first < frame.coat_count {
         let coated = coat(material, Coated(albedo, roughness, metallic, normal), world, interp3(b, local0, local1, local2));
@@ -559,8 +617,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         0.0,
         1.0,
     );
-    var wet = wet_material(albedo, roughness, metallic, normal, surface_normal, max(sea.x, rain_wet), sea.y);
+    var wet = wet_material(albedo, roughness, metallic, normal, surface_normal, max(max(sea.x, rain_wet), ground_wet), sea.y);
     wet = under_puddle(wet, surface_normal, rained);
+    // The shade of lying low in a rut, on the colour as wet as it has come out.
+    wet.albedo *= ground_shade;
+    // Water standing in a rut or a hollow of mud: brown with clay, level, and smooth.
+    if ground_pool > 0.0 {
+        wet.albedo = pooled(wet.albedo, ground_pool);
+        wet.roughness = mix(wet.roughness, PUDDLE_ROUGHNESS * 2.0, ground_pool);
+        wet.normal = normalize(mix(wet.normal, vec3f(0.0, 1.0, 0.0), ground_pool));
+        // The water's own surface is open to the sky, however deep the rut it lies in.
+        cavity = mix(cavity, 1.0, ground_pool);
+        wet.wetness = max(wet.wetness, ground_pool);
+    }
     albedo = wet.albedo;
     roughness = wet.roughness;
     normal = wet.normal;

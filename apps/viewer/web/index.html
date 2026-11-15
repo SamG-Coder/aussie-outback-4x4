@@ -956,6 +956,9 @@ async function startGame(viewer, file) {
       PAD_BUTTONS.forEach((name) => viewer.gamepad_button(name, 0));
       PAD_AXES.forEach((name) => viewer.gamepad_axis(name, 0));
     }
+    // What a pad that has just been taken up says it is: the game's pages draw its buttons
+    // as they are, an Xbox's or a PlayStation's (docs/ui.md, Buttons).
+    if (pad && pad.index !== padIndex) viewer.ui_say?.(`pad kind ${pad.id}`);
     padIndex = pad?.index ?? null;
     if (!pad) return;
     pad.buttons.forEach((b, i) => PAD_BUTTONS[i] && viewer.gamepad_button(PAD_BUTTONS[i], b.value));

@@ -192,6 +192,21 @@ impl DebugView {
 /// is under water or wet from it.
 pub const NO_SEA: f32 = -1.0e30;
 
+/// How many trucks that stand about can each be in a colour of their own.
+pub const RESPRAYS: usize = 8;
+
+/// A run of instances in a colour of their own: a truck that stands about, which nobody
+/// drives. Its paint is `paint` wherever it was made `was`, as a [`Coat`]'s is. Twin of
+/// `Respray` in `common/frame.wgsl`; none of them when `count` is 0.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
+pub struct Respray {
+    pub paint: Vec3,
+    pub first: u32,
+    pub was: Vec3,
+    pub count: u32,
+}
+
 /// Twin of `Frame` in `common/frame.wgsl`.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -259,6 +274,15 @@ pub struct FrameUniform {
     pub coat_wet: f32,
     /// Where its axles are along it, half its track, and its wheels' radius.
     pub coat_axles: Vec4,
+    /// Trucks that stand about, each in its own colour.
+    pub resprays: [Respray; RESPRAYS],
+    /// The ruts pressed into the ground (`crate::ruts::RutMap::window`): the middle of the
+    /// square of them that is held, half its width, 0 when nothing is held, and one over
+    /// the width of ground the map wraps round in.
+    pub rut_window: Vec4,
+    /// The colour of churned soil, and the width of a cell of that map, in metres.
+    pub rut_soil: Vec3,
+    pub rut_cell: f32,
 }
 
 /// What whatever is driven wears: the colour of its paint, and what the country has put on
@@ -394,7 +418,12 @@ mod tests {
             frame_seconds,
             sun_disc,
             sea_level,
-            moon_disc
+            moon_disc,
+            coat_axles,
+            resprays,
+            rut_window,
+            rut_soil,
+            rut_cell
         );
         for (name, offset) in rust {
             let member = members

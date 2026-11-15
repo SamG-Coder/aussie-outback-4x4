@@ -324,6 +324,103 @@ fn build_file(actor_file: &str) -> String {
     format!("{actor_file}.build")
 }
 
+/// The name of the gameplay file that says where each piece of a truck is: a line a piece,
+/// `NAME LOW_X LOW_Y LOW_Z HIGH_X HIGH_Y HIGH_Z`, the least and the greatest corners of a
+/// box round it in the truck's own space, in metres. What a blow lands on is told from it
+/// (`damage.rs`). It is measured from the pieces themselves ([`measured`]) as a truck is put
+/// together from its pack.
+pub fn boxes_file(actor_file: &str) -> String {
+    format!("{actor_file}.boxes")
+}
+
+/// The box round one of a scene's meshes, in the mesh's own space: its least corner and its
+/// greatest. Every point of every level of detail of it is looked at.
+pub fn mesh_box(scene: &LoadedScene, mesh: u32) -> Option<(Vec3, Vec3)> {
+    use solstice_asset::gpu::{PackedVertex, NODE_LEAF, NODE_PAGE_MASK};
+    let paged = &scene.scene;
+    let info = paged.meshes.get(mesh as usize)?;
+    let mut found: Option<(Vec3, Vec3)> = None;
+    let mut nodes = vec![info.root_node?];
+    while let Some(node) = nodes.pop() {
+        let node = paged.nodes.get(node as usize)?;
+        if node.is_leaf & NODE_LEAF == 0 {
+            nodes.extend(node.first..node.first + node.count);
+            continue;
+        }
+        let page = scene.page(node.is_leaf & NODE_PAGE_MASK);
+        for cluster in node.first..node.first + node.count {
+            let cluster = paged.clusters.get(cluster as usize)?;
+            // A cluster's vertices are so many words from the start of its page.
+            let from = cluster.vertex_offset as usize * 4;
+            let size = std::mem::size_of::<PackedVertex>();
+            let bytes = page.get(from..from + cluster.vertex_count() as usize * size)?;
+            for vertex in bytes.chunks_exact(size) {
+                let word = |at: usize| f32::from(u16::from_le_bytes([vertex[at], vertex[at + 1]]));
+                let point =
+                    info.quant_origin + Vec3::new(word(0), word(2), word(4)) * info.quant_step;
+                let (low, high) = found.get_or_insert((point, point));
+                (*low, *high) = (low.min(point), high.max(point));
+            }
+        }
+    }
+    found
+}
+
+/// The box round some of a scene's instances, as `within` has them: where each is, in the
+/// space the box is wanted in (a truck's own, for its pieces).
+pub fn measured(
+    scene: &LoadedScene,
+    instances: std::ops::Range<u32>,
+    within: impl Fn(Mat4) -> Mat4,
+) -> Option<(Vec3, Vec3)> {
+    let mut found: Option<(Vec3, Vec3)> = None;
+    for instance in instances {
+        let instance = scene.scene.instances.get(instance as usize)?;
+        let Some((low, high)) = mesh_box(scene, instance.mesh) else {
+            continue;
+        };
+        let placed = within(instance.transform);
+        for corner in 0..8 {
+            let pick = |bit: u32, low: f32, high: f32| if corner & bit == 0 { low } else { high };
+            let point = placed.transform_point3(Vec3::new(
+                pick(1, low.x, high.x),
+                pick(2, low.y, high.y),
+                pick(4, low.z, high.z),
+            ));
+            let (low, high) = found.get_or_insert((point, point));
+            (*low, *high) = (low.min(point), high.max(point));
+        }
+    }
+    found
+}
+
+/// A line of a truck's boxes: a piece, and the box round it.
+fn box_line(name: &str, (low, high): (Vec3, Vec3)) -> String {
+    format!(
+        "{name} {:.3} {:.3} {:.3} {:.3} {:.3} {:.3}\n",
+        low.x, low.y, low.z, high.x, high.y, high.z
+    )
+}
+
+/// A truck's boxes, read from their file ([`boxes_file`]). A line that is not one is passed
+/// over: the file is written by the game, and a truck with fewer boxes is still a truck.
+fn read_boxes(text: &str) -> Vec<(String, Vec3, Vec3)> {
+    let mut boxes = Vec::new();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        let Some(name) = words.next() else { continue };
+        let numbers: Vec<f32> = words.filter_map(|word| word.parse().ok()).collect();
+        if let [lx, ly, lz, hx, hy, hz] = numbers[..] {
+            boxes.push((
+                name.to_owned(),
+                Vec3::new(lx, ly, lz),
+                Vec3::new(hx, hy, hz),
+            ));
+        }
+    }
+    boxes
+}
+
 /// A truck put together from its pack: its pieces as one scene, the gameplay files that say
 /// what it is, and the name of its actor file among them.
 pub struct Assembled {
@@ -460,6 +557,7 @@ pub fn assemble(
     // Its pieces, one after another: each a scene of its own, joined to those before it.
     let mut truck: Option<LoadedScene> = None;
     let mut pieces = String::new();
+    let mut boxes = String::new();
     for entry in list.iter().filter(|entry| entry.kind == "piece") {
         if !all && !shown.contains(entry.name.as_str()) {
             continue;
@@ -468,6 +566,10 @@ pub fn assemble(
         let piece = solstice_asset::file::decode(&bytes)
             .map_err(|error| format!("{}: {error}", entry.name))?;
         let count = piece.scene.instances.len();
+        // Where it is on the truck: a piece is made in the truck's own space.
+        if let Some(found) = measured(&piece, 0..count as u32, |placed| placed) {
+            boxes.push_str(&box_line(&entry.name, found));
+        }
         let first = match &mut truck {
             None => {
                 truck = Some(piece);
@@ -501,6 +603,10 @@ pub fn assemble(
     files.push(GameFile {
         name: build_file(&actor),
         text: build.to_text(),
+    });
+    files.push(GameFile {
+        name: boxes_file(&actor),
+        text: boxes,
     });
     Ok(Assembled {
         scene,
@@ -575,6 +681,9 @@ pub struct Fitted {
     open: Vec<f32>,
     swung: Vec<f32>,
     aim: Vec<f32>,
+    /// The box round each piece, in the truck's own space, where it is known
+    /// ([`boxes_file`], [`Fitted::measure`]).
+    boxes: Vec<(String, Vec3, Vec3)>,
 }
 
 /// How long a door takes to swing all the way, in seconds.
@@ -591,6 +700,46 @@ impl Fitted {
             pieces,
             first,
             changed: true,
+            boxes: Vec::new(),
+        }
+    }
+
+    /// Every piece that is on the truck as it is fitted, each with the instances that draw
+    /// it.
+    pub fn fitted(&self) -> Vec<(&str, std::ops::Range<u32>)> {
+        let shown = self.kit.shown(&self.build);
+        let each = self.pieces.0.iter();
+        each.filter(|(name, ..)| shown.contains(name.as_str()))
+            .map(|(name, first, count)| {
+                (
+                    name.as_str(),
+                    self.first + first..self.first + first + count,
+                )
+            })
+            .collect()
+    }
+
+    /// The box round a piece, in the truck's own space, if it is known.
+    pub fn piece_box(&self, piece: &str) -> Option<(Vec3, Vec3)> {
+        let found = self.boxes.iter().find(|(name, ..)| name == piece);
+        found.map(|(_, low, high)| (*low, *high))
+    }
+
+    /// Whether the truck's pieces have been measured.
+    pub fn is_measured(&self) -> bool {
+        !self.boxes.is_empty()
+    }
+
+    /// Measures every piece from the scene it is in: for a truck that is baked into its
+    /// map, and has no boxes of its own. `stood` is where the truck stands in the scene.
+    pub fn measure(&mut self, scene: &LoadedScene, stood: Mat4) {
+        let to_truck = stood.inverse();
+        self.boxes.clear();
+        for (name, first, count) in &self.pieces.0 {
+            let instances = self.first + first..self.first + first + count;
+            if let Some((low, high)) = measured(scene, instances, |placed| to_truck * placed) {
+                self.boxes.push((name.clone(), low, high));
+            }
         }
     }
 
@@ -704,6 +853,10 @@ impl Fitted {
         if let Ok(build) = text(&build_file(actor_file)) {
             fitted.build = Build::parse(build)?;
         }
+        // And it comes with where each of its pieces is.
+        if let Ok(boxes) = text(&boxes_file(actor_file)) {
+            fitted.boxes = read_boxes(boxes);
+        }
         Ok(fitted)
     }
 
@@ -780,6 +933,42 @@ mod tests {
         )
         .unwrap();
         assert_eq!(boot.holds().0[0].ways, [(0, Vec3::new(0.0, 1.1, 2.49))]);
+    }
+
+    #[test]
+    fn a_trucks_boxes_are_read_and_only_what_is_fitted_is_on_it() {
+        let text = format!(
+            "{}{}not a box\n",
+            box_line(
+                "cab",
+                (Vec3::new(-0.9, 0.5, -1.0), Vec3::new(0.9, 1.9, 2.5))
+            ),
+            box_line(
+                "acc_bullbar_tube",
+                (Vec3::new(-0.9, 0.4, -2.6), Vec3::new(0.9, 1.1, -2.3))
+            ),
+        );
+        let boxes = read_boxes(&text);
+        assert_eq!(boxes.len(), 2);
+        assert_eq!(boxes[1].1, Vec3::new(-0.9, 0.4, -2.6));
+        let kit = Kit::parse(KIT).unwrap();
+        let pieces = Pieces::parse("cab 0 2\nbumper_front 2 1\nacc_bullbar_tube 3 1\n").unwrap();
+        let mut fitted = Fitted::new(kit, pieces, 100);
+        assert!(!fitted.is_measured());
+        fitted.boxes = boxes;
+        assert!(fitted.is_measured());
+        assert_eq!(
+            fitted.piece_box("cab"),
+            Some((Vec3::new(-0.9, 0.5, -1.0), Vec3::new(0.9, 1.9, 2.5)))
+        );
+        assert_eq!(fitted.piece_box("door_FL"), None);
+        // As it is sold it has no bar: the cab and the bumper, with their instances.
+        assert_eq!(
+            fitted.fitted(),
+            [("cab", 100..102), ("bumper_front", 102..103)]
+        );
+        fitted.fit("bullbar=tube").unwrap();
+        assert_eq!(fitted.fitted().len(), 3);
     }
 
     #[test]

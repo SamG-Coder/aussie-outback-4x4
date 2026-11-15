@@ -28,7 +28,9 @@ its scene file (`scenes/outback.txt`: `outback 1000`; `scenes/granite.txt`: `out
 rock`): the land, the creek, the track and its damage, the ground, and every plant.
 
 How the game round the driving is built, its menus and its maps, is in [docs/ui.md](docs/ui.md);
-its sound in [docs/sound.md](docs/sound.md).
+its sound in [docs/sound.md](docs/sound.md); what a crash does to a truck in
+[docs/damage.md](docs/damage.md); and its mud in [docs/mud.md](docs/mud.md). What each release
+added is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Run it
 
@@ -40,6 +42,7 @@ its sound in [docs/sound.md](docs/sound.md).
 | `python scripts/package-release.py` | Pack the game for Windows: a zip whose program is opened to play, and which fetches its own maps (docs/hosting.md) |
 | `python scripts/package-android.py` | Build the Android app, `target/android-pack/AussieOutback4x4.apk` (docs/android.md) |
 | `play-wet.bat` | The same after 15 minutes of storm: greasy clay, deep mud, full puddles |
+| `crash.bat` | The crash-test pad: seven lanes to drive a truck into, each a test of the damage (docs/damage.md) |
 
 Extra viewer options go after the script name, for example `play --time 17:30 --weather broken`,
 or `play assets\outback.solstice` to start on a track itself.

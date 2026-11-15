@@ -1,5 +1,14 @@
 // Per-frame constants for the main view. Twin of `FrameUniform` in frame.rs.
 
+// A run of instances in a colour of their own (`Respray` in frame.rs): a truck that stands
+// about, which nobody drives. None of them when `count` is 0.
+struct Respray {
+    paint: vec3f,
+    first: u32,
+    was: vec3f,
+    count: u32,
+}
+
 struct Frame {
     view_proj: mat4x4f,           // Includes the temporal jitter.
     inv_view_proj: mat4x4f,       // Inverse of the jittered matrix.
@@ -70,6 +79,15 @@ struct Frame {
     coat_wet: f32,
     // Where its front and rear axles are along z, half its track, and its wheels' radius.
     coat_axles: vec4f,
+    // Trucks that stand about, each in its own colour.
+    resprays: array<Respray, 8>,
+    // The ruts pressed into the ground (ruts.rs, ground/ruts.wgsl): the middle of the square
+    // of them that is held, in the world's x and z; half its width in metres, 0 when nothing
+    // is held; and one over the width of ground the map of them wraps round in.
+    rut_window: vec4f,
+    // The colour of churned soil, and the width of a cell of that map, in metres.
+    rut_soil: vec3f,
+    rut_cell: f32,
 }
 
 const DEBUG_NONE: u32 = 0u;

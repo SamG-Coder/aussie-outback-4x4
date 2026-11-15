@@ -105,6 +105,10 @@ impl Material {
     /// alpha, and what is behind it shows in the rest, a different share each frame so that
     /// the two blend (`vg/mask.wgsl`). An importer marks a material whose alpha is blended.
     pub const GLASS: u32 = 256;
+    /// Mud: where ground blended of three kinds ([`Material::BLENDS`]) is this kind, it is
+    /// drawn as mud lies, wet at its heart and dried to a cracked crust at its rim
+    /// (`ground/ruts.wgsl`, `docs/mud.md`). Older files' mud is drawn as any ground is.
+    pub const MUD: u32 = 512;
     /// `flags` above this bit hold one more than the material's layer in [`GlowMaps`], or zero
     /// for a material whose emissive colour is even all over.
     pub const GLOW_SHIFT: u32 = 16;

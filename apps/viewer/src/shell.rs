@@ -21,7 +21,7 @@ use solstice_game::par::RUN_UP;
 
 /// What a menu is worked with when it is not the mouse: the arrows or the left stick or the
 /// d-pad to move, Enter or the bottom button to choose, Escape or the right button to go
-/// back. Escape and Start pause the driving.
+/// back, Q and E or the bumpers to turn a screen's tabs. Escape and Start pause the driving.
 const MENU_INPUT: &str = "\
 menu_up key ArrowUp
 menu_up key KeyW
@@ -45,6 +45,10 @@ menu_accept gamepad south
 menu_back key Escape
 menu_back key Backspace
 menu_back gamepad east
+menu_prev key KeyQ
+menu_prev gamepad l1
+menu_next key KeyE
+menu_next gamepad r1
 pause key Escape
 pause gamepad start
 enter key Enter
@@ -83,6 +87,49 @@ pub const PUT_BACK: f64 = 10.0;
 pub const KEEP_HOUR: f32 = -1.0;
 /// How often the pages are told what the instruments read, in seconds.
 const TOLD_EVERY: f32 = 1.0 / 24.0;
+
+/// How long the driver is told what a blow did to the truck, in seconds.
+const BLOW_SAID: f32 = 6.0;
+
+/// A piece of a truck as it is said: `bumper_front` is the front bumper, `lamp_head_R` the
+/// right head lamp, `door_FL` the front left door.
+fn piece_said(piece: &str) -> String {
+    let mut words: Vec<&str> = piece.split('_').filter(|word| !word.is_empty()).collect();
+    // Which side, or which corner, is said first.
+    let side = match words.last().copied() {
+        Some("L") => "left",
+        Some("R") => "right",
+        Some("FL") => "front left",
+        Some("FR") => "front right",
+        Some("RL") => "rear left",
+        Some("RR") => "rear right",
+        _ => "",
+    };
+    if !side.is_empty() {
+        words.pop();
+    }
+    // `bumper_front` is said the other way about; `acc` only says that it was bought.
+    words.retain(|word| *word != "acc");
+    if let Some(end) = words
+        .iter()
+        .position(|word| matches!(*word, "front" | "rear"))
+    {
+        let end = words.remove(end);
+        words.insert(0, end);
+    }
+    let mut said = side.to_owned();
+    for word in words {
+        if !said.is_empty() {
+            said.push(' ');
+        }
+        said += word;
+    }
+    let mut letters = said.chars();
+    match letters.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + letters.as_str(),
+        None => said,
+    }
+}
 
 /// One of the game's maps.
 #[derive(Clone, Debug, PartialEq)]
@@ -240,10 +287,16 @@ impl Place {
         self.map.strip_prefix("edge:")
     }
 
-    /// Whether it is where a truck stands to be looked at (`stand:WHAT`): nothing in the
-    /// game itself.
+    /// Whether it is where a truck stands to be looked at (`stand:WHAT`), or where one is
+    /// parked in the used-truck yard (`lot:N`): nothing in the game itself, and its fourth
+    /// number is the way the truck faces.
     fn stand(&self) -> bool {
-        self.map.starts_with("stand:")
+        self.map.starts_with("stand:") || self.lot().is_some()
+    }
+
+    /// Its place on the day's lot, if it is where a used truck is parked (`lot:N`).
+    pub fn lot(&self) -> Option<usize> {
+        self.map.strip_prefix("lot:")?.parse().ok()
     }
 
     /// Whether it is a ring a truck stops in: not a door, nor a way out at the map's edge.
@@ -258,10 +311,25 @@ impl Place {
             "shop" => Some("shop"),
             "used" => Some("used"),
             "bank" => Some("bank"),
+            "buyer" => Some("buyer"),
             _ => None,
         }
     }
 }
+
+/// A used truck as it is parked in the yard: its place on the day's lot, its name, its
+/// colour, what is asked for it and how far it has been.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForSale {
+    pub place: usize,
+    pub truck: String,
+    pub paint: Option<u32>,
+    pub price: u64,
+    pub km: f32,
+}
+
+/// How near a parked truck's middle somebody on foot is to be looking at it, in metres.
+const BY_A_TRUCK: f32 = 4.4;
 
 /// The place that is the hub's shed, in a `.places` file, where a map's name would be.
 pub const SHED: &str = "shed";
@@ -286,6 +354,16 @@ const STOPPED: f32 = 1.5;
 const KEPT_EVERY: f32 = 5.0;
 /// When a night's sleep ends: half past six.
 pub const MORNING: f32 = 6.5;
+/// The times of day a sleep can be till, and the least a sleep is, in hours: one is offered
+/// only if it is that far off.
+pub const SLEEPS: [(&str, f32); 5] = [
+    ("Morning", MORNING),
+    ("Midday", 12.0),
+    ("Afternoon", 15.0),
+    ("Evening", 18.5),
+    ("Night", 22.0),
+];
+const SLEEP_LEAST: f32 = 6.0;
 
 /// The trailheads a scene's gameplay files give: every `place MAP X Y Z RADIUS` line of every
 /// file named `*.places`. A hub's shed is one of them, with [`SHED`] for its map.
@@ -437,8 +515,11 @@ pub enum Order {
     /// Take hold of the mouse, to look round the truck with: the page was clicked where
     /// there is nothing to click, while driving.
     Look,
-    /// A night has been slept through: it is the next morning, [`MORNING`].
-    Sleep,
+    /// A sleep has been slept: it is this hour of the day, so many days on (none, or one).
+    Sleep {
+        hours: f32,
+        days: u32,
+    },
     /// Show a nugget with one of the map's nugget models: there, turned so, that big, and
     /// of that shape; or put the model away.
     Item(crate::gold::Shown),
@@ -458,8 +539,13 @@ pub enum Order {
     /// Respray the truck a colour, as a page writes one; or, with none, the colour it was
     /// made in.
     Paint(Option<u32>),
+    /// A truck parked in the used-truck yard has been sold: it is gone from its place.
+    Unpark(usize),
     /// Put on the truck the dust, mud and rust it had on it when it was last driven.
     Dirt([f32; 3]),
+    /// What the truck has hit is on it: its damage, as text (`Damage::to_text`), or
+    /// nothing, for a truck that is sound or has been mended.
+    Damage(String),
     /// In the showroom: show another of the trucks that stand there, by its place among
     /// them, in its colour; or fit the one that is shown, where it stands.
     Show {
@@ -509,6 +595,15 @@ pub enum Saves {
     Close,
 }
 
+/// What a bill is for: what is in the auto shop's cart, a used truck by its place on the
+/// lot, or a new one by its name.
+#[derive(Clone, Debug, PartialEq)]
+enum Deal {
+    Cart,
+    Used(usize),
+    New(String),
+}
+
 /// The game round the driving.
 pub struct Shell {
     world: World,
@@ -545,6 +640,14 @@ pub struct Shell {
     told_screen: Option<Screen>,
     /// Whether a gamepad was the last thing used, so the pages name its buttons, not keys.
     pad: bool,
+    /// Whose buttons the pages draw for a controller: the family of the one last seen.
+    pad_kind: PadKind,
+    /// The game's own actions, as the map being played binds them (its `.input` file), for
+    /// the pages to draw the right key or button beside what it does.
+    keys: Option<InputMap>,
+    /// What the pages were last told is in hand, and whether they have the bindings.
+    told_device: Option<(bool, PadKind)>,
+    told_binds: bool,
     /// Which day of the game it is: a night's sleep in the shed ends one.
     day: u32,
     /// The gold: what is in the ground of the map being played, and every nugget dug up.
@@ -631,9 +734,15 @@ pub struct Shell {
     /// The kept games there are, each its number and what is said of it; and which of them
     /// is being played.
     saves: Vec<(u32, Option<serde_json::Value>)>,
-    /// The options: how loud the game is, from 0 to 10, and whether it fills the screen.
+    /// The options: how loud the game is, from 0 to 10, whether it fills the screen, and
+    /// how fast a controller's right stick looks round, from 1 to 10.
     volume: u8,
     fullscreen: bool,
+    look: u8,
+    /// The hour of the day it is, as whoever runs the clock last said.
+    hour: f32,
+    /// What the sleep that is being slept is till: its name.
+    slept_till: &'static str,
     save: u32,
     /// The grade of trucks a free drive is being chosen from, from 1; and whether, when the
     /// map that is being read has been, the game is at its title and not being driven.
@@ -643,6 +752,20 @@ pub struct Shell {
     /// Whether the game is in a browser, which reads one scene a page and has no trucks of
     /// the game's own to stand in a showroom: there it is a free drive, and no more.
     web: bool,
+    /// What has been chosen in the auto shop and not yet paid for: parts, each its group
+    /// and which of it; a colour; and an oil change. And what a bill is being shown for,
+    /// to be accepted or turned down.
+    cart: Vec<(String, String)>,
+    cart_paint: Option<u32>,
+    cart_oil: bool,
+    /// Whether mending the truck is in the cart; and what its last blow did, to say to the
+    /// driver, with how long it has been said for.
+    cart_repair: bool,
+    blow: (String, f32),
+    quote: Option<Deal>,
+    /// Which part of the truck in the showroom is being looked at, if one is: the view
+    /// goes to it (a group of the kit's, as `bullbar`).
+    focus: Option<String>,
     /// Where the driver has said they are going, on the map: what it is called, and where
     /// it is. The way to it is what is pointed out, until it is come to or another is chosen.
     waypoint: Option<(String, Vec3)>,
@@ -738,6 +861,10 @@ impl Shell {
             since_told: 0.0,
             told_screen: None,
             pad: false,
+            pad_kind: PadKind::Xbox,
+            keys: None,
+            told_device: None,
+            told_binds: false,
             day,
             gold: crate::gold::Gold::read(kept),
             chance: 0x9E37_79B9_7F4A_7C15,
@@ -785,11 +912,21 @@ impl Shell {
             saves: Vec::new(),
             volume: 10,
             fullscreen: false,
+            look: 6,
+            hour: 12.0,
+            slept_till: SLEEPS[0].0,
             save: 0,
             free_grade: 1,
             start_paint: None,
             start_truck: None,
             web: false,
+            cart: Vec::new(),
+            cart_paint: None,
+            cart_oil: false,
+            cart_repair: false,
+            blow: (String::new(), f32::MAX),
+            quote: None,
+            focus: None,
             waypoint: None,
             came_from: None,
             clear_of_edge: false,
@@ -1033,11 +1170,56 @@ impl Shell {
 
     /// The door the driver stands before, on foot, in a story: what is behind it.
     fn at_door(&self) -> Option<&'static str> {
+        if !(self.afoot && self.screen == Screen::Drive) {
+            return None;
+        }
+        // The shed is gone into where a truck is parked in it, or a pace or two off.
+        let shed = |place: &&Place| {
+            place.map == SHED && flat_distance(place.at, self.walker) < place.radius + 2.0
+        };
+        if self.places.iter().any(|place| shed(&place)) {
+            return Some("shed");
+        }
+        let near = |place: &&Place| flat_distance(place.at, self.walker) < place.radius;
+        let door = self.places.iter().filter(near).find_map(Place::door)?;
+        // (The gold buyer buys from anybody. The rest is a story's: its trucks, its debt.)
+        (self.story || door == "buyer").then_some(door)
+    }
+
+    /// The used truck the driver stands by, on foot, in the yard it is parked in: its place
+    /// on today's lot, if it is still for sale. In a story: nobody else has money.
+    fn at_truck(&self) -> Option<usize> {
         if !(self.afoot && self.story && self.screen == Screen::Drive) {
             return None;
         }
-        let near = |place: &&Place| flat_distance(place.at, self.walker) < place.radius;
-        self.places.iter().filter(near).find_map(Place::door)
+        let near = |place: &&Place| flat_distance(place.at, self.walker) < BY_A_TRUCK;
+        let by = |a: &&Place, b: &&Place| {
+            flat_distance(a.at, self.walker).total_cmp(&flat_distance(b.at, self.walker))
+        };
+        let spot = self.places.iter().filter(near).min_by(by)?.lot()?;
+        let lot = self.yard.lot(self.seed(), self.day, &self.world.trucks);
+        lot.get(spot).filter(|(_, here)| *here).map(|_| spot)
+    }
+
+    /// The day's used trucks that are still for sale, to be parked in a map that has a yard
+    /// for them: whoever reads a map asks. And whether the one that is looked over is
+    /// pulled out of its row, as it is on the page of used trucks.
+    pub fn parked(&self) -> (Vec<ForSale>, bool) {
+        let lot = self.yard.lot(self.seed(), self.day, &self.world.trucks);
+        let known = |name: &str| self.world.trucks.iter().any(|truck| truck.name == name);
+        let parked = lot
+            .into_iter()
+            .enumerate()
+            .filter(|(_, (listing, here))| *here && known(&listing.truck))
+            .map(|(place, (listing, _))| ForSale {
+                place,
+                truck: listing.truck,
+                paint: Some(listing.paint),
+                price: listing.price,
+                km: listing.km,
+            })
+            .collect();
+        (parked, self.in_showroom() && self.yard_page == "used")
     }
 
     /// How far off the gold that detector hears is, in metres, if it hears any.
@@ -1149,6 +1331,11 @@ impl Shell {
         };
         if !self.in_showroom() {
             self.orders.push(Order::Dirt(dirt));
+            // And what it has hit: a truck of one's own stays hurt until it is mended.
+            let damage = self.yard.driven().filter(|_| self.story);
+            self.orders.push(Order::Damage(
+                damage.map_or(String::new(), |owned| owned.damage.clone()),
+            ));
         }
         if self.in_showroom() {
             // The trucks that stand there, and the one of them that is shown: with the kit
@@ -1345,6 +1532,11 @@ impl Shell {
 
     /// Opens a page of the yard, from the screen that is shown.
     fn open_yard(&mut self, page: &'static str) {
+        self.open_yard_at(page, 0);
+    }
+
+    /// As [`Self::open_yard`], at one of the page's trucks: its place among them.
+    fn open_yard_at(&mut self, page: &'static str, index: usize) {
         if self.screen != Screen::Yard {
             self.yard_from = self.screen;
         }
@@ -1352,7 +1544,7 @@ impl Shell {
         self.yard_said.clear();
         self.screen = Screen::Yard;
         self.told_screen = None;
-        self.show_card(0);
+        self.show_card(index);
     }
 
     /// The trucks of the page of the yard that is shown, each its name, how it is fitted
@@ -1388,7 +1580,7 @@ impl Shell {
                 .iter()
                 .map(|truck| owned(truck, false))
                 .collect(),
-            "free" => {
+            "free" | "dealer" => {
                 let grade = trucks.iter().filter(|truck| truck.grade == self.free_grade);
                 grade
                     .map(|truck| (truck.name.clone(), "stock".to_owned(), None))
@@ -1428,7 +1620,7 @@ impl Shell {
     /// The showroom the page of the yard that is shown is looked at in: the town's, for what
     /// is done in the town, if the game has one; else the one by the shed.
     fn showroom_for(&self) -> &'static str {
-        let town = matches!(self.yard_page, "shop" | "used" | "bank");
+        let town = matches!(self.yard_page, "shop" | "used" | "dealer" | "bank");
         if town && self.world.map(SHOWROOM_TOWN).is_some() {
             SHOWROOM_TOWN
         } else {
@@ -1440,7 +1632,149 @@ impl Shell {
     /// is shown (`place stand:WHAT` of the town's places). None by the shed, where they
     /// stand where the map's own truck does.
     pub fn stand(&self) -> Option<&'static str> {
-        (self.map == SHOWROOM_TOWN).then_some(self.yard_page)
+        // (New trucks stand where the used ones do.)
+        let page = if self.yard_page == "dealer" {
+            "used"
+        } else {
+            self.yard_page
+        };
+        (self.map == SHOWROOM_TOWN).then_some(page)
+    }
+
+    /// Which part of the truck in the showroom the view is to go to, if any.
+    pub fn focus(&self) -> Option<&str> {
+        self.focus.as_deref().filter(|_| self.in_showroom())
+    }
+
+    /// The truck that is driven, as it would be with what is in the cart fitted to it.
+    fn cart_build(&self) -> Option<String> {
+        let owned = self.yard.driven()?;
+        let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
+        let mut tried = owned.clone();
+        for (group, choice) in &self.cart {
+            tried.fitted.set(group, Some(choice));
+        }
+        Some(tried.build_text(kit.map(|(_, kit)| kit)))
+    }
+
+    /// What a bill is for, a line each, and what each costs.
+    fn deal_lines(&self, deal: &Deal) -> Vec<(serde_json::Value, u64)> {
+        let trucks = &self.world.trucks;
+        match deal {
+            Deal::Cart => {
+                let grade = self
+                    .yard
+                    .driven()
+                    .and_then(|owned| trucks.iter().find(|truck| truck.name == owned.truck))
+                    .map_or(1, |truck| truck.grade);
+                let mut lines: Vec<_> = self
+                    .cart
+                    .iter()
+                    .map(|(group, choice)| {
+                        (
+                            json!({ "group": group, "choice": choice }),
+                            crate::yard::part_price(group, choice, grade),
+                        )
+                    })
+                    .collect();
+                if let Some(colour) = self.cart_paint {
+                    lines.push((
+                        json!({ "paint": format!("{colour:06x}") }),
+                        crate::yard::RESPRAY,
+                    ));
+                }
+                if self.cart_oil {
+                    lines.push((json!({ "oil": true }), crate::yard::OIL_CHANGE));
+                }
+                let (hurt, cost) = self.repairs();
+                if self.cart_repair && hurt > 0 {
+                    lines.push((json!({ "repair": hurt }), cost));
+                }
+                lines
+            }
+            Deal::Used(place) => {
+                let lot = self.yard.lot(self.seed(), self.day, trucks);
+                let listed = lot.get(*place).filter(|(_, here)| *here);
+                let line = listed.and_then(|(listing, _)| {
+                    let truck = trucks.iter().find(|truck| truck.name == listing.truck)?;
+                    Some((json!({ "truck": truck.title, "used": true }), listing.price))
+                });
+                line.into_iter().collect()
+            }
+            Deal::New(name) => {
+                let truck = trucks.iter().find(|truck| truck.name == *name);
+                let line =
+                    truck.map(|truck| (json!({ "truck": truck.title }), u64::from(truck.price)));
+                line.into_iter().collect()
+            }
+        }
+    }
+
+    /// The cart, as the pages are told of it.
+    fn cart_told(&self) -> serde_json::Value {
+        let lines = self.deal_lines(&Deal::Cart);
+        json!({
+            "count": lines.len(),
+            "total": lines.iter().map(|(_, price)| price).sum::<u64>(),
+            "paint": self.cart_paint.map(|colour| format!("{colour:06x}")),
+            "oil": self.cart_oil,
+            "repair": self.cart_repair,
+        })
+    }
+
+    /// What mending the truck that is driven would be: how many of its pieces are hurt,
+    /// and what it costs, each piece by how far gone it is (`yard::REPAIRS`).
+    fn repairs(&self) -> (usize, u64) {
+        let Some(owned) = self.yard.driven() else {
+            return (0, 0);
+        };
+        let Ok(damage) = crate::damage::Damage::parse(&owned.damage) else {
+            return (0, 0);
+        };
+        let table = crate::damage::Table::built_in();
+        let hurt = damage.list(&table);
+        let cost = hurt
+            .iter()
+            .map(|(_, stage)| match stage {
+                crate::damage::Stage::Sound => 0,
+                crate::damage::Stage::Scuffed => crate::yard::REPAIRS[0],
+                crate::damage::Stage::Dented => crate::yard::REPAIRS[1],
+                crate::damage::Stage::Loose => crate::yard::REPAIRS[2],
+                crate::damage::Stage::Off => crate::yard::REPAIRS[3],
+            })
+            .sum();
+        (hurt.len(), cost)
+    }
+
+    /// The bill that is being shown, if one is: what it is for, what it comes to, what of
+    /// that is paid from hand and what goes on the debt, and what is owed and comes out
+    /// each Friday now and after. Or why the bank will not have it.
+    fn quote_told(&self) -> serde_json::Value {
+        let Some(deal) = &self.quote else {
+            return serde_json::Value::Null;
+        };
+        let lines = self.deal_lines(deal);
+        let total: u64 = lines.iter().map(|(_, price)| price).sum();
+        let quote = self.yard.quote(self.money, total);
+        json!({
+            "what": match deal { Deal::Cart => "cart", Deal::Used(_) => "used", Deal::New(_) => "new" },
+            "items": lines.iter().map(|(what, price)| {
+                let mut line = what.clone();
+                line["price"] = json!(price);
+                line
+            }).collect::<Vec<_>>(),
+            "total": total,
+            "money": self.money,
+            "debt": self.yard.debt,
+            "repayment": self.yard.repayment(),
+            "interest_year": (self.yard.rate() * 52.0 * 1000.0).round() / 10.0,
+            "limit": self.yard.limit(),
+            "ok": quote.is_ok(),
+            "cash": quote.map_or(0, |quote| quote.cash),
+            "financed": quote.map_or(0, |quote| quote.financed),
+            "debt_after": quote.map_or(self.yard.debt, |quote| quote.debt),
+            "repayment_after": quote.map_or(self.yard.repayment(), |quote| quote.repayment),
+        })
     }
 
     /// Shows a truck in the showroom: one of those on the page of the yard that is shown,
@@ -1517,6 +1851,12 @@ impl Shell {
                 .find(|t| t.name == name)
                 .map_or(1, |t| t.grade)
         };
+        // Leaving a page is leaving what was chosen on it and not paid for.
+        if what == "leave" && self.yard_page != "colour" {
+            self.cart.clear();
+            (self.cart_paint, self.cart_oil, self.quote, self.focus) = (None, false, None, None);
+            self.cart_repair = false;
+        }
         let mut said = String::new();
         let dollars = |n: u64| {
             format!(
@@ -1548,7 +1888,7 @@ impl Shell {
                 }
             }
             ["page", page] => {
-                for known in ["start", "garage", "bank", "shop", "used", "free"] {
+                for known in ["start", "garage", "bank", "shop", "used", "dealer", "free"] {
                     if page == known {
                         self.yard_page = known;
                         self.show_card(0);
@@ -1623,17 +1963,104 @@ impl Shell {
                     "There is nothing to pay it with.".to_owned()
                 };
             }
+            // The view goes to a part of the truck, or back to all of it.
+            ["focus", part] => {
+                self.focus = (part != "off").then(|| part.to_owned());
+                return;
+            }
+            // A truck is asked for, used or new: the bill for it is shown.
             ["buy", place] => {
-                if let Some(place) = number(place) {
-                    said = match self
-                        .yard
-                        .buy(&mut self.money, seed, self.day, &trucks, place)
-                    {
-                        Ok(_) => "It is yours. It is in the shed: take it out from the garage."
-                            .to_owned(),
-                        Err(no) => no.said().to_owned(),
-                    };
+                self.quote = number(place).map(Deal::Used);
+            }
+            ["new", name] => {
+                if trucks.iter().any(|truck| truck.name == name) {
+                    self.quote = Some(Deal::New(name.to_owned()));
                 }
+            }
+            // The cart is taken to the counter: the bill for it is shown.
+            ["checkout"] => {
+                if !self.deal_lines(&Deal::Cart).is_empty() {
+                    self.quote = Some(Deal::Cart);
+                }
+            }
+            ["empty"] => {
+                self.cart.clear();
+                (self.cart_paint, self.cart_oil) = (None, false);
+                self.cart_repair = false;
+                return self.yard_act("untry");
+            }
+            // The bill is turned down: nothing is bought, and what was chosen is still chosen.
+            ["reject"] => self.quote = None,
+            // The bill is accepted: it is paid, from hand and then on the debt.
+            ["confirm"] => {
+                let Some(deal) = self.quote.take() else {
+                    return;
+                };
+                let total: u64 = self.deal_lines(&deal).iter().map(|(_, price)| price).sum();
+                said = match (self.yard.quote(self.money, total), deal) {
+                    (Err(no), _) => no.said().to_owned(),
+                    (Ok(_), Deal::Used(place)) => {
+                        match self
+                            .yard
+                            .buy(&mut self.money, seed, self.day, &trucks, place)
+                        {
+                            Ok(_) => {
+                                // It is gone from the yard's row.
+                                self.orders.push(Order::Unpark(place));
+                                "It is yours. It is in the shed: take it out from the garage."
+                                    .to_owned()
+                            }
+                            Err(no) => no.said().to_owned(),
+                        }
+                    }
+                    (Ok(_), Deal::New(name)) => {
+                        let truck = trucks.iter().find(|truck| truck.name == name);
+                        match truck.map(|truck| self.yard.buy_new(&mut self.money, truck)) {
+                            Some(Ok(_)) => {
+                                "It is yours, new. It is in the shed: take it out from the garage."
+                                    .to_owned()
+                            }
+                            Some(Err(no)) => no.said().to_owned(),
+                            None => String::new(),
+                        }
+                    }
+                    (Ok(_), Deal::Cart) => {
+                        let driven = self.yard.driven().map(|owned| owned.truck.clone());
+                        let kit = self
+                            .kit
+                            .clone()
+                            .filter(|(of, _)| Some(of) == driven.as_ref());
+                        if let Some((name, kit)) = kit {
+                            for (group, choice) in std::mem::take(&mut self.cart) {
+                                let _ = self.yard.fit(
+                                    &mut self.money,
+                                    &kit,
+                                    grade(&name),
+                                    &group,
+                                    Some(&choice),
+                                );
+                            }
+                        }
+                        if let Some(colour) = self.cart_paint.take() {
+                            if self.yard.respray(&mut self.money, colour).is_ok() {
+                                if let Some(show) = &mut self.show {
+                                    show.2 = Some(colour);
+                                }
+                            }
+                        }
+                        if std::mem::take(&mut self.cart_oil) {
+                            let _ = self.yard.oil(&mut self.money);
+                        }
+                        if std::mem::take(&mut self.cart_repair) {
+                            let (_, cost) = self.repairs();
+                            if self.yard.repair(&mut self.money, cost).is_ok() {
+                                self.orders.push(Order::Damage(String::new()));
+                            }
+                        }
+                        self.yard_act("untry");
+                        format!("Paid: {}.", dollars(total))
+                    }
+                };
             }
             // (What is aboard a truck is in it for real. Another is not taken out, and the
             // one driven is not sold, from under it: it is put in the chest first.)
@@ -1667,7 +2094,33 @@ impl Shell {
                     .kit
                     .clone()
                     .filter(|(of, _)| Some(of) == driven.as_ref());
-                if let (Some((name, kit)), Some(_)) = (kit, driven) {
+                let owns = self.yard.driven().is_some_and(|owned| {
+                    choice == "none"
+                        || owned.parts.contains(&format!("{group}.{choice}"))
+                        || kit
+                            .as_ref()
+                            .is_some_and(|(_, kit)| kit.stock.fitted(group) == Some(choice))
+                });
+                if !owns && kit.is_some() {
+                    // Not the truck's yet: it goes in the cart, or, chosen again, out of it.
+                    let had = self.cart.iter().any(|(g, c)| g == group && c == choice);
+                    self.cart.retain(|(g, _)| g != group);
+                    if !had {
+                        self.cart.push((group.to_owned(), choice.to_owned()));
+                    }
+                    said = if had {
+                        "Out of the cart."
+                    } else {
+                        "In the cart."
+                    }
+                    .to_owned();
+                    if let Some(build) = self.cart_build() {
+                        self.orders.push(Order::Fit(build));
+                    }
+                } else if let (Some((name, kit)), Some(_)) = (kit, driven) {
+                    // (What is put on, or taken off, takes the place of what was in the
+                    // cart for there.)
+                    self.cart.retain(|(g, _)| g != group);
                     let choice = Some(choice).filter(|choice| *choice != "none");
                     said = match self
                         .yard
@@ -1678,10 +2131,8 @@ impl Shell {
                         Err(no) => no.said().to_owned(),
                     };
                     // It is fitted where it stands: every piece of it is there.
-                    if let Some(owned) = self.yard.driven() {
-                        let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
-                        self.orders
-                            .push(Order::Fit(owned.build_text(kit.map(|(_, kit)| kit))));
+                    if let Some(build) = self.cart_build() {
+                        self.orders.push(Order::Fit(build));
                     }
                 }
             }
@@ -1691,6 +2142,10 @@ impl Shell {
                 if let Some(owned) = self.yard.driven() {
                     let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
                     let mut tried = owned.clone();
+                    // (With what is in the cart on it as well.)
+                    for (carted, which) in &self.cart {
+                        tried.fitted.set(carted, Some(which));
+                    }
                     let choice = Some(choice).filter(|choice| *choice != "none");
                     tried.fitted.set(group, choice);
                     self.orders
@@ -1703,11 +2158,12 @@ impl Shell {
                 }
             }
             ["untry"] => {
+                if let Some(build) = self.cart_build() {
+                    self.orders.push(Order::Fit(build));
+                }
                 if let Some(owned) = self.yard.driven() {
-                    let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
                     self.orders
-                        .push(Order::Fit(owned.build_text(kit.map(|(_, kit)| kit))));
-                    self.orders.push(Order::Paint(owned.paint));
+                        .push(Order::Paint(self.cart_paint.or(owned.paint)));
                 }
             }
             // A first truck's colour: it is shown in it, and taken in it. Nothing is paid.
@@ -1723,25 +2179,41 @@ impl Shell {
                     });
                 }
             }
+            // A respray, and an oil change: in the cart, or, chosen again, out of it.
             ["paint", colour] => {
                 if let Ok(colour) = u32::from_str_radix(colour, 16) {
-                    said = match self.yard.respray(&mut self.money, colour) {
-                        Ok(()) => {
-                            self.orders.push(Order::Paint(Some(colour)));
-                            if let Some(show) = &mut self.show {
-                                show.2 = Some(colour);
-                            }
-                            "Resprayed.".to_owned()
-                        }
-                        Err(no) => no.said().to_owned(),
-                    };
+                    let had = self.cart_paint == Some(colour);
+                    self.cart_paint = (!had).then_some(colour);
+                    said = if had {
+                        "Out of the cart."
+                    } else {
+                        "In the cart."
+                    }
+                    .to_owned();
+                    let worn = self.yard.driven().and_then(|owned| owned.paint);
+                    self.orders.push(Order::Paint(self.cart_paint.or(worn)));
                 }
             }
             ["oil"] => {
-                said = match self.yard.oil(&mut self.money) {
-                    Ok(()) => "Oil and filter changed.".to_owned(),
-                    Err(no) => no.said().to_owned(),
-                };
+                self.cart_oil = !self.cart_oil;
+                said = if self.cart_oil {
+                    "In the cart."
+                } else {
+                    "Out of the cart."
+                }
+                .to_owned();
+            }
+            ["repair"] => {
+                let (hurt, _) = self.repairs();
+                self.cart_repair = hurt > 0 && !self.cart_repair;
+                said = if hurt == 0 {
+                    "There is nothing on it to mend."
+                } else if self.cart_repair {
+                    "In the cart."
+                } else {
+                    "Out of the cart."
+                }
+                .to_owned();
             }
             ["leave"] => {
                 if self.in_showroom() {
@@ -1824,8 +2296,9 @@ impl Shell {
                 let groups: Vec<_> = kit.groups().into_iter().map(|(group, choices)| {
                     let choices: Vec<_> = choices.into_iter().map(|choice| {
                         let have = owned.parts.contains(&format!("{group}.{choice}")) || kit.stock.fitted(group) == Some(choice);
+                        let carted = self.cart.iter().any(|(g, c)| g == group && c == choice);
                         json!({ "choice": choice, "price": crate::yard::part_price(group, choice, grade), "owned": have,
-                            "fitted": owned.fitted.fitted(group) == Some(choice) })
+                            "fitted": owned.fitted.fitted(group) == Some(choice), "cart": carted })
                     }).collect();
                     json!({ "group": group, "choices": choices, "bare": owned.fitted.fitted(group).is_none() })
                 }).collect();
@@ -1843,7 +2316,13 @@ impl Shell {
             "debt": self.yard.debt,
             "credit": self.yard.credit,
             "limit": self.yard.limit(),
-            "repayment": crate::yard::REPAYMENT.min(self.yard.debt),
+            "repayment": self.yard.repayment(),
+            // The interest on what is owed: a year's, in hundredths, and this Friday's.
+            "interest_year": (self.yard.rate() * 52.0 * 1000.0).round() / 10.0,
+            "interest_week": self.yard.interest(),
+            "cart": self.cart_told(),
+            "quote": self.quote_told(),
+            "dealer": trucks.iter().filter(|truck| truck.grade == self.free_grade).map(card).collect::<Vec<_>>(),
             "block": crate::yard::BLOCK,
             "begun": self.yard.begun(),
             "start": crate::yard::starters(trucks).into_iter().map(card).collect::<Vec<_>>(),
@@ -1857,6 +2336,7 @@ impl Shell {
             "start_paint": self.start_paint.map(|colour| format!("{colour:06x}")),
             "chosen": self.start_truck.as_deref().and_then(of).map(card),
             "oil_change": crate::yard::OIL_CHANGE,
+            "repairs": json!({ "hurt": self.repairs().0, "cost": self.repairs().1 }),
         })
     }
 
@@ -1881,11 +2361,11 @@ impl Shell {
     /// it, at the Crossroads. Whoever runs the game has kept it first.
     pub fn close(&mut self) {
         let (trial, saves) = (self.trial, std::mem::take(&mut self.saves));
-        let options = (self.volume, self.fullscreen);
+        let options = (self.volume, self.fullscreen, self.look, self.hour);
         let world = self.world.clone();
         *self = Shell::new(world, "");
         (self.trial, self.saves, self.save) = (trial, saves, 0);
-        (self.volume, self.fullscreen) = options;
+        (self.volume, self.fullscreen, self.look, self.hour) = options;
         self.to_title = true;
         let hub = self.world.hub.clone();
         self.go(&hub, Mode::Roam);
@@ -1900,12 +2380,36 @@ impl Shell {
         self.fullscreen
     }
 
+    /// How many times as fast as it was made to a controller's right stick looks round:
+    /// from a little over half, to nearly two and a half times.
+    pub fn look_gain(&self) -> f32 {
+        0.4 + 0.2 * f32::from(self.look)
+    }
+
+    /// Whoever runs the clock says what hour of the day it is.
+    pub fn set_hour(&mut self, hours: f32) {
+        self.hour = hours.rem_euclid(24.0);
+    }
+
+    /// The sleeps there are to choose from now: each time of day that is six hours off or
+    /// more. Its place among them all, its name, its hour, whether it is tomorrow, and how
+    /// many hours off it is.
+    fn sleeps(&self) -> Vec<(usize, &'static str, f32, bool, f32)> {
+        let all = SLEEPS.iter().enumerate();
+        all.filter_map(|(index, (name, hour))| {
+            let off = (hour - self.hour).rem_euclid(24.0);
+            (off >= SLEEP_LEAST).then_some((index, *name, *hour, *hour <= self.hour, off))
+        })
+        .collect()
+    }
+
     /// The options, as they are kept: a line each.
     pub fn options_text(&self) -> String {
         format!(
-            "volume {}\nfullscreen {}\n",
+            "volume {}\nfullscreen {}\nlook {}\n",
             self.volume,
-            u8::from(self.fullscreen)
+            u8::from(self.fullscreen),
+            self.look
         )
     }
 
@@ -1919,6 +2423,11 @@ impl Shell {
                         .map_or(self.volume, |share| share.min(10));
                 }
                 ["fullscreen", on] => self.fullscreen = on == "1",
+                ["look", speed] => {
+                    self.look = speed
+                        .parse::<u8>()
+                        .map_or(self.look, |speed| speed.clamp(1, 10));
+                }
                 _ => {}
             }
         }
@@ -1959,11 +2468,11 @@ impl Shell {
     /// begun goes on from where it was left; a new one begins with the choice of a truck.
     pub fn load(&mut self, kept: &str) {
         let (trial, saves, save) = (self.trial, std::mem::take(&mut self.saves), self.save);
-        let options = (self.volume, self.fullscreen);
+        let options = (self.volume, self.fullscreen, self.look, self.hour);
         let world = self.world.clone();
         *self = Shell::new(world, kept);
         (self.trial, self.saves, self.save) = (trial, saves, save);
-        (self.volume, self.fullscreen) = options;
+        (self.volume, self.fullscreen, self.look, self.hour) = options;
         if self.yard.begun() {
             self.story = true;
             self.act("start");
@@ -1984,6 +2493,38 @@ impl Shell {
             Some(owned) => owned.dirt = dirt,
             None => self.free_dirt = dirt,
         }
+    }
+
+    /// Whoever runs the game says what blows have just done to the truck: its damage now,
+    /// as text, which is kept with the truck that is driven, and each piece whose stage a
+    /// blow changed, which the driver is told of for a few seconds.
+    pub fn see_damage(&mut self, damage: String, changes: &[crate::damage::Change]) {
+        if self.in_showroom() {
+            return;
+        }
+        let driving = self.yard.driving;
+        if let Some(owned) = self.yard.trucks.get_mut(driving).filter(|_| self.story) {
+            owned.damage = damage;
+        }
+        // The worst of it first, and no more than fits a line.
+        let mut worst: Vec<&crate::damage::Change> = changes
+            .iter()
+            .filter(|change| change.to > change.from && change.to >= crate::damage::Stage::Dented)
+            .collect();
+        worst.sort_by(|a, b| b.to.cmp(&a.to));
+        if worst.is_empty() {
+            return;
+        }
+        let mut words: Vec<String> = worst
+            .iter()
+            .take(3)
+            .map(|change| format!("{} {}", piece_said(&change.piece), change.to.name()))
+            .collect();
+        if worst.len() > 3 {
+            words.push(format!("and {} more", worst.len() - 3));
+        }
+        self.blow = (words.join("  \u{b7}  "), 0.0);
+        self.since_told = f32::MAX;
     }
 
     pub fn take_orders(&mut self) -> Vec<Order> {
@@ -2079,6 +2620,10 @@ impl Shell {
                     Err(_) => return,
                 },
                 ["fullscreen", on] => self.fullscreen = on == "1",
+                ["look", speed] => match speed.parse::<u8>() {
+                    Ok(speed) => self.look = speed.clamp(1, 10),
+                    Err(_) => return,
+                },
                 _ => return,
             }
             self.orders.push(Order::Options);
@@ -2149,16 +2694,36 @@ impl Shell {
                 }
             }
             // In the shed: a night's sleep ends the day.
-            (Screen::Shed, "sleep") => {
-                self.day += 1;
-                // A Friday: the week's repayment comes out.
-                if self.story && crate::calendar::pay_day(self.day) {
-                    let (paid, short) = self.yard.friday(&mut self.money);
-                    log::info!("yard: Friday, ${paid} paid and ${short} short");
+            // In the shed: a sleep, till whichever time of day was chosen (`sleep:N`), or
+            // the first there is (`sleep`). Past midnight, it is the next day.
+            (Screen::Shed, sleep) if sleep == "sleep" || sleep.starts_with("sleep:") => {
+                let sleeps = self.sleeps();
+                let asked = sleep
+                    .strip_prefix("sleep:")
+                    .and_then(|index| index.parse::<usize>().ok());
+                let chosen = match asked {
+                    Some(index) => sleeps.iter().find(|sleep| sleep.0 == index),
+                    None => sleeps.first(),
+                };
+                let Some(&(_, name, hours, tomorrow, _)) = chosen else {
+                    return;
+                };
+                if tomorrow {
+                    self.day += 1;
+                    // A Friday: the week's repayment comes out.
+                    if self.story && crate::calendar::pay_day(self.day) {
+                        let (paid, short) = self.yard.friday(&mut self.money);
+                        log::info!("yard: Friday, ${paid} paid and ${short} short");
+                    }
                 }
+                self.hour = hours;
+                self.slept_till = name;
                 self.unsaved = true;
                 self.slept = 0.0;
-                self.orders.push(Order::Sleep);
+                self.orders.push(Order::Sleep {
+                    hours,
+                    days: u32::from(tomorrow),
+                });
                 self.screen = Screen::Sleep;
             }
             (Screen::Shed | Screen::Buyer, "leave") => self.screen = Screen::Drive,
@@ -2299,6 +2864,9 @@ impl Shell {
             // page reads it for it (a phone: `MainActivity.java`). One plugged in is taken
             // to be the one in use, and so is one that is pressed or pushed.
             ["pad", "here"] => self.pad = true,
+            // What that controller says it is, for its buttons to be drawn as they are:
+            // a browser's `Gamepad.id`, or a maker's number and a name.
+            ["pad", "kind", ..] => self.pad_kind = PadKind::of(line, None),
             ["pad", "gone"] => {
                 self.pad = false;
                 devices.release_all();
@@ -2389,8 +2957,14 @@ impl Shell {
     /// be stepped. Unless it is to be played, the devices' presses are used up here.
     pub fn before(&mut self, devices: &mut Devices, seconds: f32) -> Step {
         let menu = self.menu.actions(devices, seconds);
-        if pad_pressed(devices, &self.menu) {
+        // Whichever was pressed last is the one in hand, and the pages draw its buttons: a
+        // controller's button, trigger or stick, or a key or a click of the mouse. A stick
+        // that only rests off its middle, and a mouse that is only moved, change nothing.
+        use solstice_game::Device;
+        if devices.pressed_on(Device::Gamepad) {
             self.pad = true;
+        } else if devices.pressed_on(Device::Key) || devices.pressed_on(Device::Mouse) {
+            self.pad = false;
         }
         match self.screen {
             Screen::Drive => {
@@ -2411,8 +2985,24 @@ impl Shell {
                 let door = self.at_door().filter(|_| menu.pressed("enter"));
                 if let Some(page) = door {
                     log::info!("door: {page}");
+                    match page {
+                        // The shed and the gold buyer's are where they are: nothing is read.
+                        "shed" => self.screen = Screen::Shed,
+                        "buyer" => {
+                            self.sold = None;
+                            self.screen = Screen::Buyer;
+                        }
+                        _ => {
+                            self.door_from = Some((self.map.clone(), self.walker));
+                            self.open_yard(page);
+                        }
+                    }
+                } else if let Some(spot) = self.at_truck().filter(|_| menu.pressed("enter")) {
+                    // By a truck in the used-truck yard, it is looked over: the page of
+                    // used trucks, at that one.
+                    log::info!("yard: looking over the truck in place {spot}");
                     self.door_from = Some((self.map.clone(), self.walker));
-                    self.open_yard(page);
+                    self.open_yard_at("used", spot);
                 } else if self.afoot && menu.pressed("enter") {
                     use crate::gold::Use;
                     let stands = crate::gold::Stands {
@@ -2523,6 +3113,9 @@ impl Shell {
                     ("menu_right", "right"),
                     ("menu_accept", "accept"),
                     ("menu_back", "back"),
+                    // A screen with tabs: the one before, and the next.
+                    ("menu_prev", "prev"),
+                    ("menu_next", "next"),
                 ] {
                     if menu.pressed(action) {
                         self.nav.push(name);
@@ -2734,12 +3327,20 @@ impl Shell {
     /// while driving.
     pub fn tell(&mut self, hud: Option<&Hud>, seconds: f32) -> Option<String> {
         self.since_told += seconds;
+        self.blow.1 = (self.blow.1 + seconds).min(BLOW_SAID * 2.0);
         let changed = self.told_screen != Some(self.screen);
         let due =
             matches!(self.screen, Screen::Drive | Screen::Watch) && self.since_told >= TOLD_EVERY;
-        if !changed && !due && self.nav.is_empty() {
+        // The pages are told at once when another device is taken in hand, so that the
+        // buttons they draw are its buttons; and of the bindings, once they are known.
+        let device = (self.pad, self.pad_kind);
+        let swapped = self.told_device != Some(device);
+        let unbound = !self.told_binds;
+        if !changed && !due && self.nav.is_empty() && !swapped && !unbound {
             return None;
         }
+        self.told_device = Some(device);
+        self.told_binds = true;
         self.since_told = 0.0;
         if changed {
             log::info!("screen: {}", self.screen.name());
@@ -2761,6 +3362,7 @@ impl Shell {
             "screen": self.screen.name(),
             "mode": self.mode.name(),
             "pad": self.pad,
+            "pad_kind": self.pad_kind.name(),
             "nav": std::mem::take(&mut self.nav),
             "map": map.map(|map| self.described(map)),
             "hub": self.map == self.world.hub,
@@ -2770,7 +3372,13 @@ impl Shell {
             "day": self.day,
             // The kept games: each its number and what is said of it, and which is played.
             "saves": self.saves.iter().map(|(number, game)| json!({ "slot": number, "game": game, "empty": game.is_none(), "playing": *number == self.save })).collect::<Vec<_>>(),
-            "options": json!({ "volume": self.volume, "fullscreen": self.fullscreen }),
+            "options": json!({ "volume": self.volume, "fullscreen": self.fullscreen, "look": self.look }),
+            // What a sleep can be till, in the shed; and what the one being slept is till.
+            "sleeps": self.sleeps().into_iter().map(|(index, name, hour, tomorrow, off)| json!({
+                "index": index, "name": name, "tomorrow": tomorrow, "off": off.round(),
+                "hour": format!("{}:{:02}", hour.floor(), ((hour % 1.0) * 60.0).round()),
+            })).collect::<Vec<_>>(),
+            "slept_till": self.slept_till,
             // The story: whether there is one, and what is owed in it.
             "story": json!({ "on": self.story, "begun": self.yard.begun(), "debt": self.yard.debt,
                 "truck": self.yard.driven().and_then(|owned| self.world.trucks.iter().find(|truck| truck.name == owned.truck)).map(|truck| truck.title.clone()) }),
@@ -2806,9 +3414,33 @@ impl Shell {
             // Whether there is any gold in this map's ground to look for.
             "gold_here": self.gold.any_buried(),
             "use": match self.at_door() {
-                Some(page) => Some(match page { "shop" => "door_shop", "used" => "door_used", _ => "door_bank" }),
+                Some(page) => Some(match page {
+                    "shop" => "door_shop",
+                    "used" => "door_used",
+                    "shed" => "door_shed",
+                    "buyer" => "door_buyer",
+                    _ => "door_bank",
+                }),
+                None if self.at_truck().is_some() => Some("truck_look"),
                 None => self.afoot.then(|| self.gold.can(&self.stands()).map(crate::gold::Use::name)).flatten(),
             },
+            // What the truck's last blow did to it, for a few seconds after.
+            "blow": (self.blow.1 < BLOW_SAID).then(|| self.blow.0.clone()),
+            // The used truck the driver stands by, in the yard: what its board says, and
+            // what a look at it would tell.
+            "tag": self.at_truck().and_then(|spot| {
+                let lot = self.yard.lot(self.seed(), self.day, &self.world.trucks);
+                let (listing, _) = lot.get(spot)?;
+                let truck = self.world.trucks.iter().find(|truck| truck.name == listing.truck)?;
+                Some(json!({
+                    "title": truck.title,
+                    "year": truck.year,
+                    "km": listing.km,
+                    "roll": listing.roll,
+                    "price": listing.price,
+                    "bargain": listing.bargain,
+                }))
+            }),
             // On foot, and whether beside the truck, where holding the button gets back in.
             "afoot": self.afoot,
             // For a trial, which reads what the pages are told: where the driver stands, where
@@ -2893,7 +3525,7 @@ impl Shell {
         if matches!(self.screen, Screen::Pause | Screen::Shed) {
             // What falls due on it is the bank's repayment: none, where nothing is owed.
             let (weekly, owed) = match self.story {
-                true => (crate::yard::REPAYMENT.min(self.yard.debt), self.yard.debt),
+                true => (self.yard.repayment(), self.yard.debt),
                 false => (0, 0),
             };
             state["calendar"] = crate::calendar::told(self.seed(), self.day, weekly, owed);
@@ -2977,6 +3609,11 @@ impl Shell {
             }
             state["near"] = self.nearest(hud);
         }
+        // Which key and which button does what: with every new screen, and whenever they
+        // change. The pages keep what they were last told.
+        if changed || unbound {
+            state["binds"] = self.binds();
+        }
         Some(state.to_string())
     }
 
@@ -2987,7 +3624,8 @@ impl Shell {
         json!({
             "screen": Screen::Loading.name(),
             "mode": self.mode.name(),
-            "pad": false,
+            "pad": self.pad,
+            "pad_kind": self.pad_kind.name(),
             "nav": [],
             "map": map.map(|map| self.described(map)),
             "hub": self.map == self.world.hub,
@@ -3073,18 +3711,99 @@ impl Shell {
     }
 }
 
-/// Whether any gamepad control bound to a menu action was pressed this frame.
-fn pad_pressed(devices: &Devices, menu: &InputMap) -> bool {
-    let pad_only = InputMap {
-        bindings: menu
-            .bindings
+/// Whose controller it is, which decides how the pages draw its buttons: the same button is
+/// A on one and a cross on the other.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PadKind {
+    /// An Xbox controller, and any that is not known to be something else.
+    Xbox,
+    /// A PlayStation controller: a DualSense or a DualShock.
+    PlayStation,
+}
+
+impl PadKind {
+    /// What the pages are told it is.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Xbox => "xbox",
+            Self::PlayStation => "playstation",
+        }
+    }
+
+    /// From what a controller says of itself: its name (a browser's `Gamepad.id`, which has
+    /// its maker's number in it, or the system's name for it) and its maker's number, where
+    /// that is known apart.
+    pub fn of(name: &str, vendor: Option<u16>) -> Self {
+        const SONY: u16 = 0x054C;
+        let name = name.to_lowercase();
+        let sony = vendor == Some(SONY)
+            || [
+                "054c",
+                "dualsense",
+                "dualshock",
+                "playstation",
+                "sony",
+                "ps3",
+                "ps4",
+                "ps5",
+            ]
             .iter()
-            .filter(|b| b.device == solstice_game::Device::Gamepad)
-            .cloned()
-            .collect(),
-    };
-    let actions = pad_only.actions(devices, 1.0);
-    pad_only.bindings.iter().any(|b| actions.pressed(&b.action))
+            .any(|word| name.contains(word))
+            // What Windows calls one, with nothing before it: an Xbox pad is an "Xbox
+            // Wireless Controller".
+            || name.trim() == "wireless controller";
+        if sony {
+            Self::PlayStation
+        } else {
+            Self::Xbox
+        }
+    }
+}
+
+impl Shell {
+    /// Whose controller is plugged in, from whoever reads it: its buttons are the ones the
+    /// pages draw.
+    pub fn pad_kind(&mut self, kind: PadKind) {
+        self.pad_kind = kind;
+    }
+
+    /// The game's actions as the map being played binds them, from its `.input` file. Told
+    /// again and again, it is only taken in when it has changed.
+    pub fn bound(&mut self, keys: &InputMap) {
+        if self.keys.as_ref() != Some(keys) {
+            self.keys = Some(keys.clone());
+            self.told_binds = false;
+        }
+    }
+
+    /// What does what, for the pages: each action of the game's and of the menus', and the
+    /// controls bound to it on the keyboard (`key`), the mouse (`mouse`) and a controller
+    /// (`pad`), in the order they are bound. One that works the action backwards, a key
+    /// that steers left, has a `-` before it.
+    fn binds(&self) -> Value {
+        use solstice_game::Device;
+        let mut actions: BTreeMap<&str, BTreeMap<&str, Vec<String>>> = BTreeMap::new();
+        let game = self.keys.iter().flat_map(|keys| &keys.bindings);
+        for bound in game.chain(&self.menu.bindings) {
+            let device = match bound.device {
+                Device::Key => "key",
+                Device::Mouse => "mouse",
+                Device::Gamepad => "pad",
+                Device::Touch => continue,
+            };
+            let sign = if bound.scale < 0.0 { "-" } else { "" };
+            let control = format!("{sign}{}", bound.control);
+            let controls = actions
+                .entry(&bound.action)
+                .or_default()
+                .entry(device)
+                .or_default();
+            if !controls.contains(&control) {
+                controls.push(control);
+            }
+        }
+        json!(actions)
+    }
 }
 
 /// Where the truck is: the middle of its wheels.
@@ -3147,6 +3866,126 @@ length wombat 2.4 km
             text: "# the trailheads\nplace wombat 100 5 -40 9\n".to_owned(),
         }]);
         shell
+    }
+
+    #[test]
+    fn a_controller_is_known_by_what_it_says_it_is() {
+        use PadKind::{PlayStation, Xbox};
+        // A browser's names for them, the system's, and a maker's number alone.
+        for (name, vendor, kind) in [
+            (
+                "DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)",
+                None,
+                PlayStation,
+            ),
+            ("054c-09cc-Wireless Controller", None, PlayStation),
+            ("Wireless Controller", None, PlayStation),
+            ("PS4 Controller", None, PlayStation),
+            ("HID-compliant game controller", Some(0x054C), PlayStation),
+            ("Xbox Wireless Controller", None, Xbox),
+            ("Xbox 360 Controller (XInput STANDARD GAMEPAD)", None, Xbox),
+            ("Xbox Wireless Controller", Some(0x045E), Xbox),
+            // One that is nobody's in particular is drawn as an Xbox's.
+            ("Generic USB Joystick", Some(0x0079), Xbox),
+            ("", None, Xbox),
+        ] {
+            assert_eq!(PadKind::of(name, vendor), kind, "{name:?} {vendor:?}");
+        }
+    }
+
+    #[test]
+    fn the_pages_are_told_whose_buttons_to_draw_the_moment_another_device_is_in_hand() {
+        let mut shell = shell();
+        let mut devices = Devices::new();
+        let told = |shell: &mut Shell| -> Option<Value> {
+            let told = shell.tell(None, 0.001)?;
+            Some(serde_json::from_str(&told).expect("it is JSON"))
+        };
+        // At first: the keyboard, and what is bound to what.
+        let first = told(&mut shell).expect("the first screen is told of");
+        assert_eq!(
+            (&first["pad"], &first["pad_kind"]),
+            (&json!(false), &json!("xbox"))
+        );
+        assert_eq!(
+            first["binds"]["menu_accept"]["key"],
+            json!(["Enter", "Space"])
+        );
+        assert_eq!(first["binds"]["menu_accept"]["pad"], json!(["south"]));
+        assert!(told(&mut shell).is_none(), "nothing has changed");
+        // A stick resting off its middle is not a hand on the controller.
+        devices.gamepad_axis("left_x", 0.3);
+        shell.before(&mut devices, 0.016);
+        devices.end_frame();
+        assert!(told(&mut shell).is_none());
+        // A trigger pulled is, though no menu is worked with it: told at once, on a menu.
+        devices.gamepad_button("r2", 1.0);
+        shell.before(&mut devices, 0.016);
+        devices.end_frame();
+        let pad = told(&mut shell).expect("a controller in hand is told of");
+        assert_eq!(
+            (&pad["pad"], &pad["pad_kind"]),
+            (&json!(true), &json!("xbox"))
+        );
+        assert!(pad.get("binds").is_none(), "the pages have them already");
+        // It turns out to be a PlayStation's.
+        shell.hear(
+            "pad kind DualSense Wireless Controller (Vendor: 054c Product: 0ce6)",
+            &mut devices,
+        );
+        assert_eq!(told(&mut shell).expect("told")["pad_kind"], "playstation");
+        // The trigger held, a key is pressed: the keyboard, and the family is not forgotten.
+        shell.hear("key KeyW 1", &mut devices);
+        shell.before(&mut devices, 0.016);
+        devices.end_frame();
+        let keys = told(&mut shell).expect("the keyboard in hand is told of");
+        assert_eq!(
+            (&keys["pad"], &keys["pad_kind"]),
+            (&json!(false), &json!("playstation"))
+        );
+        // And a click of the mouse after the controller is the keyboard and mouse too.
+        shell.pad = true;
+        devices.mouse_button("left", true);
+        shell.before(&mut devices, 0.016);
+        assert!(!shell.pad);
+    }
+
+    #[test]
+    fn the_pages_are_told_what_the_map_binds_and_again_when_it_changes() {
+        let mut shell = shell();
+        let told = |shell: &mut Shell| -> Option<Value> {
+            let told = shell.tell(None, 0.001)?;
+            Some(serde_json::from_str(&told).expect("it is JSON"))
+        };
+        told(&mut shell);
+        let keys = InputMap::parse(
+            "steer key KeyD\nsteer key KeyA -1\nsteer gamepad left_x\nsteer touch stick_x\n\
+             orbit mouse x -0.003\nthrottle key KeyW\nthrottle key ArrowUp\nthrottle gamepad r2\n",
+        )
+        .unwrap();
+        shell.bound(&keys);
+        let binds = told(&mut shell).expect("new bindings are told of")["binds"].clone();
+        // Each device's controls in the order they are bound; backwards ones marked; a
+        // touched screen's left out; the menus' own beside the game's.
+        assert_eq!(
+            binds["steer"],
+            json!({ "key": ["KeyD", "-KeyA"], "pad": ["left_x"] })
+        );
+        assert_eq!(binds["orbit"], json!({ "mouse": ["-x"] }));
+        assert_eq!(
+            binds["throttle"],
+            json!({ "key": ["KeyW", "ArrowUp"], "pad": ["r2"] })
+        );
+        assert_eq!(
+            binds["pause"],
+            json!({ "key": ["Escape"], "pad": ["start"] })
+        );
+        // The same again is not news.
+        shell.bound(&keys);
+        assert!(told(&mut shell).is_none());
+        // Another screen has them with it, whatever the page has kept.
+        shell.hear("hello", &mut Devices::new());
+        assert!(told(&mut shell).expect("told")["binds"]["steer"].is_object());
     }
 
     #[test]
@@ -3332,7 +4171,11 @@ length wombat 2.4 km
         shell.screen = Screen::Shed;
         shell.act("sleep");
         assert_eq!(shell.screen(), Screen::Sleep);
-        assert!(shell.take_orders().contains(&Order::Sleep));
+        // (From midday, the first sleep there is is till the morning, which is tomorrow's.)
+        assert!(shell
+            .take_orders()
+            .iter()
+            .any(|order| matches!(order, Order::Sleep { days: 1, .. })));
         for _ in 0..5 {
             shell.before(&mut devices, 1.0);
         }
@@ -3967,5 +4810,14 @@ length wombat 2.4 km
         );
         next.resume("laps");
         assert_eq!(next.mode, Mode::Practice);
+    }
+
+    #[test]
+    fn a_hurt_piece_is_said_as_a_driver_would_say_it() {
+        assert_eq!(piece_said("bumper_front"), "Front bumper");
+        assert_eq!(piece_said("lamp_head_R"), "Right lamp head");
+        assert_eq!(piece_said("door_FL"), "Front left door");
+        assert_eq!(piece_said("acc_bullbar_tube"), "Bullbar tube");
+        assert_eq!(piece_said("grille"), "Grille");
     }
 }

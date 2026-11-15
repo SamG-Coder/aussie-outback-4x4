@@ -13,8 +13,9 @@
 use crate::{from_vector, to_pose, to_vector, Physics, GRAVITY};
 use glam::{Quat, Vec3};
 use rapier3d::prelude::*;
-use solstice_vehicle::{Asked, Contact, Controls, Driver, Ground, Surface, Vehicle};
+use solstice_vehicle::{Asked, Contact, Controls, Driver, Ground, Press, Ruts, Surface, Vehicle};
 use solstice_world::{Entity, Transform, World, STEP_SECONDS};
+use std::cell::RefCell;
 
 /// Makes an actor a car. Its `Transform` is the car's origin: on the ground under its middle.
 #[derive(Clone, Debug)]
@@ -50,12 +51,81 @@ pub(crate) struct CarStep {
     turned: Vec3,
     /// Whether its dynamics have once failed, and been said to.
     failed: bool,
+    /// What hitting things did to it in the step: see [`Knock`].
+    knock: Knock,
+}
+
+/// What hitting things did to a car in one step, in the world: how much it changed the
+/// velocity of its centre of mass, in metres a second, and its spin, in radians a second.
+/// Nothing of it is the car's own doing: its wheels, springs and engine, and gravity, are
+/// its dynamics', and this is what the walls, the ground under its body and whatever else
+/// it met added to them. Times its mass and its inertia, it is the blow's impulse.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Knock {
+    pub velocity: Vec3,
+    pub spin: Vec3,
 }
 
 /// The scene, as a wheel finds it.
 struct SceneGround<'a> {
     queries: QueryPipeline<'a>,
     surfaces: Option<&'a dyn Fn(Vec3) -> Surface>,
+    /// What has been pressed into the ground: a tyre stands in the ruts kept here, and
+    /// presses them deeper.
+    ruts: &'a RefCell<Ruts>,
+}
+
+/// How near the ground a car's belly must be to drag in it, in metres, and how far down it
+/// presses what it drags through.
+const BELLY_NEAR: f32 = 0.02;
+const BELLY_PRESSES: f32 = 0.025;
+
+/// Where a car's belly is down on soft ground, between its ruts, it drags the crown flat:
+/// a broad, shallow smear of churned soil under its middle, front to back.
+fn drag_belly(ground: &SceneGround<'_>, vehicle: &Vehicle, body: &solstice_vehicle::Body) {
+    let spec = vehicle.spec();
+    let (up, forward) = (body.up(), body.forward());
+    let along = glam::Vec2::new(forward.x, forward.z).normalize_or_zero();
+    if up.y < 0.5 || along == glam::Vec2::ZERO {
+        return;
+    }
+    // The underside of its body, at three places along its middle.
+    let under = spec.body_at.y - spec.body_size.y * 0.5;
+    const ABOVE: f32 = 0.4;
+    for share in [-0.3, 0.0, 0.3] {
+        let at = body.position
+            + body.rotation * Vec3::new(0.0, under, spec.body_at.z + share * spec.body_size.z);
+        let from = at + up * ABOVE;
+        let Some(contact) = ground.cast(from, -up, ABOVE + BELLY_NEAR) else {
+            continue;
+        };
+        if !contact.surface.is_soft() {
+            continue;
+        }
+        let point = from - up * contact.distance;
+        // How far down the belly is against the ground as it was made, and whether the
+        // ground as it now is has already been pressed out of its way.
+        let down = ABOVE - contact.distance + BELLY_PRESSES;
+        if down <= ground.rut(point) {
+            continue;
+        }
+        let soil = contact.surface.soil(vehicle.wetness());
+        let place = glam::Vec2::new(point.x, point.z);
+        ground.press(&Press {
+            from: place,
+            to: place,
+            along,
+            half_width: spec.body_size.x * 0.3,
+            half_length: spec.body_size.z * 0.2,
+            depth: down,
+            berm: 0.0,
+            phase: (0.0, 0.0),
+            print: 0.0,
+            wet: soil.wet,
+            stays: soil.stays,
+            churn: soil.churn,
+        });
+    }
 }
 
 impl Ground for SceneGround<'_> {
@@ -75,6 +145,14 @@ impl Ground for SceneGround<'_> {
                 .surfaces
                 .map_or(Surface::Asphalt, |surface| surface(point)),
         })
+    }
+
+    fn rut(&self, at: Vec3) -> f32 {
+        self.ruts.borrow().depth(at.x, at.z)
+    }
+
+    fn press(&self, press: &Press) {
+        self.ruts.borrow_mut().press(press);
     }
 }
 
@@ -312,12 +390,14 @@ impl Physics {
                         filter,
                     ),
                     surfaces: self.surfaces.as_deref(),
+                    ruts: &self.ruts,
                 };
                 let controls = car
                     .driver
                     .drive(&car.asked, &car.vehicle, &body, GRAVITY, dt);
                 car.vehicle.step(&mut body, &controls, &ground, dt);
                 car.controls = controls;
+                drag_belly(&ground, &car.vehicle, &body);
             }
             if !(body.position.is_finite() && body.velocity.is_finite() && body.spin.is_finite()) {
                 // Its wheels and engine may hold the same nonsense, so the car starts again from
@@ -348,6 +428,7 @@ impl Physics {
                 carried: moved / dt,
                 turned: (body.rotation * before.rotation.inverse()).to_scaled_axis() / dt,
                 failed: self.cars.get(&entity).is_some_and(|step| step.failed),
+                knock: Knock::default(),
             };
             let rigid = self.bodies.get_mut(handle).expect("found above");
             rigid.set_linvel(to_vector(step.carried), true);
@@ -359,7 +440,7 @@ impl Physics {
     /// After the physics step: each car's velocity is what its dynamics ended with, and what
     /// hitting things did to it.
     pub(crate) fn settle_cars(&mut self) {
-        for (entity, step) in &self.cars {
+        for (entity, step) in &mut self.cars {
             let Some(rigid) = self
                 .actors
                 .get(entity)
@@ -371,7 +452,55 @@ impl Physics {
             let twisted = from_vector(rigid.angvel()) - step.turned;
             rigid.set_linvel(to_vector(step.velocity + knocked), true);
             rigid.set_angvel(to_vector(step.spin + twisted), true);
+            step.knock = Knock {
+                velocity: knocked,
+                spin: twisted,
+            };
         }
+    }
+
+    /// What hitting things did to a car in the latest step: for what a blow does to it.
+    pub fn car_knock(&self, entity: Entity) -> Option<Knock> {
+        self.cars.get(&entity).map(|step| step.knock)
+    }
+
+    /// Where a car's body is touching things, as of the latest step: each place on its
+    /// body, in the car's own space. Between them they are the patch of it a blow lands on:
+    /// its whole nose against a wall, one corner of it against a post.
+    pub fn car_touches(&self, entity: Entity) -> Vec<Vec3> {
+        let mut touches = Vec::new();
+        let Some(actor) = self.actors.get(&entity) else {
+            return touches;
+        };
+        for &handle in &actor.colliders {
+            let Some(collider) = self.colliders.get(handle) else {
+                continue;
+            };
+            let within = collider
+                .position_wrt_parent()
+                .map_or(Vec3::ZERO, |pose| from_vector(pose.translation));
+            for pair in self.narrow_phase.contact_pairs_with(handle) {
+                let first = pair.collider1 == handle;
+                // As the solver had them: those are the ones that say what each pushed with.
+                for manifold in pair.solver_manifolds() {
+                    for point in &manifold.points {
+                        // What pushed the car this step, or is touching it, or all but: not
+                        // what is only near enough to be watched. (A car that arrives fast
+                        // is pushed by places it had not yet reached when they were found.)
+                        if point.data.impulse <= 0.0 && point.dist > 0.03 {
+                            continue;
+                        }
+                        let on = if first {
+                            point.local_p1
+                        } else {
+                            point.local_p2
+                        };
+                        touches.push(within + from_vector(on));
+                    }
+                }
+            }
+        }
+        touches
     }
 }
 

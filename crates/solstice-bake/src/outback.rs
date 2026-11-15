@@ -16,6 +16,7 @@
 mod chart;
 mod draw;
 mod flora;
+pub mod proving;
 mod shed;
 pub mod terrain;
 mod town;
@@ -396,6 +397,10 @@ pub fn build(
         ground(scene, litter, tone(litter), true);
         for &layer in pair {
             ground(scene, layer, tone(layer), false);
+            // Mud is drawn as mud lies (`ground/ruts.wgsl`).
+            if layer == mud {
+                scene.materials.last_mut().expect("just added").flags |= Material::MUD;
+            }
         }
     }
 
@@ -481,6 +486,14 @@ pub fn build(
             let _ = writeln!(
                 places,
                 "place stand:{what} {:.2} {:.2} {:.2} {yaw:.1}",
+                at.x, at.y, at.z
+            );
+        }
+        // Where the used-truck yard's trucks stand, each day's in their row.
+        for (spot, (at, yaw)) in town.lot().into_iter().enumerate() {
+            let _ = writeln!(
+                places,
+                "place lot:{spot} {:.2} {:.2} {:.2} {yaw:.1}",
                 at.x, at.y, at.z
             );
         }

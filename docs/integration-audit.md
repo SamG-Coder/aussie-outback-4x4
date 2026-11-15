@@ -30,6 +30,16 @@ only after some has been dug and more than three days have gone by. Every map ha
 town's included. What is dug is drawn from a table that averages $269 a find in ordinary
 ground, less by home and more on the harder tracks (docs/ui.md, Gold).
 
+**Sixth pass: buying, and the used-truck yard.** Parts were paid for the moment they were
+chosen, with no say in what it did to the debt; used trucks were a list behind the hotel's
+door; the debt never grew; and sleep was only to the morning. Now everything bought is on a
+bill that says what it does to the debt, the Fridays and the interest, and can be turned
+down; the day's used trucks are parked in a yard across the road from the town, each in
+its colour with its price before it, and are walked up to; new trucks are sold there too;
+the debt gathers interest by the week; sleep is to any time of day six hours off or more;
+and the shed and the gold buyer's are gone into on foot (docs/ui.md, The showroom and
+Where things are done).
+
 ## Summary
 
 | Section | Ties to | State |
@@ -83,8 +93,9 @@ some off at the bank, sleep to Friday, and check the debt drops by the repayment
 
 ## 3. Trucks: garage, auto shop, used trucks
 
-The garage is at the shed. The auto shop (Motor Spares), the used trucks (the Hotel) and the
-bank are doors in the town, walked up to on foot. Each opens one page in the showroom.
+The garage is at the shed. The auto shop (Motor Spares) and the bank are doors in the town,
+and used and new trucks are at Ironbark Motors across the road, at its office door or at
+any truck parked there: all walked up to on foot. Each opens one page in the showroom.
 
 - **Fault, fixed: gold aboard one truck turned up inside another.** What is in a truck's tray
   or behind its doors is kept in that truck's own space. Taking another truck out, or selling

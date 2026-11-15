@@ -15,6 +15,8 @@
 const el = (id) => document.getElementById(id);
 const body = document.body;
 
+// (A button a tip speaks of is drawn as it is on what is in hand: `{ACTIONS}`, as below. One
+// that speaks of a button not yet known is left out.)
 const TIPS = [
   "Low range (4L) multiplies the engine's pull. Use it for climbs, bog holes and rock steps.",
   "Lock the diffs before the obstacle, not in the middle of it.",
@@ -23,6 +25,11 @@ const TIPS = [
   "Walk it through water: a steady bow wave, not a splash.",
   "Momentum gets you through mud. Wheelspin digs you into it.",
   "Past forty degrees of lean a truck goes over. Watch the inclinometer on side slopes.",
+  "{drive_mode} moves the transfer case on: two-wheel drive, four high, four low.",
+  "{diff_lock} locks the rear diff, then both, then neither.",
+  "{tyres} lets the tyres down for mud and sand, and pumps them up again for hard ground.",
+  "Off the track, or on your roof? {reset} puts the truck back on it.",
+  "Stopped, hold {enter~KeyE} to get out and walk. Hold it again beside the truck to get back in.",
 ];
 
 let state = { screen: "boot" };
@@ -46,6 +53,232 @@ function say(line) {
 
 // A mistake in the page is told to the game, which writes it down.
 addEventListener("error", (event) => say(`log error ${event.message} at ${event.filename}:${event.lineno}`));
+
+// ---- Buttons (docs/ui.md, Buttons). Whatever is pressed for something is drawn as it is on
+// what is in hand: a key's cap or the mouse, an Xbox controller's buttons, or a PlayStation's.
+// The game says which is in hand (`pad`, `pad_kind`) and what is bound to what (`binds`: an
+// action's controls on the keys, the mouse and a controller), and nothing here names a key of
+// its own: an element marked `data-glyph="ACTIONS"` is filled with the buttons for them, one
+// marked `data-hint` has them put before its words, and `data-words` is words with
+// `{ACTIONS}` among them. They are all drawn again the moment another device is in hand.
+//
+// ACTIONS is terms with spaces between: `throttle` is the action's first control (for one
+// that goes two ways on keys, such as `steer`, the key each way); `forward+` and `forward-`
+// are one way of it; `run|sprint` is the first of them that is bound on this device;
+// `enter~KeyE` is that control if it is one of the action's, else its first; `hold:enter`
+// has the word Hold before it; `@mouse:left` is a control itself, bound or not.
+let binds = {}, bindsTold = 0;
+// Whose controller it is, `xbox` or `playstation`, and whether one was in hand when the page
+// was last told: kept from one page to the next, since a browser reads a page for each map.
+let padKind = "xbox", padHeld = false;
+const HANDS = "aussie-outback-4x4.hands";
+try {
+  const kept = JSON.parse(localStorage.getItem(HANDS) || "null");
+  if (kept) { binds = kept.binds || {}; padKind = kept.kind || "xbox"; padHeld = !!kept.pad; }
+} catch { /* Nothing kept, or nowhere to keep it. */ }
+let handsKept = "";
+function keepHands() {
+  const kept = JSON.stringify({ binds, kind: padKind, pad: padHeld });
+  if (kept === handsKept) return;
+  handsKept = kept;
+  try { localStorage.setItem(HANDS, kept); } catch { /* Nowhere to keep it. */ }
+}
+// What is in hand: `keys`, the keyboard and mouse, or a controller's family.
+const kitNow = () => (state.pad ? padKind : "keys");
+
+// The drawings. Each is 32 high, and as wide as it needs; its size on the page is `--glyph`.
+const gSvg = (width, name, inner) => `<svg class="g" viewBox="0 0 ${width} 32" role="img" aria-label="${name}"><title>${name}</title>${inner}</svg>`;
+const gText = (x, y, size, text, more = "") => `<text class="g-t" x="${x}" y="${y}" font-size="${size}"${more}>${text}</text>`;
+const G_DISC = '<circle class="g-b" cx="16" cy="16" r="13.5"/>';
+// The four buttons under the right thumb. An Xbox's are letters, a PlayStation's are shapes,
+// each in its own colour.
+const G_FACE = {
+  xbox: { south: ["A", "#6cc24a"], east: ["B", "#ea5a44"], west: ["X", "#4a9fee"], north: ["Y", "#f2b632"] },
+  playstation: {
+    south: ["Cross", "#86aef5", '<path d="M10.4 10.4 L21.6 21.6 M21.6 10.4 L10.4 21.6"/>'],
+    east: ["Circle", "#f2756e", '<circle cx="16" cy="16" r="6.6"/>'],
+    west: ["Square", "#e99fd3", '<rect x="10.2" y="10.2" width="11.6" height="11.6" rx="0.8"/>'],
+    north: ["Triangle", "#55d3a4", '<path d="M16 8.8 L23.2 21.2 H8.8 Z"/>'],
+  },
+};
+function gFace(kit, which) {
+  const [name, colour, shape] = G_FACE[kit][which];
+  if (shape) return gSvg(32, name, `${G_DISC}<g class="g-s" style="stroke:${colour}">${shape}</g>`);
+  return gSvg(32, name, `<circle class="g-b" cx="16" cy="16" r="13.5" style="stroke:${colour}"/>${gText(16, 16.8, 17, name, ` style="fill:${colour}"`)}`);
+}
+// The bumpers, wide and flat with the outer corner rounded off, and the triggers, tall.
+const G_SHOULDER = { xbox: { l1: "LB", r1: "RB", l2: "LT", r2: "RT" }, playstation: { l1: "L1", r1: "R1", l2: "L2", r2: "R2" } };
+function gShoulder(kit, which) {
+  const name = G_SHOULDER[kit][which];
+  if (which.endsWith("2")) return gSvg(34, name, `<path class="g-b" d="M8 29.5 L6 14.5 A11 11.5 0 0 1 28 14.5 L26 29.5 Z"/>${gText(17, 18.6, 11.5, name)}`);
+  const turned = which === "r1" ? ' transform="matrix(-1 0 0 1 44 0)"' : "";
+  return gSvg(44, name, `<path class="g-b" d="M4.5 24.5 V15.5 A8 8 0 0 1 12.5 7.5 H36 A3.5 3.5 0 0 1 39.5 11 V24.5 Z"${turned}/>${gText(22, 16.6, 11.5, name)}`);
+}
+// A stick: its ring, and its cap with which it is. Pushed along one line, arrows that way;
+// pressed in, the cap is lit, with an arrow down on to it.
+const G_WAYS = { left: "M4.2 16 L7.3 13.1 V18.9 Z", right: "M27.8 16 L24.7 13.1 V18.9 Z", up: "M16 4.2 L13.1 7.3 H18.9 Z", down: "M16 27.8 L13.1 24.7 H18.9 Z" };
+function gStick(kit, side, how) {
+  const letter = side === "left" ? "L" : "R", pressed = how === "press";
+  const label = pressed && kit === "playstation" ? `${letter}3` : letter;
+  const name = `${side === "left" ? "Left" : "Right"} stick${pressed ? ", pressed" : ""}`;
+  const arrows = how === "x" ? [G_WAYS.left, G_WAYS.right] : how === "y" ? [G_WAYS.up, G_WAYS.down] : pressed ? ["M16 7.6 L13.1 4.5 H18.9 Z"] : [];
+  return gSvg(32, name, `${G_DISC}<circle class="${pressed ? "g-f" : "g-c"}" cx="16" cy="16" r="8"/>`
+    + gText(16, 16.5, label.length > 1 ? 8.6 : 10.5, label, pressed ? ' style="fill:var(--g-ink)"' : "")
+    + arrows.map((arrow) => `<path class="g-f" d="${arrow}"/>`).join(""));
+}
+// The d-pad, with the arms that are meant lit.
+const G_ARMS = { up: "M12.9 4.2 H19.1 V10.9 L16 14 L12.9 10.9 Z", down: "M12.9 27.8 H19.1 V21.1 L16 18 L12.9 21.1 Z",
+  left: "M4.2 12.9 V19.1 H10.9 L14 16 L10.9 12.9 Z", right: "M27.8 12.9 V19.1 H21.1 L18 16 L21.1 12.9 Z" };
+const gDpad = (ways) => gSvg(32, `D-pad ${ways.join(" and ")}`,
+  '<path class="g-b" d="M11.5 2.5 H20.5 V11.5 H29.5 V20.5 H20.5 V29.5 H11.5 V20.5 H2.5 V11.5 H11.5 Z"/>'
+  + ways.map((way) => `<path class="g-f" d="${G_ARMS[way]}"/>`).join(""));
+// The two small buttons in the middle: View and Menu on an Xbox, Create and Options on a
+// PlayStation, each with the mark it has on the controller.
+const G_LINES = '<path class="g-s" d="M10.5 11.5 H21.5 M10.5 16 H21.5 M10.5 20.5 H21.5"/>';
+const G_MIDDLE = {
+  xbox: { select: ["View", '<rect class="g-s" x="9.5" y="9.5" width="9.5" height="8" rx="1"/><rect class="g-s" x="13" y="14.5" width="9.5" height="8" rx="1" style="fill:var(--g-ink)"/>'],
+    start: ["Menu", G_LINES] },
+  playstation: { select: ["Create", '<rect class="g-s" x="13" y="13.5" width="6" height="10.5" rx="3"/><path class="g-s" d="M16 6.8 V10 M10.6 8.6 L12.4 11.2 M21.4 8.6 L19.6 11.2"/>'],
+    start: ["Options", G_LINES] },
+};
+const gMiddle = (kit, which) => gSvg(32, G_MIDDLE[kit][which][0], G_DISC + G_MIDDLE[kit][which][1]);
+// The mouse: a button of it lit, or arrows either side of it for moving it.
+function gMouse(which) {
+  const moved = which === "move", at = moved ? 9 : 0;
+  const lit = { left: `<path class="g-f" d="M${at + 10.1} 3.5 V12.1 H${at + 4} V10.4 A7 7 0 0 1 ${at + 10.1} 3.5 Z"/>`,
+    right: `<path class="g-f" d="M${at + 11.9} 3.5 V12.1 H${at + 18} V10.4 A7 7 0 0 0 ${at + 11.9} 3.5 Z"/>`,
+    middle: `<rect class="g-f" x="${at + 9.2}" y="4.8" width="3.6" height="7" rx="1.8" style="stroke:var(--g-ink);stroke-width:1.2"/>`,
+    move: '<path class="g-s" d="M6 11.6 L2 16 L6 20.4 M34 11.6 L38 16 L34 20.4"/>' }[which];
+  const name = moved ? "Move the mouse" : `${which[0].toUpperCase()}${which.slice(1)} mouse button`;
+  return gSvg(moved ? 40 : 22, name, `<rect class="g-b" x="${at + 3}" y="2.5" width="16" height="27" rx="8"/>`
+    + `<path class="g-l" d="M${at + 11} 2.5 V13 M${at + 3} 13 H${at + 19}"/>${lit}`);
+}
+// A key: its cap, with what is on it. The arrows are arrows.
+const G_KEYS = { Space: "Space", Enter: "Enter", NumpadEnter: "Enter", Escape: "Esc", Backspace: "Bksp", Tab: "Tab", CapsLock: "Caps",
+  ShiftLeft: "Shift", ShiftRight: "Shift", ControlLeft: "Ctrl", ControlRight: "Ctrl", AltLeft: "Alt", AltRight: "Alt",
+  Delete: "Del", Insert: "Ins", Home: "Home", End: "End", PageUp: "PgUp", PageDown: "PgDn", Minus: "-", Equal: "=",
+  BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'", Comma: ",", Period: ".", Slash: "/", Backslash: "\\", Backquote: "`" };
+const G_ARROWS = { ArrowUp: 0, ArrowRight: 90, ArrowDown: 180, ArrowLeft: 270 };
+function gKey(code) {
+  if (code in G_ARROWS) {
+    const way = code.slice(5);
+    return `<kbd class="g-key" title="${way} arrow"><svg viewBox="0 0 16 16" role="img" aria-label="${way} arrow"><path d="M8 3.2 L13.4 11.8 H2.6 Z" transform="rotate(${G_ARROWS[code]} 8 8)"/></svg></kbd>`;
+  }
+  const label = G_KEYS[code] || code.replace(/^(Key|Digit)/, "").replace(/^Numpad/, "Num ");
+  return `<kbd class="g-key">${label.replace("&", "&amp;").replace("<", "&lt;")}</kbd>`;
+}
+// One control drawn: `key:KeyW`, `mouse:left`, `pad:south`, and what `gather` makes of a
+// stick's axes, the d-pad's arms and the mouse's two ways.
+function gDraw(control, kit) {
+  const [device, what, how] = control.split(":");
+  if (device === "key") return gKey(what);
+  if (device === "mouse") return gMouse(what);
+  if (device === "dpad") return gDpad(what.split("+"));
+  if (device === "stick") return gStick(kit, what, how || "");
+  if (what in G_FACE[kit]) return gFace(kit, what);
+  if (what in G_SHOULDER[kit]) return gShoulder(kit, what);
+  if (what in G_MIDDLE[kit]) return gMiddle(kit, what);
+  if (what === "l3" || what === "r3") return gStick(kit, what === "l3" ? "left" : "right", "press");
+  return `<kbd class="g-key">${what}</kbd>`;
+}
+// A stick's axis and the mouse's movement go both ways whatever way they are bound; a key or
+// a button bound backwards (`-KeyA`) is the other way of its action.
+const G_AXES = ["left_x", "left_y", "right_x", "right_y", "x", "y"];
+// The controls a term stands for, on a device: `[device, control]` each.
+function gTerm(term, kit) {
+  if (term.startsWith("@")) {
+    const [device, control] = term.slice(1).split(":");
+    return (device === "pad") === (kit !== "keys") ? [[device, control]] : [];
+  }
+  for (const each of term.split("|")) {
+    const [named, prefer] = each.split("~");
+    const way = /[+-]$/.test(named) ? named.slice(-1) : "", bound = binds[way ? named.slice(0, -1) : named] || {};
+    const all = kit === "keys" ? [...(bound.key || []).map((c) => ["key", c]), ...(bound.mouse || []).map((c) => ["mouse", c])]
+      : (bound.pad || []).map((c) => ["pad", c]);
+    if (all.length === 0) continue;
+    const bare = ([device, control]) => [device, control.replace(/^-/, "")];
+    const axis = all.find(([, control]) => G_AXES.includes(control.replace(/^-/, "")));
+    const on = all.find(([, control]) => !control.startsWith("-") && !G_AXES.includes(control));
+    const back = all.find(([, control]) => control.startsWith("-") && !G_AXES.includes(control.slice(1)));
+    const wanted = prefer && all.find(([, control]) => control.replace(/^-/, "") === prefer);
+    if (wanted) return [bare(wanted)];
+    if (way) return [bare((way === "+" ? on : back) || axis || all[0])];
+    // (What is bound first is what is shown: a stick, or else a button, both ways if it has two.)
+    if (axis === all[0] || !on) return [bare(all[0])];
+    return back ? [bare(back), bare(on)] : [bare(on)];
+  }
+  return [];
+}
+// The controls of a hint, as they are drawn: none twice, a stick's two axes as the stick,
+// the d-pad's arms as one d-pad, and the mouse's two ways as the mouse.
+function gather(controls) {
+  const drawn = [], has = (device, control) => controls.some(([d, c]) => d === device && c === control);
+  for (const [device, control] of controls) {
+    let made = `${device}:${control}`;
+    const stick = device === "pad" && /^(left|right)_([xy])$/.exec(control);
+    if (stick) made = `stick:${stick[1]}${has("pad", `${stick[1]}_x`) && has("pad", `${stick[1]}_y`) ? "" : `:${stick[2]}`}`;
+    else if (device === "pad" && control in G_ARMS) made = `dpad:${Object.keys(G_ARMS).filter((way) => has("pad", way)).join("+")}`;
+    else if (device === "mouse" && (control === "x" || control === "y")) made = "mouse:move";
+    if (!drawn.includes(made)) drawn.push(made);
+  }
+  return drawn;
+}
+// The buttons for ACTIONS, drawn: or nothing, if nothing on this device does any of them.
+function glyphs(spec, kit = kitNow()) {
+  const controls = [];
+  let held = false;
+  for (const term of spec.split(/\s+/).filter(Boolean)) {
+    const hold = term.startsWith("hold:");
+    const found = gTerm(hold ? term.slice(5) : term, kit);
+    held = held || (hold && found.length > 0);
+    controls.push(...found);
+  }
+  const drawn = gather(controls).map((control) => gDraw(control, kit)).join("");
+  return drawn && held ? `<span class="g-word">Hold</span>${drawn}` : drawn;
+}
+// Words with buttons among them: `Hold {enter} to stop here`. Nothing at all, if a button
+// they speak of is not bound on this device.
+function glyphWords(words, kit = kitNow()) {
+  let whole = true;
+  const html = words.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/\{([^}]+)\}/g, (_, spec) => {
+    const drawn = glyphs(spec, kit);
+    if (!drawn) whole = false;
+    return `<span class="glyphs">${drawn}</span>`;
+  });
+  return whole ? html : null;
+}
+// What a `data-hint` is short for.
+const HINTS = { accept: "menu_accept", back: "menu_back", tabs: "menu_prev menu_next", browse: "menu_left menu_right" };
+// Every button on the page drawn as it is on what is in hand now: only those that are not
+// already, so this is called whenever anything is shown.
+function dress(within = document) {
+  const kit = kitNow(), stamp = `${kit} ${bindsTold} `;
+  body.dataset.kit = kit;
+  for (const hint of within.querySelectorAll("[data-hint]")) {
+    if (hint.firstElementChild && hint.firstElementChild.classList.contains("glyphs")) continue;
+    const holder = document.createElement("span");
+    holder.className = "glyphs";
+    holder.dataset.glyph = HINTS[hint.dataset.hint] || hint.dataset.hint;
+    hint.prepend(holder);
+  }
+  for (const holder of within.querySelectorAll("[data-glyph]")) {
+    // (One that is always a device's own, whatever is in hand, says so: `data-kit`.)
+    const mine = holder.dataset.kit === "pad" ? padKind : holder.dataset.kit || kit;
+    const wanted = `${stamp}${mine} ${holder.dataset.glyph}`;
+    if (holder.dataset.drawn === wanted) continue;
+    holder.dataset.drawn = wanted;
+    holder.innerHTML = glyphs(holder.dataset.glyph, mine);
+    // A hint with no button on this device is not a hint.
+    holder.classList.toggle("unbound", holder.innerHTML === "");
+    if (holder.parentElement.dataset.hint !== undefined) holder.parentElement.classList.toggle("unbound", holder.innerHTML === "");
+  }
+  for (const text of within.querySelectorAll("[data-words]")) {
+    const wanted = `${stamp}${text.dataset.words}`;
+    if (text.dataset.drawn === wanted) continue;
+    text.dataset.drawn = wanted;
+    text.innerHTML = glyphWords(text.dataset.words, kit) ?? text.dataset.words.replace(/\{[^}]+\}/g, "");
+  }
+}
 
 // ---- Menus. A screen's buttons are in rows: a list down the page is a row a button, and a
 // `nav` marked `data-row` is one row of buttons side by side.
@@ -80,7 +313,9 @@ function holdButton(button) {
 }
 function back() {
   if (opened) { opened = null; saveSure = ""; show(); return; }
-  // (Out of a section of the auto shop is back to its sections, not out of the shop.)
+  // (A bill is turned down. Out of a section of the auto shop is back to its sections,
+  // not out of the shop.)
+  if (state.screen === "yard" && state.yard && state.yard.quote) return say("do reject");
   if (state.screen === "yard" && shopOpen) return shopLeave();
   if (state.screen === "pause") say("do resume");
   if (state.screen === "offer" || state.screen === "shed" || state.screen === "buyer" || state.screen === "yard") say("do leave");
@@ -104,6 +339,7 @@ function choose(button) {
 function navigate(way) {
   const all = rows();
   if (way === "back") return back();
+  if (way === "prev" || way === "next") return turnTab(way === "next" ? 1 : -1);
   if (all.length === 0) return;
   const [row, column] = held;
   const here = all[row] && all[row][column];
@@ -130,6 +366,14 @@ function navigate(way) {
     if (now.dataset.set) pick(now);
     else if (now.dataset.live !== undefined) choose(now);
   }
+}
+// A screen with tabs: turned to the next of them or the one before, wherever the hand is.
+function turnTab(by) {
+  const section = el(screenShown());
+  const tabs = section ? [...section.querySelectorAll("nav.tabs button")] : [];
+  if (tabs.length === 0) return;
+  const at = tabs.findIndex((tab) => tab.classList.contains("picked"));
+  choose(tabs[(at + by + tabs.length) % tabs.length]);
 }
 function wire(button) {
   button.addEventListener("mouseenter", () => holdButton(button));
@@ -267,7 +511,6 @@ function timed() {
     setText("watch-truck", `${watch.truck}  ·  Class ${watch.class + 1}`);
     setText("watch-clock", medalTime(watch.clock));
     setText("watch-time", `of ${medalTime(watch.time)}`);
-    setText("watch-key", state.pad ? "✕" : "Enter");
   }
   const result = state.result;
   if (result) {
@@ -445,7 +688,7 @@ let yardKey = "", yardPage = "", yardPick = 0, yardShown = -1, yardTimer = 0;
 function yardCards() {
   const yard = state.yard || {};
   return yard.page === "start" ? yard.start || [] : yard.page === "garage" ? yard.trucks || [] : yard.page === "used" ? yard.used || []
-    : yard.page === "free" ? yard.free || [] : [];
+    : yard.page === "free" ? yard.free || [] : yard.page === "dealer" ? yard.dealer || [] : [];
 }
 function button(html, act, classes) {
   const made = document.createElement("button");
@@ -487,6 +730,9 @@ function yardActs() {
     detail = card.here ? `${card.year}  ·  ${far(card.km)}  ·  ${condition(card.roll)}${card.bargain ? "  ·  a good one, going cheap" : ""}` : "Sold: it is in your shed";
     lines.push(`<dt>Price</dt><dd class="big">${cash(card.price)}</dd>`);
     if (card.here && card.price > yard.money) detail += "  ·  what you do not have goes on the debt";
+  } else if (card && yard.page === "dealer") {
+    detail = `${card.year}  ·  Grade ${card.grade}  ·  new, with nothing on the clock`;
+    lines.push(`<dt>Price</dt><dd class="big">${cash(card.price)}</dd>`);
   } else if (card && yard.page === "free") {
     detail = `${card.year}  ·  Grade ${card.grade}  ·  ${cash(card.price)}`;
   } else if (card) {
@@ -542,6 +788,7 @@ let shopOpen = null;
 function shopLeave() {
   shopOpen = null;
   yardKey = "";
+  say("do focus:off");
   say("do untry");
   show();
   hold(0, yardBack);
@@ -570,12 +817,13 @@ function yard() {
     start: ["Day one", "Choose your first truck", `You have bought a block in the high country with a shed on it, and you owe the bank ${cash(yard.block)} for it. You need a truck to work it. These three you can get on finance.`],
     garage: ["Your shed", "Garage", "The trucks you own. One is the one you drive."],
     shop: ["Ironbark Flat  ·  Motor Spares", "Auto shop", "A part you have bought is yours: taking it off and putting it back costs nothing."],
-    used: ["Ironbark Flat  ·  The Hotel", "Used trucks", "What the publican has to sell today. It is different every day, and now and then there is a good one going cheap."],
+    used: ["Ironbark Flat  ·  Ironbark Motors", "Used trucks", "What is on the yard today. It is different every day, and now and then there is a good one going cheap."],
+    dealer: ["Ironbark Flat  ·  Ironbark Motors", "New trucks", "Any truck there is, new, at its price. What you do not have in hand goes on the debt, if the bank will lend it."],
     bank: ["Ironbark Flat  ·  The Bank", "Bank", `You can owe up to ${cash(yard.limit)}. Every Friday ${cash(yard.repayment)} comes out. Pay it and your credit goes up; miss it and it goes down.`],
   }[yard.page] || ["", "", ""];
   setText("yard-kicker", words[0]); setText("yard-title", words[1]); setText("yard-about", words[2]);
   el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" || yard.page === "colour" ? yard.block : yard.debt)}</dd></div>`
-    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div>`);
+    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div><div><dt>Interest</dt><dd>${yard.interest_year}%</dd></div>`);
   // The strip of trucks.
   const lot = el("yard-lot");
   lot.replaceChildren();
@@ -590,24 +838,26 @@ function yard() {
   }
   // The auto shop: its sections, each a group of parts, the respray and the oil; or, a
   // section opened, what is in it. What is in hand is seen on the truck before it is bought.
+  const cart = yard.cart || {};
   if (yard.page === "shop") {
     const groups = (yard.shop && yard.shop.groups) || [];
     const open = groups.find((group) => group.group === shopOpen);
     const add = (made, index, only) => { made.dataset.pick = String(index); if (only) made.dataset.only = ""; lot.append(made); };
-    const opens = (made, what, index) => { made.ask = () => { shopOpen = what; yardBack = index; yardKey = ""; yardPick = 0; yardShown = -1; show(); }; return made; };
+    const opens = (made, what, index) => { made.ask = () => { shopOpen = what; yardBack = index; yardKey = ""; yardPick = 0; yardShown = -1; say(`do focus:${what}`); show(); }; return made; };
     if (open) {
       const choices = ALWAYS.includes(open.group) ? [] : [{ choice: "none", fitted: open.bare, note: open.bare ? "As it is" : "Take it off" }];
       choices.push(...open.choices);
       for (const [index, choice] of choices.entries()) {
-        const note = choice.note || (choice.fitted ? "Fitted" : choice.owned ? "Yours: fit it" : cash(choice.price));
-        const made = tile(choice.choice === "none" ? "None" : KINDS[choice.choice] || choice.choice, note, `fit:${open.group}:${choice.choice}`, choice.fitted ? "fitted" : "");
+        const note = choice.note || (choice.fitted ? "Fitted" : choice.owned ? "Yours: fit it" : choice.cart ? `In the cart  ·  ${cash(choice.price)}` : cash(choice.price));
+        const made = tile(choice.choice === "none" ? "None" : KINDS[choice.choice] || choice.choice, note, `fit:${open.group}:${choice.choice}`, choice.fitted ? "fitted" : choice.cart ? "carted" : "");
         made.dataset.try = `${open.group}:${choice.choice}`;
         add(made, index);
       }
     } else if (shopOpen === "paint") {
       for (const [index, colour] of (yard.colours || []).entries()) {
         const worn = driven && driven.paint && driven.paint.toLowerCase() === `#${colour.hex}`;
-        const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}</b>`, `paint:${colour.hex}`, worn ? "colour fitted" : "colour");
+        const carted = cart.paint === colour.hex;
+        const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}${carted ? "  ·  in the cart" : ""}</b>`, `paint:${colour.hex}`, worn ? "colour fitted" : "colour");
         made.dataset.tint = colour.hex;
         add(made, index);
       }
@@ -615,13 +865,24 @@ function yard() {
       shopOpen = null;
       let index = 0;
       for (const group of groups) {
-        const fitted = group.choices.find((choice) => choice.fitted);
-        add(opens(tile(PARTS[group.group] || group.group, fitted ? KINDS[fitted.choice] || fitted.choice : "None"), group.group, index), index, true);
+        const fitted = group.choices.find((choice) => choice.fitted), carted = group.choices.find((choice) => choice.cart);
+        const note = carted ? `In the cart: ${KINDS[carted.choice] || carted.choice}` : fitted ? KINDS[fitted.choice] || fitted.choice : "None";
+        add(opens(tile(PARTS[group.group] || group.group, note, null, carted ? "carted" : ""), group.group, index), index, true);
         index += 1;
       }
-      add(opens(tile("Respray", cash(yard.respray)), "paint", index), index, true);
+      add(opens(tile("Respray", cart.paint ? "In the cart" : cash(yard.respray), null, cart.paint ? "carted" : ""), "paint", index), index, true);
       const oil = driven && driven.oil > 0 ? `${far(driven.oil)} overdue` : driven ? `due in ${far(-driven.oil)}` : "";
-      add(tile("Oil and filter", `${cash(yard.oil_change)}  ·  ${oil}`, "oil"), index + 1, true);
+      add(tile("Oil and filter", cart.oil ? `In the cart  ·  ${cash(yard.oil_change)}` : `${cash(yard.oil_change)}  ·  ${oil}`, "oil", cart.oil ? "carted" : ""), index + 1, true);
+      // What it has hit is mended here: every hurt piece, by how far gone it is.
+      const hurt = (yard.repairs && yard.repairs.hurt) || 0, mend = cash((yard.repairs && yard.repairs.cost) || 0);
+      const pieces = `${hurt} ${hurt === 1 ? "piece" : "pieces"}`;
+      add(tile("Repairs", cart.repair ? `In the cart  ·  ${mend}` : hurt ? `${mend}  ·  ${pieces} hurt` : "Nothing to mend", "repair", cart.repair ? "carted" : ""), index + 2, true);
+      // The counter: what is in the cart is paid for there, or put back.
+      if (cart.count) {
+        add(tile("To the counter", `${cart.count} in the cart  ·  ${cash(cart.total)}`, "checkout", "counter"), index + 3, true);
+        add(tile("Empty the cart", "Put it all back"), index + 4, true);
+        lot.lastChild.dataset.do = "empty";
+      }
     }
   }
   // The bank's counter: what is borrowed, and what is paid off.
@@ -636,7 +897,8 @@ function yard() {
     const tag = card.bargain && card.here ? '<span class="tag">Bargain</span>' : card.driving ? '<span class="tag">Driving</span>' : "";
     // Chosen where it stands: it is taken, taken out, bought or driven by pressing on it.
     const act = yard.page === "start" ? `choose:${card.name}` : yard.page === "free" ? `free:${card.name}`
-      : yard.page === "garage" ? (card.driving ? null : `drive:${card.index}`) : yard.page === "used" && card.here ? `buy:${card.place}` : null;
+      : yard.page === "garage" ? (card.driving ? null : `drive:${card.index}`) : yard.page === "used" && card.here ? `buy:${card.place}`
+      : yard.page === "dealer" ? `new:${card.name}` : null;
     const made = button(`<img src="trucks/${card.name}_small.jpg" alt="${card.title}">${tag}${dot}`, act, card.here === false ? "gone" : "");
     made.dataset.pick = String(index);
     lot.append(made);
@@ -646,12 +908,36 @@ function yard() {
   // (Nothing is down the side but what the truck is: what there is to choose is in the strip.)
   el("yard-rows").replaceChildren();
   setText("yard-said", yard.said || "");
+  // The bill for what was asked for, if there is one: over everything else on the page.
+  const quote = yard.quote, sheet = el("yard-quote");
+  const quoting = !!quote, was = !sheet.hidden;
+  sheet.hidden = !quoting;
+  el("yard").classList.toggle("quoting", quoting);
+  if (quote) {
+    setText("quote-kicker", quote.what === "cart" ? "Motor Spares" : "Ironbark Motors");
+    const named = (item) => item.truck ? `${item.truck}${item.used ? ", used" : ", new"}` : item.paint ? "Respray" : item.oil ? "Oil and filter"
+      : item.repair ? `Repairs: ${item.repair} ${item.repair === 1 ? "piece" : "pieces"}`
+      : `${PARTS[item.group] || item.group}: ${KINDS[item.choice] || item.choice}`;
+    el("quote-lines").innerHTML = quote.items.map((item) => `<tr><td>${named(item)}</td><td>${cash(item.price)}</td></tr>`).join("")
+      + `<tr class="total"><td>In all</td><td>${cash(quote.total)}</td></tr>`;
+    const more = quote.repayment_after > quote.repayment;
+    el("quote-facts").innerHTML = `<div><dt>From what is in hand</dt><dd>${cash(quote.cash)}</dd></div>`
+      + `<div><dt>On the debt</dt><dd class="${quote.financed ? "more" : ""}">${cash(quote.financed)}</dd></div>`
+      + `<div><dt>Owed after</dt><dd>${cash(quote.debt_after)}</dd></div>`
+      + `<div><dt>Fridays after</dt><dd class="${more ? "more" : ""}">${cash(quote.repayment_after)}${more ? `  (now ${cash(quote.repayment)})` : ""}</dd></div>`
+      + `<div><dt>Interest</dt><dd>${quote.interest_year}% a year</dd></div>`;
+    setText("quote-why", quote.ok ? "" : `The bank will not lend that much: you can owe ${cash(quote.limit)} in all.`);
+    el("quote-yes").hidden = !quote.ok;
+  }
   // The other pages, and the way out.
   const tabs = el("yard-tabs");
   tabs.replaceChildren();
-  if (yard.page === "free") {
+  if (yard.page === "free" || yard.page === "dealer") {
     for (const grade of [1, 2, 3, 4, 5]) if (grade !== yard.grade) tabs.append(button(`Grade ${grade}`, `grade:${grade}`));
   }
+  // The yard sells used trucks and new ones: the one is a step from the other.
+  if (yard.page === "used") tabs.append(button("New trucks", "page:dealer"));
+  if (yard.page === "dealer") tabs.append(button("Used trucks", "page:used"));
   if (yard.page === "shop" && shopOpen) {
     // Out of a section of the shop: back to its sections, the truck as it was.
     const out = button("Back", null);
@@ -667,7 +953,8 @@ function yard() {
     const worn = Math.max(0, [...lot.children].findIndex((made) => made.classList.contains("fitted")));
     yardPick = yardShown = worn;
     hold(0, worn);
-  } else hold(held[0], held[1]);
+  } else if (quoting !== was) hold(0, quoting ? 0 : yardPick);
+  else hold(held[0], held[1]);
 }
 
 // ---- The kept games: three slots, a tile each. A new game is begun in one, and one that
@@ -717,8 +1004,47 @@ function saves() {
 
 // ---- The options: which tab is shown, and what each option is set to.
 let optionsTab = "keys";
+// What is done with the keys and with a controller, as the two tabs list it: what it is, the
+// actions that do it (as `data-glyph` has them), and a word more for one device or the other.
+// What is drawn beside each is whatever the game says is bound to those actions.
+const CONTROLS = {
+  driving: ["Driving",
+    ["Throttle, brake", "throttle brake"],
+    ["Steer", "steer"],
+    ["Handbrake", "handbrake"],
+    ["Gear up, down", "shift_up shift_down"],
+    ["2H, 4H, 4L", "drive_mode"],
+    ["Diff locks", "diff_lock"],
+    ["Air the tyres down, up", "tyres"],
+    ["Look round", "orbit orbit_up look_round look_over", { keys: "click first" }],
+    ["Look behind", "look_back"],
+    ["Change view", "camera"],
+    ["Back on the track", "reset"],
+    ["Pause, and the map", "pause"]],
+  foot: ["On foot",
+    ["Get out, get in", "hold:enter~KeyE"],
+    ["Walk", "forward+ right- forward- right+"],
+    ["Run", "run|sprint"],
+    ["Look round", "turn look_up"],
+    ["Jump", "jump"],
+    ["Dig, pick up, put in, go in a door", "enter~KeyE"],
+    ["Detector or empty hands", "swap"],
+    ["Put down what you hold", "drop"]],
+};
+// The two tabs' tables, made once: each row's buttons are `data-glyph`, of the tab's device
+// whatever is in hand, so `dress` draws them and draws them again when they are bound anew.
+function controlsTables() {
+  for (const table of document.querySelectorAll("#controls table[data-controls]")) {
+    if (table.rows.length) continue;
+    const kit = table.closest(".tab").dataset.panel === "pad" ? "pad" : "keys";
+    const [title, ...rows] = CONTROLS[table.dataset.controls];
+    table.innerHTML = `<thead><tr><th>${title}</th><th></th></tr></thead><tbody>${rows.map(([what, actions, more]) =>
+      `<tr><td>${what}</td><td><span class="glyphs" data-glyph="${actions}" data-kit="${kit}"></span>${more && more[kit] ? `<small>${more[kit]}</small>` : ""}</td></tr>`).join("")}</tbody>`;
+  }
+}
 function options() {
   const set = state.options || { volume: 10, fullscreen: false };
+  controlsTables();
   for (const tab of document.querySelectorAll("#option-tabs button")) tab.classList.toggle("picked", tab.dataset.tab === optionsTab);
   for (const panel of document.querySelectorAll("#controls .tab")) panel.classList.toggle("shown", panel.dataset.panel === optionsTab);
   const pips = el("option-volume");
@@ -734,6 +1060,20 @@ function options() {
     pip.classList.toggle("picked", share === set.volume);
   }
   setText("option-volume-says", set.volume === 0 ? "Off" : `${set.volume * 10}%`);
+  // How fast the right stick looks: ten steps, the sixth as it is to begin with.
+  const looks = el("option-look"), look = set.look || 6;
+  if (looks.children.length === 0) {
+    for (let speed = 1; speed <= 10; speed += 1) {
+      const pip = button("", `option:look:${speed}`);
+      pip.dataset.live = "";
+      looks.append(pip);
+    }
+  }
+  for (const [index, pip] of [...looks.children].entries()) {
+    pip.classList.toggle("on", index + 1 <= look);
+    pip.classList.toggle("picked", index + 1 === look);
+  }
+  setText("option-look-says", String(look));
   for (const [index, choice] of [...el("option-screen").children].entries()) choice.classList.toggle("picked", (index === 1) === !!set.fullscreen);
 }
 
@@ -748,7 +1088,33 @@ function show() {
   el("pause-hub").hidden = state.way_home !== false;
   const kept = !!(state.story && state.story.on);
   el("pause-title").querySelector("small").textContent = kept ? "The game is kept as you play." : "A free drive is not kept.";
-  el("shed-sleep").querySelector("small").textContent = kept ? "The day ends. The game is saved, and it is half past six tomorrow." : "The day ends, and it is half past six tomorrow.";
+  // What a sleep can be till: each time of day six hours off or more, the first of them
+  // on the button there is, and the rest on buttons of their own after it.
+  const sleeps = state.sleeps || [], wantedSleeps = JSON.stringify(sleeps) + kept;
+  const first = el("shed-sleep");
+  if (first.dataset.wanted !== wantedSleeps) {
+    first.dataset.wanted = wantedSleeps;
+    for (const old of document.querySelectorAll("#shed .sleep-more")) old.remove();
+    const words = (sleep) => [`Sleep till ${sleep.name.toLowerCase()}`,
+      `${sleep.hour}${sleep.tomorrow ? " tomorrow: the day ends" : " today"}, ${sleep.off} hours on.${kept && sleep.tomorrow ? " The game is saved." : ""}`];
+    first.hidden = sleeps.length === 0;
+    let after = first;
+    for (const [place, sleep] of sleeps.entries()) {
+      const [name, about] = words(sleep);
+      const made = place === 0 ? first : button(`<span>${name}</span><small>${about}</small>`, `sleep:${sleep.index}`, "sleep-more");
+      if (place === 0) {
+        first.dataset.do = `sleep:${sleep.index}`;
+        first.querySelector("span").textContent = name;
+        first.querySelector("small").textContent = about;
+      } else {
+        after.after(made);
+      }
+      after = made;
+    }
+  }
+  // On foot there is no getting out, and no driving on: there is leaving.
+  for (const id of ["shed-walk", "buyer-walk"]) el(id).hidden = !!state.afoot;
+  setText("sleep-till", `${state.slept_till || "Morning"}  ·  ${kept ? "saved" : "rested"}`);
   el("shed-yard").hidden = !(state.story && state.story.on);
   body.dataset.screen = screen;
   // (Once its screen is the one shown: what is in hand is found among what can be seen.)
@@ -761,10 +1127,6 @@ function show() {
   body.classList.toggle("afoot", afoot);
   el("foot").hidden = !afoot;
   el("foot-in").hidden = !state.by_truck;
-  setText("foot-key", state.pad ? "✕" : "E");
-  setText("foot-hold", state.pad ? "Hold ✕" : "Hold E");
-  setText("foot-swap-key", state.pad ? "□" : "Q");
-  setText("foot-drop-key", state.pad ? "○" : "G");
   // What the driver's hands hold decides what the other two buttons do: the detector is
   // slung or taken in hand again, and whatever is held is put down.
   const holding = state.holding || "nothing";
@@ -776,10 +1138,8 @@ function show() {
   chart();
   setText("touch-use", !afoot ? "Get out" : state.by_truck ? "Get in" : "Use");
   setText("touch-steer-words", afoot ? "Walk" : "Steer");
-  for (const hint of document.querySelectorAll("[data-hint]")) {
-    const accept = hint.dataset.hint === "accept";
-    hint.dataset.key = state.pad ? (accept ? "✕" : "○") : (accept ? "Enter" : "Esc");
-  }
+  // Each hint's button, and every other button the pages draw, as it is on what is in hand.
+  dress();
   const map = state.map || {};
   setText("where-title", map.title || "");
   const clocked = !state.hub && (state.mode === "practice" || state.mode === "timed");
@@ -834,9 +1194,25 @@ function show() {
   setText("detector-tip", over ? "You are over it." : state.gold_here === false ? "This ground is dug out for now. It is found here again in a few days."
     : away === null ? "Keep walking beside the road or the track: it hears gold within 60 metres."
     : "Turn on the spot: the beeps are fastest facing the gold. Walk that way.");
+  // What the last blow did to the truck.
+  const blow = screen === "drive" ? state.blow : null;
+  el("blow").hidden = !blow;
+  if (blow) setText("blow-said", blow);
+  // By a truck in the used-truck yard: its tag, in place of the detector's panel.
+  const tag = screen === "drive" ? state.tag : null;
+  el("tag").hidden = !tag;
+  if (tag) {
+    el("detector").hidden = true;
+    setText("tag-kicker", tag.bargain ? "Going cheap" : "For sale");
+    el("tag").classList.toggle("bargain", !!tag.bargain);
+    setText("tag-price", dollars(tag.price));
+    setText("tag-title", tag.title || "");
+    setText("tag-facts", `${tag.year}  ·  ${far(tag.km)}  ·  ${condition(tag.roll)}`);
+  }
   const uses = { dig: "Dig", pick: "Pick up", tray: "Put in the tray", chest: "Put in the chest", untray: "Take from the tray",
     unchest: "Take from the chest", drop: "Put down", take: "Pick up the detector", open: "Open the door", shut: "Shut the door",
     door_shop: "Go in: Auto shop", door_used: "Ask about used trucks", door_bank: "Go in: Bank",
+    door_shed: "Go in: The shed", door_buyer: "Go in: Gold buyer", truck_look: "Look it over",
     stow: "Put in the truck", unstow: "Take from the truck" };
   setText("foot-use", uses[state.use] || "Use");
   if (state.afoot && screen === "drive") setText("touch-use", state.by_truck && !state.use ? "Get in" : uses[state.use] || "Use");
@@ -878,7 +1254,10 @@ function show() {
     const facts = [map.kind, map.length];
     if (!state.hub && state.times && state.weathers) facts.push(state.times[picked.time], state.weathers[picked.weather]);
     setText("loading-facts", facts.filter(Boolean).join("  ·  "));
-    setText("loading-tip", TIPS[Math.floor(Math.random() * TIPS.length)]);
+    // One of the tips there are, of those whose buttons are known: `dress` writes it out.
+    const tips = TIPS.filter((tip) => glyphWords(tip) !== null);
+    el("loading-tip").dataset.words = tips[Math.floor(Math.random() * tips.length)];
+    dress(el("loading"));
     // (The showroom is the Crossroads: it has its picture.)
     const shown = (map.name || "").startsWith("showroom");
     setText("loading-kicker", shown ? "Opening" : "Heading out to");
@@ -916,6 +1295,7 @@ function instruments() {
   el("lamp-tc").classList.toggle("on", hud.traction);
   el("lamp-hdc").classList.toggle("on", hud.descent);
   el("driveline").hidden = !hud.four_wheel_drive;
+  el("dash-keys").classList.toggle("two", !hud.four_wheel_drive);
   el("tilt").hidden = !hud.four_wheel_drive;
   for (const range of el("driveline").querySelectorAll("[data-range]")) {
     range.classList.toggle("on", range.dataset.range === hud.drive);
@@ -965,7 +1345,6 @@ function instruments() {
   }
   if (near && near.inside) {
     setText("banner-title", near.title);
-    setText("banner-key", state.pad ? "✕" : "Enter");
     el("banner-key").hidden = touched && !state.pad;
     setText("banner-words", state.pad ? "Hold to enter" : touched ? "Touch here to enter" : "Hold to enter, or click here");
     el("banner-hold").style.width = `${Math.round((near.hold || 0) * 100)}%`;
@@ -1017,6 +1396,7 @@ function stuck(why) {
   el("loading").classList.add("stuck");
   setText("loading-kicker", "Not yet heading out to");
   setText("loading-tip-head", "No maps yet");
+  delete el("loading-tip").dataset.words;
   setText("loading-tip", why);
   setText("loading-foot", "Close the window to leave");
 }
@@ -1029,6 +1409,13 @@ window.ui = {
     // A page opened over a screen is shut when the game goes on to another: a game that
     // has been loaded is not behind the list it was chosen from.
     if (told.screen !== state.screen) { opened = null; saveSure = ""; }
+    // What is bound to what, and whose controller it is, are kept from when they were last
+    // said; and what is in hand, where it is not said (before the game is running).
+    if (told.binds) { binds = told.binds; bindsTold += 1; }
+    if (told.pad_kind) padKind = told.pad_kind === "playstation" ? "playstation" : "xbox";
+    if (told.pad === undefined) told.pad = padHeld;
+    padHeld = !!told.pad;
+    keepHands();
     state = told;
     show();
     instruments();
@@ -1150,7 +1537,9 @@ function touchable(control, down, slid, up) {
 function pretend(line) {
   const [word, what, down] = line.split(" ");
   if (word === "key" && down === "1") {
-    const way = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "accept", Escape: "back" }[what];
+    // (A key pressed is the keyboard in hand, as the game would say.)
+    if (state.pad) window.ui.receive({ ...state, pad: false, nav: [] });
+    const way = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "accept", Escape: "back", KeyQ: "prev", KeyE: "next" }[what];
     if (way === "back" && state.screen === "drive") window.ui.receive({ ...state, screen: "pause" });
     else if (way) navigate(way);
   }
@@ -1217,7 +1606,12 @@ if (mock) {
     result,
     calendar: { day: 10, weekday: "Wednesday", date: 13, month: "May", months: "May and June", sky: "overcast", days: calendarDays,
       next: { day: 12, in: 2, weekday: "Friday", date: 15, month: "May", items: [{ what: "The block", dollars: 1500 }, { what: "The truck", dollars: 350 }], total: 1850 } },
-    screen: wanted.get("screen") || "title", mode: wanted.get("mode") || "roam", pad: wanted.has("pad"), nav: [],
+    screen: wanted.get("screen") || "title", mode: wanted.get("mode") || "roam", nav: [],
+    // What is in hand: `pad` is an Xbox controller, `pad=ps` a PlayStation's. And what is
+    // bound to what, as the game's own files have it (`scenes/outback/game.input`, and the
+    // menus' in `shell.rs`).
+    pad: wanted.has("pad"), pad_kind: wanted.get("pad") === "ps" ? "playstation" : "xbox",
+    binds: {"forward":{"key":["KeyW","ArrowUp","-KeyS","-ArrowDown"],"pad":["-left_y"]},"right":{"key":["KeyD","ArrowRight","-KeyA","-ArrowLeft"],"pad":["left_x"]},"run":{"key":["ShiftLeft"]},"sprint":{"pad":["l3"]},"turn":{"mouse":["-x"],"pad":["-right_x"]},"look_up":{"mouse":["-y"],"pad":["-right_y"]},"jump":{"key":["Space"],"pad":["north"]},"interact":{"key":["KeyE"],"pad":["south"]},"throttle":{"key":["KeyW","ArrowUp"],"pad":["r2"]},"brake":{"key":["KeyS","ArrowDown"],"pad":["l2"]},"steer":{"key":["KeyD","ArrowRight","-KeyA","-ArrowLeft"],"pad":["left_x"]},"handbrake":{"key":["Space"],"pad":["east"]},"shift_up":{"key":["KeyE"],"pad":["r1"]},"shift_down":{"key":["KeyQ"],"pad":["l1"]},"reset":{"key":["KeyR"],"pad":["north"]},"camera":{"key":["KeyC"],"pad":["select"]},"look_back":{"key":["KeyB"],"pad":["r3"]},"look_round":{"pad":["right_x"],"key":["KeyL","-KeyJ"]},"look_over":{"pad":["right_y"],"key":["KeyI","-KeyK"]},"orbit":{"mouse":["-x"]},"orbit_up":{"mouse":["y"]},"autopilot":{"key":["KeyP"],"pad":["start"]},"drive_mode":{"key":["KeyT"],"pad":["west"]},"diff_lock":{"key":["KeyG"],"pad":["south"]},"tyres":{"key":["KeyY"],"pad":["up"]},"menu_up":{"key":["ArrowUp","KeyW"],"pad":["up","-left_y"]},"menu_down":{"key":["ArrowDown","KeyS"],"pad":["down","left_y"]},"menu_left":{"key":["ArrowLeft","KeyA"],"pad":["left","-left_x"]},"menu_right":{"key":["ArrowRight","KeyD"],"pad":["right","left_x"]},"menu_accept":{"key":["Enter","Space"],"pad":["south"]},"menu_back":{"key":["Escape","Backspace"],"pad":["east"]},"menu_prev":{"key":["KeyQ"],"pad":["l1"]},"menu_next":{"key":["KeyE"],"pad":["r1"]},"pause":{"key":["Escape"],"pad":["start"]},"enter":{"key":["Enter","KeyF","KeyE"],"pad":["south"]},"swap":{"key":["KeyQ"],"pad":["west"]},"drop":{"key":["KeyG"],"pad":["east"]}},
     day: 3, tray: wanted.has("empty") ? [0, 0] : [4, 13.6], chest: [9, 41.2], afoot: wanted.has("afoot"), by_truck: false,
     chart: { file: "maps/the-crossroads.png", half: 512 }, at: { x: -417, z: 133, heading: 40, afoot: wanted.has("afoot") },
     places: [{ title: "Wombat Creek Track", kind: "trailhead", x: -252, z: -391 }, { title: "The Shed", kind: "shed", x: -430, z: 132 }],
@@ -1234,6 +1628,19 @@ if (mock) {
     lap: { count: 1, time: 83.412, last: 318.07, best: 312.482, valid: true, last_valid: true },
     near: { title: "Wombat Creek Track", distance: 240, bearing: 35, inside: wanted.has("inside"), hold: 0.6 },
   });
+  // A real controller, plugged in: pressing anything on it is that controller in hand, as
+  // the game would say, and its buttons are drawn; a key pressed is the keyboard again
+  // (`pretend`). A stick only counts pushed past half way.
+  const padPoll = () => {
+    for (const pad of navigator.getGamepads ? navigator.getGamepads() : []) {
+      if (!pad || !pad.connected) continue;
+      if (!pad.buttons.some((b) => b.value > 0.5) && !pad.axes.slice(0, 4).some((v) => Math.abs(v) > 0.5)) continue;
+      const kind = /054c|dualsense|dualshock|playstation|sony|ps[345]/i.test(pad.id) ? "playstation" : "xbox";
+      if (!state.pad || padKind !== kind) window.ui.receive({ ...state, pad: true, pad_kind: kind, nav: [] });
+    }
+    requestAnimationFrame(padPoll);
+  };
+  requestAnimationFrame(padPoll);
 }
 
 say("hello");

@@ -1,5 +1,6 @@
 //! The town: a hotel, a general store, the gold buyer's and a hall along one side of a yard
-//! off the main road, where what has been found is sold.
+//! off the main road, where what has been found is sold; and across the road from them a
+//! used-truck yard, with an office, a sign, and a row of places where its trucks stand.
 //!
 //! The buildings are a model, made in Blender by `tools/blender/town/build.py` and kept out of
 //! the repository as what that script makes (`target/outback/town.glb`; `bake.bat` runs it).
@@ -43,6 +44,25 @@ const BUYER: usize = 2;
 const BAY: [f32; 2] = [3.4, 5.5];
 /// How high a lamp hangs under a verandah.
 const LAMP: f32 = 2.5;
+/// The used-truck yard, across the road: its ground, from and to, as the town's own is.
+const LOT: ([f32; 2], [f32; 2]) = ([-22.0, -41.0], [22.0, -20.5]);
+/// Its office, at the back of it: from, and to. Its door is in the wall that faces the road.
+const OFFICE: ([f32; 2], [f32; 2]) = ([13.0, -39.5], [19.0, -35.0]);
+const OFFICE_DOOR: f32 = 14.6;
+/// The row its trucks stand in, nose to the road: how far back the middle of each is, where
+/// the first is, how far it is to the next, and how many there are.
+const ROW: f32 = -31.5;
+const ROW_FROM: f32 = -18.0;
+const ROW_STEP: f32 = 5.5;
+pub const ROW_OF: usize = 6;
+/// Where one of them is pulled out to be looked over, on the apron before the row.
+const APRON: [f32; 2] = [-4.0, -24.0];
+/// Its sign, by the road: the two posts it stands on.
+const SIGN: [[f32; 2]; 2] = [[12.3, -21.4], [17.7, -21.4]];
+/// Its fence, of posts and rails, round its back and its two ends: how far in from the
+/// edge of its ground, and how far toward the road the ends come.
+const FENCE: f32 = 0.4;
+const FENCE_TO: f32 = -27.0;
 
 /// Where the town stands.
 #[derive(Clone, Copy, Debug)]
@@ -80,11 +100,15 @@ impl Town {
         )
     }
 
-    /// How far a place is outside its ground: nothing, on it.
+    /// How far a place is outside its ground, the yard's or the used-truck yard's across
+    /// the road: nothing, on either.
     fn outside(&self, x: f32, z: f32) -> f32 {
         let at = self.plan(x, z);
-        let (low, high) = (Vec2::from(GROUND.0), Vec2::from(GROUND.1));
-        (low - at).max(at - high).max(Vec2::ZERO).length()
+        let off = |(low, high): ([f32; 2], [f32; 2])| {
+            let (low, high) = (Vec2::from(low), Vec2::from(high));
+            (low - at).max(at - high).max(Vec2::ZERO).length()
+        };
+        off(GROUND).min(off(LOT))
     }
 
     /// Whether a place is on its ground, or within `margin` of it: nothing grows there.
@@ -113,14 +137,14 @@ impl Town {
         (Vec3::new(at.x, self.height, at.y), BAY[1])
     }
 
-    /// The doors that are walked up to, each with what is behind it: the used trucks at the
-    /// hotel, the auto shop at the store, and the bank in the hall. Where somebody stands
-    /// before each, on the deck.
+    /// The doors that are walked up to, each with what is behind it: the auto shop at the
+    /// store, the gold buyer's, the bank in the hall, where somebody stands before each on
+    /// the deck; and the used trucks at the office of the yard across the road.
     pub fn doors(&self) -> Vec<(&'static str, Vec3)> {
         let middle = |index: usize| (BUILDINGS[index][0] + BUILDINGS[index][1]) * 0.5;
-        [
-            ("used", BUILDINGS[0][0] + 3.6),
+        let mut doors: Vec<(&'static str, Vec3)> = [
             ("shop", middle(1)),
+            ("buyer", middle(BUYER)),
             ("bank", middle(3)),
         ]
         .into_iter()
@@ -128,26 +152,41 @@ impl Town {
             let at = self.place(x, FRONT - 0.8);
             (what, Vec3::new(at.x, self.height + FLOOR, at.y))
         })
-        .collect()
+        .collect();
+        let office = self.place(OFFICE_DOOR, OFFICE.1[1] + 1.1);
+        doors.push(("used", Vec3::new(office.x, self.height, office.y)));
+        doors
+    }
+
+    /// Where the used-truck yard's trucks stand, in their row: each where, and the way it
+    /// faces, a yaw in degrees. They are nose to the road.
+    pub fn lot(&self) -> Vec<(Vec3, f32)> {
+        let yaw = self.front.x.atan2(self.front.y).to_degrees();
+        (0..ROW_OF)
+            .map(|spot| {
+                let at = self.place(ROW_FROM + ROW_STEP * spot as f32, ROW);
+                (Vec3::new(at.x, self.height, at.y), yaw)
+            })
+            .collect()
     }
 
     /// Where a truck stands in the yard before each of those buildings, to be looked at
     /// while what is behind its door is dealt with: where, and the way it faces, a yaw in
-    /// degrees. It faces the road, with the building behind it.
+    /// degrees. It faces the road, with the building behind it. A used truck is pulled out
+    /// of its row onto the apron of the yard across the road, side on to the town.
     pub fn stands(&self) -> Vec<(&'static str, Vec3, f32)> {
         let middle = |index: usize| (BUILDINGS[index][0] + BUILDINGS[index][1]) * 0.5;
         let yaw = (-self.front.x).atan2(-self.front.y).to_degrees();
-        [
-            ("used", middle(0)),
-            ("shop", middle(1)),
-            ("bank", middle(3)),
-        ]
-        .into_iter()
-        .map(|(what, x)| {
-            let at = self.place(x, FRONT - DECK - 6.5);
-            (what, Vec3::new(at.x, self.height, at.y), yaw)
-        })
-        .collect()
+        let mut stands: Vec<(&'static str, Vec3, f32)> = [("shop", middle(1)), ("bank", middle(3))]
+            .into_iter()
+            .map(|(what, x)| {
+                let at = self.place(x, FRONT - DECK - 6.5);
+                (what, Vec3::new(at.x, self.height, at.y), yaw)
+            })
+            .collect();
+        let apron = self.place(APRON[0], APRON[1]);
+        stands.push(("used", Vec3::new(apron.x, self.height, apron.y), yaw - 90.0));
+        stands
     }
 
     /// Each building as a truck meets it and as somebody on foot does: its walls, which
@@ -202,6 +241,24 @@ impl Town {
             let (x, y) = (middle + side, FRONT - 1.8);
             boxed([x - 0.09, y - 0.09], [x + 0.09, y + 0.09], 2.75);
         }
+        // The used-truck yard: its office, the posts of its sign, and its fence, round its
+        // back and its two ends. (Its trucks are stood there by the game, day by day.)
+        let (from, to) = OFFICE;
+        boxed(
+            [from[0] - 0.3, from[1] - 0.3],
+            [to[0] + 0.3, to[1] + 0.3],
+            5.0,
+        );
+        for [x, y] in SIGN {
+            boxed([x - 0.1, y - 0.1], [x + 0.1, y + 0.1], 4.4);
+        }
+        let (low, high) = (
+            [LOT.0[0] + FENCE, LOT.0[1] + FENCE],
+            [LOT.1[0] - FENCE, FENCE_TO],
+        );
+        boxed([low[0], low[1] - 0.08], [high[0], low[1] + 0.08], 1.1);
+        boxed([low[0] - 0.08, low[1]], [low[0] + 0.08, high[1]], 1.1);
+        boxed([high[0] - 0.08, low[1]], [high[0] + 0.08, high[1]], 1.1);
         blockers
     }
 
@@ -242,6 +299,17 @@ impl Town {
                 _pad: 0,
             });
         }
+        // And at the yard across the road: over its office door, and under its sign.
+        let office = self.place(OFFICE_DOOR, OFFICE.1[1] + 0.9);
+        let sign = self.place((SIGN[0][0] + SIGN[1][0]) * 0.5, SIGN[0][1] + 0.8);
+        for (at, high, range) in [(office, LAMP, 12.0), (sign, 3.0, 14.0)] {
+            scene.lights.push(Light {
+                position: [at.x, self.height + high, at.y],
+                range,
+                intensity: [2.2, 1.3, 0.55],
+                _pad: 0,
+            });
+        }
         let (buyer, _) = self.buyer();
         println!(
             "  the town stands at {:.2} {:.2} {:.2}, its gold buyer's at {:.2} {:.2}",
@@ -272,8 +340,9 @@ mod tests {
         // Every building is on the town's ground and stops a truck, and the buyer's place is
         // in the open yard before its verandah: in none of them.
         let blockers = town.blockers();
-        // (Four buildings, three decks and their sixteen posts, a chimney, and a porch on two.)
-        assert_eq!(blockers.len(), 4 + 3 + 16 + 1 + 3);
+        // (Four buildings, three decks and their sixteen posts, a chimney, and a porch on two;
+        // and across the road an office, a sign's two posts, and three runs of fence.)
+        assert_eq!(blockers.len(), 4 + 3 + 16 + 1 + 3 + 1 + 2 + 3);
         // A verandah is walked onto: nothing taller than a step is between the yard and a
         // building's front wall but its posts.
         for [from, to, _] in &BUILDINGS[..3] {
@@ -291,6 +360,38 @@ mod tests {
         let (bay, round) = town.buyer();
         let bay_plan = town.plan(bay.x, bay.z);
         assert!(bay_plan.x > 3.0 && bay_plan.x < 11.0 && bay_plan.y < FRONT - DECK - round * 0.5);
+        // The used trucks stand across the road, in a row, nose to it: on the yard's own
+        // ground, clear of its office and its fence and of each other, and the road is
+        // between them and the town.
+        let lot = town.lot();
+        assert_eq!(lot.len(), ROW_OF);
+        for (index, (at, yaw)) in lot.iter().enumerate() {
+            let plan = town.plan(at.x, at.z);
+            assert!(
+                town.covers(at.x, at.z, 0.0) && plan.y < -AWAY - 8.0,
+                "{plan}"
+            );
+            let ahead = Vec2::new(-yaw.to_radians().sin(), -yaw.to_radians().cos());
+            let nose = town.plan(at.x + ahead.x, at.z + ahead.y);
+            assert!(nose.y > plan.y + 0.99, "a truck is not nose to the road");
+            for blocker in &blockers {
+                let off = town.plan(blocker.centre.x, blocker.centre.z) - plan;
+                let clear = off.x.abs() > blocker.size.x * 0.5 + 1.4
+                    || off.y.abs() > blocker.size.z * 0.5 + 3.2;
+                assert!(clear, "truck {index} is parked in {blocker:?}");
+            }
+            if let Some((next, _)) = lot.get(index + 1) {
+                assert!(at.distance(*next) > 4.0);
+            }
+        }
+        // Its door is its office's, across the road; and one of them is pulled out onto
+        // the apron before the row.
+        let used = town.doors().into_iter().find(|(what, _)| *what == "used");
+        let door = used.map(|(_, at)| town.plan(at.x, at.z)).unwrap();
+        assert!(door.y < -AWAY - 4.0 && door.y > OFFICE.1[1], "{door}");
+        let apron = town.stands().into_iter().find(|(what, ..)| *what == "used");
+        let apron = apron.map(|(_, at, _)| town.plan(at.x, at.z)).unwrap();
+        assert!(apron.y > ROW + 5.0 && apron.y < -AWAY - 6.0, "{apron}");
         for blocker in &blockers {
             assert!(town.covers(blocker.centre.x, blocker.centre.z, 0.0));
             let off = town.plan(blocker.centre.x, blocker.centre.z) - bay_plan;

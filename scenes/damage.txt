@@ -1,0 +1,72 @@
+# The crash-test pad: a flat pad with a row of things to drive a truck into, each a test of
+# the game's damage (docs/damage.md). Not a map of the game: nothing leads to it.
+#
+#   blender -b --python tools/blender/crash/build.py -- target/outback/crash.glb
+#   bake --scene scenes/damage.txt --output assets/damage.solstice
+#   viewer assets/damage.solstice --play
+#
+# The truck stands at the start line of lane 4, facing down it; the lanes run 90 m to the
+# tests, with a bar every 20 m that says how far there is to go. Drive across to a lane, line
+# up on its number and go. What each blow did is in the game's log, a line a piece
+# (`damage: bumper_front is dented (84 kN of a 112 kN blow)`).
+#
+# To start again, stop in the green box behind the start line: the truck is mended there.
+# One left on its side or its roof is stood back in the box by itself, mended.
+#
+# The truck is one of the game's own, built of pieces: change the actor's name for another
+# (each has its files in scenes/trucks), and `--kit bullbar=tube` and the like fit it.
+# For a picture of damage with nothing driven: `--damage bumper_front=loose,door_FL=dented`
+# or `--hit 0.8,0.9,-2.3,0,0,1,140` (where on the truck, the way it pushes, kilonewtons)
+# with `--capture`.
+texture_size 256
+terrain 400 128 0 1000
+# Nothing grows through the pad.
+clear 0 -45 125
+camera 0 26 34 0 -0.52
+# The pad: a slab of concrete 120 m wide and 170 m long, its top 15 cm over the land, dead
+# flat. Everything stands on it.
+part ../target/outback/crash.glb pad 0 0.15 -45 0 1 collide=hull
+actor trucks/howitt.actor 0 0.2 6 0
+# Its driver, who gets out of it and walks, and the detector they carry.
+actor outback/driver.actor 0 0.2 6 0
+actor outback/detector.actor 0 0.2 6 0
+input outback/game.input
+
+# The repair bay, behind the start line, and its sign.
+actor damage/repair_bay.actor 0 0.15 18 0
+part ../target/outback/crash.glb bay 0 0.15 18 0 1 collide=none
+part ../target/outback/crash.glb sign_0 5.6 0.15 18 0 1 collide=none
+
+# The lanes' paint: each 8 m wide, from the start line at z = 0 to its test at z = -90.
+part ../target/outback/crash.glb lane_1 -42 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_2 -28 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_3 -14 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_4 0 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_5 14 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_6 28 0.15 -45 0 1 collide=none
+part ../target/outback/crash.glb lane_7 42 0.15 -45 0 1 collide=none
+
+# 1. A solid wall, square across the lane: the whole of the nose meets it.
+part ../target/outback/crash.glb wall -42 0.15 -90.5 0 1 collide=hull
+part ../target/outback/crash.glb sign_1 -36.6 0.15 -70 0 1 collide=none
+# 2. A post in the middle of the lane: a narrow part of the nose meets it.
+part ../target/outback/crash.glb post -28 0.15 -90.2 0 1 collide=hull
+part ../target/outback/crash.glb sign_2 -22.6 0.15 -70 0 1 collide=none
+# 3. An offset barrier: it reaches from the lane's left to just short of its middle, so a
+#    truck on the middle of the lane meets it with the left of its nose.
+part ../target/outback/crash.glb barrier -15.8 0.15 -90.45 0 1 collide=hull
+part ../target/outback/crash.glb sign_3 -8.6 0.15 -70 0 1 collide=none
+# 4. The wall again, turned 35 degrees: a glancing blow down one side.
+part ../target/outback/crash.glb wall 0 0.15 -93 35 1 collide=hull
+part ../target/outback/crash.glb sign_4 5.4 0.15 -70 0 1 collide=none
+# 5. Ledges of rock across the lane, 20 cm and then 40 cm: blows up through the wheels.
+part ../target/outback/crash.glb ledge_low 14 0.15 -50 0 1 collide=hull
+part ../target/outback/crash.glb ledge_high 14 0.15 -85 0 1 collide=hull
+part ../target/outback/crash.glb sign_5 19.4 0.15 -34 0 1 collide=none
+# 6. A ramp to a drop: 16 m up to 2.2 m, and off the end.
+part ../target/outback/crash.glb ramp 28 0.15 -66 0 1 collide=hull
+part ../target/outback/crash.glb sign_6 33.6 0.15 -44 0 1 collide=none
+# 7. A rollover bank: a narrow ramp under the left wheels of a truck on the middle of the
+#    lane, 9 m up to 1.6 m.
+part ../target/outback/crash.glb bank 41.2 0.15 -64.5 0 1 collide=hull
+part ../target/outback/crash.glb sign_7 47.6 0.15 -44 0 1 collide=none

@@ -89,7 +89,7 @@
       <button data-do="quit"><span>Quit</span><small>Back to the desktop.</small></button>
     </nav>
   </div>
-  <footer class="hints"><span data-hint="accept">Select</span><span class="build">Pre-alpha</span></footer>
+  <footer class="hints"><span data-hint="accept">Select</span><span class="build">Alpha 0.2</span></footer>
 </section>
 
 <!-- Driving: the instruments. -->
@@ -120,7 +120,7 @@
   </aside>
   <button class="banner" id="banner" hidden>
     <b id="banner-title"></b>
-    <span><kbd id="banner-key">Enter</kbd><span id="banner-words">Hold to enter, or click here</span></span>
+    <span><span class="glyphs" id="banner-key" data-glyph="enter"></span><span id="banner-words">Hold to enter, or click here</span></span>
     <i id="banner-hold"></i>
   </button>
 
@@ -154,6 +154,14 @@
       <span class="lock" id="lock-rear">R diff</span>
       <span class="lock" id="tyres">Tyres down</span>
     </div>
+    <!-- What works the truck: each drawn as it is on what is in hand (ui.js, Buttons). -->
+    <p class="keys" id="dash-keys">
+      <span class="four"><span class="glyphs" data-glyph="drive_mode"></span>4WD</span>
+      <span class="four"><span class="glyphs" data-glyph="diff_lock"></span>Diffs</span>
+      <span class="four"><span class="glyphs" data-glyph="tyres"></span>Tyres</span>
+      <span><span class="glyphs" data-glyph="camera"></span>View</span>
+      <span><span class="glyphs" data-glyph="reset"></span>Reset</span>
+    </p>
   </aside>
 
   <!-- On foot, the detector: how strong its signal is, and what is in the hand. -->
@@ -163,12 +171,22 @@
     <p class="detector-tip" id="detector-tip"></p>
   </aside>
 
+  <!-- On foot by a truck in the used-truck yard: what its board says, and what a look tells. -->
+  <aside class="tag" id="tag" hidden>
+    <p><span id="tag-kicker">For sale</span><b id="tag-price"></b></p>
+    <strong id="tag-title"></strong>
+    <p class="tag-facts" id="tag-facts"></p>
+  </aside>
+
+  <!-- What the truck's last blow did to it, for a few seconds after. -->
+  <aside class="blow" id="blow" hidden><span>Damage</span><b id="blow-said"></b></aside>
+
   <!-- Out of the truck, on foot: what the button does. -->
   <aside class="foot" id="foot" hidden>
-    <span id="foot-does"><kbd id="foot-key">E</kbd><span id="foot-use">Use</span></span>
-    <span id="foot-swaps"><kbd id="foot-swap-key">Q</kbd><span id="foot-swap">Empty hands</span></span>
-    <span id="foot-drops"><kbd id="foot-drop-key">G</kbd><span id="foot-drop">Put down</span></span>
-    <span id="foot-in"><kbd id="foot-hold">Hold E</kbd>Get in the truck</span>
+    <span id="foot-does"><span class="glyphs" data-glyph="enter~KeyE"></span><span id="foot-use">Use</span></span>
+    <span id="foot-swaps"><span class="glyphs" data-glyph="swap"></span><span id="foot-swap">Empty hands</span></span>
+    <span id="foot-drops"><span class="glyphs" data-glyph="drop"></span><span id="foot-drop">Put down</span></span>
+    <span id="foot-in"><span class="glyphs" data-glyph="hold:enter~KeyE"></span>Get in the truck</span>
   </aside>
 
   <!-- The map, small, about where the truck is: north up, the truck's arrow in its middle. -->
@@ -282,7 +300,7 @@
     </header>
     <nav class="menu main" data-menu="shed">
       <button data-do="sleep" id="shed-sleep"><span>Sleep till morning</span><small>The day ends. The game is saved, and it is half past six tomorrow.</small></button>
-      <button data-do="walk"><span>Get out</span><small>On foot, to carry the gold to the chest. Hold the same button by the truck to get back in.</small></button>
+      <button data-do="walk" id="shed-walk"><span>Get out</span><small>On foot, to carry the gold to the chest. Hold the same button by the truck to get back in.</small></button>
       <button data-do="garage" id="shed-yard" hidden><span>Garage</span><small>Your trucks: take one out, or sell one.</small></button>
       <button data-open="calendar"><span>Calendar</span><small>The days, the weather, and what is due.</small></button>
       <button data-do="leave"><span>Drive on</span><small>Back to the driving.</small></button>
@@ -309,7 +327,7 @@
     </header>
     <nav class="menu main" data-menu="buyer">
       <button data-do="sell" id="buyer-sell"><span>Sell the lot</span><small id="buyer-sell-words">Everything in the tray, weighed and paid for.</small></button>
-      <button data-do="walk"><span>Get out</span><small>On foot. Hold the same button by the truck to get back in.</small></button>
+      <button data-do="walk" id="buyer-walk"><span>Get out</span><small>On foot. Hold the same button by the truck to get back in.</small></button>
       <button data-do="leave"><span>Drive on</span><small>Back to the driving.</small></button>
     </nav>
   </div>
@@ -342,8 +360,25 @@
     <p class="show-name"><b id="yard-name"></b><span id="yard-detail"></span></p>
     <div class="show-bar">
       <nav class="show-acts" data-row id="yard-acts"></nav>
+      <p class="hints"><span data-hint="browse">Browse</span><span data-hint="accept">Select</span><span data-hint="back">Back</span></p>
       <nav class="show-tabs" data-row id="yard-tabs"></nav>
     </div>
+  </div>
+  <!-- The bill for what was asked for: what it comes to, what of it is paid from hand and
+       what goes on the debt, and what the Friday repayment would be. Accepted, or turned down. -->
+  <div class="quote" id="yard-quote" hidden>
+    <article class="card">
+      <p class="kicker" id="quote-kicker"></p>
+      <h1 class="heading">The bill</h1>
+      <table id="quote-lines"></table>
+      <dl class="facts" id="quote-facts"></dl>
+      <p class="about" id="quote-why"></p>
+      <nav class="menu small row" data-row>
+        <button data-do="confirm" id="quote-yes"><span>Accept</span></button>
+        <button data-do="reject"><span>Turn it down</span></button>
+      </nav>
+    </article>
+    <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Turn it down</span></footer>
   </div>
 </section>
 
@@ -351,7 +386,7 @@
   <div class="night">
     <p class="kicker">Night at the Crossroads</p>
     <h1 class="heading">Day <span id="sleep-day">2</span></h1>
-    <p class="facts-line">Half past six &nbsp;·&nbsp; saved</p>
+    <p class="facts-line" id="sleep-till">Half past six &nbsp;·&nbsp; saved</p>
   </div>
 </section>
 
@@ -391,7 +426,7 @@
     <p class="clock"><b id="watch-clock">0:00.0</b><span id="watch-time"></span></p>
   </aside>
   <nav class="skipper" data-menu="watch">
-    <button data-do="skip"><kbd id="watch-key">Enter</kbd><span>Skip</span></button>
+    <button data-do="skip"><span class="glyphs" data-glyph="menu_accept"></span><span>Skip</span></button>
   </nav>
 </section>
 
@@ -495,64 +530,19 @@
     </nav>
     <div class="tab" data-panel="keys">
       <div class="pair">
-        <table>
-          <thead><tr><th>Driving</th><th></th></tr></thead>
-          <tbody>
-            <tr><td>Throttle, brake</td><td><kbd>W</kbd> <kbd>S</kbd></td></tr>
-            <tr><td>Steer</td><td><kbd>A</kbd> <kbd>D</kbd></td></tr>
-            <tr><td>Handbrake</td><td><kbd>Space</kbd></td></tr>
-            <tr><td>Gear up, down</td><td><kbd>E</kbd> <kbd>Q</kbd></td></tr>
-            <tr><td>2H, 4H, 4L</td><td><kbd>T</kbd></td></tr>
-            <tr><td>Diff locks</td><td><kbd>G</kbd></td></tr>
-            <tr><td>Air the tyres down, up</td><td><kbd>Y</kbd></td></tr>
-            <tr><td>Look round</td><td>Click, then the mouse</td></tr>
-            <tr><td>Change view</td><td><kbd>C</kbd></td></tr>
-            <tr><td>Back on the track</td><td><kbd>R</kbd></td></tr>
-            <tr><td>Pause, and the map</td><td><kbd>Esc</kbd></td></tr>
-          </tbody>
-        </table>
-        <table>
-          <thead><tr><th>On foot</th><th></th></tr></thead>
-          <tbody>
-            <tr><td>Get out, get in</td><td>Hold <kbd>E</kbd></td></tr>
-            <tr><td>Walk, run</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, <kbd>Shift</kbd></td></tr>
-            <tr><td>Jump</td><td><kbd>Space</kbd></td></tr>
-            <tr><td>Dig, pick up, put in, go in a door</td><td><kbd>E</kbd></td></tr>
-            <tr><td>Detector or empty hands</td><td><kbd>Q</kbd></td></tr>
-            <tr><td>Put down what you hold</td><td><kbd>G</kbd></td></tr>
-          </tbody>
-        </table>
+        <table data-controls="driving"></table>
+        <table data-controls="foot"></table>
       </div>
     </div>
     <div class="tab" data-panel="pad">
+      <div class="option">
+        <p><b>Look speed</b><i>How fast the right stick looks round, on foot and round the truck.</i></p>
+        <nav class="pips" data-row id="option-look"></nav>
+        <output id="option-look-says"></output>
+      </div>
       <div class="pair">
-        <table>
-          <thead><tr><th>Driving</th><th></th></tr></thead>
-          <tbody>
-            <tr><td>Throttle, brake</td><td><kbd>R2</kbd> <kbd>L2</kbd></td></tr>
-            <tr><td>Steer</td><td>Left stick</td></tr>
-            <tr><td>Handbrake</td><td><kbd>&#9675;</kbd></td></tr>
-            <tr><td>Gear up, down</td><td><kbd>R1</kbd> <kbd>L1</kbd></td></tr>
-            <tr><td>2H, 4H, 4L</td><td><kbd>&#9633;</kbd></td></tr>
-            <tr><td>Diff locks</td><td><kbd>&#10005;</kbd></td></tr>
-            <tr><td>Air the tyres down, up</td><td>D-pad up</td></tr>
-            <tr><td>Look round</td><td>Right stick</td></tr>
-            <tr><td>Change view</td><td><kbd>Share</kbd></td></tr>
-            <tr><td>Back on the track</td><td><kbd>&#9651;</kbd></td></tr>
-            <tr><td>Pause, and the map</td><td><kbd>Options</kbd></td></tr>
-          </tbody>
-        </table>
-        <table>
-          <thead><tr><th>On foot</th><th></th></tr></thead>
-          <tbody>
-            <tr><td>Get out, get in</td><td>Hold <kbd>&#10005;</kbd></td></tr>
-            <tr><td>Walk, run</td><td>Left stick, press it to run</td></tr>
-            <tr><td>Jump</td><td><kbd>&#9651;</kbd></td></tr>
-            <tr><td>Dig, pick up, put in, go in a door</td><td><kbd>&#10005;</kbd></td></tr>
-            <tr><td>Detector or empty hands</td><td><kbd>&#9633;</kbd></td></tr>
-            <tr><td>Put down what you hold</td><td><kbd>&#9675;</kbd></td></tr>
-          </tbody>
-        </table>
+        <table data-controls="driving"></table>
+        <table data-controls="foot"></table>
       </div>
     </div>
     <div class="tab" data-panel="sound">
@@ -575,7 +565,7 @@
       <button data-close="controls"><span>Back</span></button>
     </nav>
   </article>
-  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Back</span></footer>
+  <footer class="hints"><span data-hint="tabs">Tab</span><span data-hint="accept">Select</span><span data-hint="back">Back</span></footer>
 </section>
 
 <!-- The map of where the truck is, opened from the pause menu. -->
@@ -609,7 +599,7 @@
       </nav>
     </div>
   </article>
-  <footer class="hints"><span data-hint="back">Back</span></footer>
+  <footer class="hints"><span data-hint="accept">Go there</span><span class="keys-only"><span class="glyphs" data-glyph="@mouse:left"></span>Anywhere on the map</span><span data-hint="back">Back</span></footer>
 </section>
 
 <!-- A map being read. -->

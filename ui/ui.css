@@ -139,12 +139,8 @@ body.still * { animation: none !important; transition: none !important; }
   position: absolute; left: 6.5rem; right: 6.5rem; bottom: 3.2rem; display: flex; gap: 2.4rem; align-items: center;
   font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust);
 }
-.hints span[data-hint]::before {
-  content: attr(data-key); display: inline-grid; place-items: center; min-width: 2.1rem; height: 2.1rem;
-  padding: 0 0.5rem; margin-right: 0.7rem; border: 1px solid var(--dust); border-radius: 0.35rem;
-  color: var(--bone); letter-spacing: 0; font-size: 0.95rem;
-}
-body.pad .hints span[data-hint]::before { border-radius: 50%; padding: 0; }
+.hints > span { display: inline-flex; align-items: center; gap: 0.7rem; }
+.hints .glyphs { --glyph: 2.1rem; }
 .hints .build { margin-left: auto; opacity: 0.6; }
 /* Touched, a menu is worked by touching it: there are no keys to name. */
 body.touch:not(.pad) .hints span[data-hint] { display: none; }
@@ -193,6 +189,22 @@ body.afoot .dash, body.afoot .tilt { display: none; }
   transition: width 0.12s linear; }
 .detector.over .meter i { box-shadow: 0 0 0.9rem rgba(240, 185, 58, 0.9); }
 body.touch:not(.pad) .detector { bottom: auto; top: 2.4rem; width: 18rem; }
+/* By a truck in the used-truck yard: its price tag, where the detector's panel is. */
+.tag { position: absolute; left: 50%; bottom: 6.6rem; transform: translateX(-50%); min-width: 24rem; padding: 0.75rem 1.2rem 0.9rem;
+  background: var(--panel); border-left: 0.3rem solid var(--ochre); }
+.tag p { display: flex; justify-content: space-between; align-items: baseline; gap: 2rem;
+  font: 600 0.85rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.tag p b { font: 700 1.7rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.02em; color: var(--bone); }
+.tag strong { display: block; margin-top: 0.45rem; font: 700 1.35rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
+.tag p.tag-facts { display: block; margin-top: 0.4rem; font: normal 0.95rem/1.3 var(--text); letter-spacing: 0; text-transform: none; }
+.tag.bargain { border-left-color: #f0b93a; }
+.blow { position: absolute; left: 50%; top: 6rem; transform: translateX(-50%); display: flex; align-items: baseline; gap: 1rem;
+  padding: 0.55rem 1.1rem 0.6rem; background: var(--panel); border-left: 0.3rem solid var(--clay); animation: blow 0.25s ease-out; }
+.blow span { font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--clay); }
+.blow b { font: 700 1.15rem/1.1 var(--sign); font-stretch: 75%; letter-spacing: 0.02em; }
+@keyframes blow { from { opacity: 0; transform: translate(-50%, -0.5rem); } }
+.tag.bargain p span { color: #f0b93a; }
+body.touch:not(.pad) .tag { bottom: auto; top: 2.4rem; min-width: 18rem; }
 .foot kbd { margin: 0; }
 body.touch:not(.pad) .foot { display: none; }
 /* Touched, on foot: the pad walks, the pedals and the truck's own buttons go, and the rest of
@@ -215,8 +227,6 @@ body.afoot .thumbs [data-key="KeyC"], body.afoot .thumbs [data-key="KeyR"] { dis
 .banner b { display: block; font: 700 1.9rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
 .banner > span { display: inline-flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem;
   font: 600 0.95rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
-.banner kbd { margin: 0; }
-body.pad .banner kbd { border-radius: 50%; padding: 0; }
 .banner i { position: absolute; left: 0; bottom: 0; height: 0.3rem; width: 0; background: var(--ochre); }
 .banner:hover, .banner.over { background: rgba(60, 36, 16, 0.9); }
 
@@ -444,6 +454,47 @@ td:first-child { color: var(--dust); width: 34%; }
 kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem; padding: 0 0.5rem; margin-right: 0.2rem;
   font: 600 0.95rem/1 var(--text); color: var(--bone); border: 1px solid var(--dust); border-radius: 0.3rem; }
 
+/* ---- Buttons (ui.js, Buttons): what is pressed for something, drawn as it is on what is in
+   hand: a key's cap and the mouse, an Xbox controller's buttons, a PlayStation's. A row of
+   them is `.glyphs`; each is as tall as `--glyph` and as wide as it needs, so they are set
+   to the size of whatever they are in by setting that. One with nothing bound is not there. */
+.glyphs { --glyph: 1.9rem; --g-ink: #17120f; display: inline-flex; align-items: center; gap: 0.3rem; flex: none; vertical-align: middle; }
+.glyphs.unbound, [data-hint].unbound { display: none !important; }
+.glyphs .g { display: block; flex: none; height: var(--glyph); width: auto; overflow: visible; }
+/* What they are drawn with: a button's body and its outline, what is lit on it, a stick's
+   cap, a line across it, a mark on it, and its letters. */
+.g-b { fill: var(--g-ink); stroke: rgba(242, 234, 219, 0.7); stroke-width: 1.6; stroke-linejoin: round; }
+.g-f { fill: var(--bone); }
+.g-c { fill: rgba(242, 234, 219, 0.17); stroke: rgba(242, 234, 219, 0.7); stroke-width: 1.2; }
+.g-l { fill: none; stroke: rgba(242, 234, 219, 0.7); stroke-width: 1.4; }
+.g-s { fill: none; stroke: var(--bone); stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
+.g-t { fill: var(--bone); font-family: var(--sign); font-weight: 700; font-stretch: 100%; letter-spacing: 0; text-anchor: middle; dominant-baseline: central; }
+/* A key: its cap, a little deeper along the bottom, and what is on it. */
+kbd.g-key { flex: none; height: var(--glyph); min-width: var(--glyph); margin: 0; padding: 0 calc(var(--glyph) * 0.27);
+  border: 1px solid rgba(242, 234, 219, 0.7); border-bottom-width: calc(var(--glyph) * 0.13); border-radius: calc(var(--glyph) * 0.2);
+  background: var(--g-ink); color: var(--bone); font: 700 calc(var(--glyph) * 0.47)/1 var(--sign); font-stretch: 100%;
+  letter-spacing: 0.03em; text-transform: uppercase; white-space: nowrap; }
+kbd.g-key svg { display: block; width: calc(var(--glyph) * 0.46); height: calc(var(--glyph) * 0.46); fill: var(--bone); }
+/* A word among them: Hold. */
+.g-word { margin-right: 0.15rem; font: 600 calc(var(--glyph) * 0.44)/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+/* Where they are: on foot, under the dashboard, in a table of the options, in a tip, and
+   along the bottom of the yard. */
+.foot { width: max-content; max-width: calc(100vw - 41rem); flex-wrap: wrap; justify-content: center; row-gap: 0.5rem; }
+.foot > span { white-space: nowrap; }
+.foot .glyphs { gap: 0.3rem; }
+.dash .keys { display: flex; gap: 1.15rem; margin-top: 0.85rem; padding-top: 0.7rem; border-top: 1px solid var(--line);
+  font: 600 0.72rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); white-space: nowrap; }
+.dash .keys > span { display: inline-flex; align-items: center; gap: 0.4rem; }
+.dash .keys .glyphs { --glyph: 1.45rem; }
+.dash .keys.two .four, body.touch:not(.pad) .dash .keys { display: none; }
+.tab td { vertical-align: middle; }
+.tab td .glyphs { --glyph: 1.7rem; flex-wrap: wrap; }
+.tab td small { margin-left: 0.7rem; font-size: 0.85rem; color: var(--dust); }
+.tip .glyphs { --glyph: 1.65rem; margin: -0.3rem 0.1rem; vertical-align: middle; }
+.show-bar .hints { position: static; flex: 1; padding-bottom: 0.45rem; }
+/* What only the mouse does is said only while the keyboard and mouse are in hand. */
+body:not([data-kit="keys"]) .keys-only, body.touch:not(.pad) .keys-only { display: none; }
+
 /* ---- Loading: nothing under it, so it is its own picture: the map's, drifting slowly, or
    failing that the lines of a map. */
 #loading { overflow: hidden; background:
@@ -553,7 +604,6 @@ kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem
 .skipper { position: absolute; right: 2.6rem; bottom: calc(10vh + 2rem); }
 .skipper button { display: flex; align-items: center; gap: 0.7rem; padding: 0.7rem 1.2rem; background: var(--panel); border-bottom: 0.2rem solid var(--ochre);
   font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone); }
-body.pad .skipper kbd { border-radius: 50%; padding: 0; }
 
 /* The result: the time, the medal beside it, and what was paid, line by line. */
 .outcome { display: flex; align-items: center; gap: 1.6rem; margin-top: 1rem; }
@@ -770,3 +820,17 @@ button.slot.sure em, button.slot.sure.held em { color: var(--bone); background: 
 .menu.small.places button.going span { color: var(--ochre); }
 .chart-side .label { margin-top: 1.2rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
 .chart-side #chart-going { margin-top: 0.4rem; font-size: 1rem; }
+
+/* ---- The bill, over the showroom: what is on it, and what it does to what is owed. */
+.quote { position: absolute; inset: 0; background: rgba(8, 6, 4, 0.72); }
+.quote .card { width: min(46rem, 92vw); }
+.quote table { margin-top: 1.2rem; }
+.quote td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--bone); width: auto; }
+.quote tr.total td { border-top: 2px solid var(--dust); font-weight: 700; color: var(--bone); }
+.quote .facts { flex-wrap: wrap; gap: 1rem 2.4rem; }
+.quote .facts dd.more { color: var(--ochre); }
+.quote .about { color: var(--clay); min-height: 1.4rem; }
+#yard.quoting .show-foot { display: none; }
+.lot button.tile.carted { border-color: var(--ochre); }
+.lot button.tile.carted small { color: var(--ochre); }
+.lot button.tile.counter { background: rgba(229, 138, 46, 0.2); border-color: var(--ochre); }

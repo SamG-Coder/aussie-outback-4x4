@@ -42,13 +42,19 @@ mod sony {
     }
 }
 #[cfg(feature = "gameplay")]
+pub mod board;
+#[cfg(feature = "gameplay")]
 pub mod calendar;
 #[cfg(feature = "gameplay")]
 pub mod cinema;
 #[cfg(feature = "gameplay")]
+pub mod damage;
+#[cfg(feature = "gameplay")]
 pub mod gold;
 #[cfg(feature = "gameplay")]
 pub mod kit;
+#[cfg(feature = "gameplay")]
+pub mod mud;
 #[cfg(feature = "gameplay")]
 pub mod nugget;
 #[cfg(feature = "gameplay")]
@@ -65,6 +71,8 @@ pub mod sound_table;
 pub mod sound_web;
 #[cfg(feature = "gameplay")]
 pub mod timed;
+#[cfg(feature = "gameplay")]
+pub mod wreck;
 #[cfg(feature = "gameplay")]
 pub mod yard;
 #[cfg(all(target_arch = "wasm32", feature = "gameplay"))]

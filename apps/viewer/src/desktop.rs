@@ -5,6 +5,7 @@
 //!
 //! ```text
 //! viewer [SCENE] [--capture out.png] [--frames N] [--size WxH]
+//! viewer [SCENE] --capture out.png --frames N --film DIR [--film-from FRAME]   (frames for a film)
 //!        [--camera x,y,z,yaw,pitch] [--debug MODE] [--sun x,y,z] [--unpack-textures]
 //!        [--weather NAME|FILE [--weathered SECONDS]] [--strike-at FRAME]
 //!        [--limits webgpu]
@@ -325,6 +326,10 @@ mod native {
         budget: StreamingBudget,
         scene: PathBuf,
         capture: Option<PathBuf>,
+        /// A folder to save a capture's frames into as it runs, every other one of them
+        /// from a given frame on: thirty pictures for each second, to make a film of.
+        film: Option<PathBuf>,
+        film_from: u32,
         frames: u32,
         size: (u32, u32),
         /// Overrides the scene's own viewpoint.
@@ -343,6 +348,12 @@ mod native {
         coat: Option<solstice_viewer::play::Wear>,
         /// What is fitted to the truck, for a picture: `--kit showroom`, `--kit bullbar=plate,tyres=mud`.
         kit: Option<String>,
+        /// Damage to put on the truck, for a picture: `--damage bumper_front=dented,door_FL=loose`
+        /// (each piece sound, scuffed, dented, loose or off), and blows to hit it with, each
+        /// `--hit X,Y,Z,PX,PY,PZ,KN`: where on the truck, the way it pushes, and how hard
+        /// (`solstice_viewer::damage`).
+        damage: Option<String>,
+        hits: Vec<solstice_viewer::damage::Hit>,
         /// A truck built of pieces to play in place of the map's own: its pack, made by
         /// `bake --kit` (`--truck mitta` is `trucks/mitta.truck` beside the map). It is put
         /// together as the map is read, of the pieces `kit` says and no others.
@@ -350,6 +361,11 @@ mod native {
         /// Trucks to stand in the scene to be looked at, in place of its own: each its name
         /// and how it is fitted (`all` is every piece of it). One is shown at a time.
         shown: Vec<(String, String)>,
+        /// The day's used trucks, to be parked in a map that has a yard for them: each its
+        /// place on the lot, its name, its colour, what is asked and how far it has been.
+        /// And whether whichever is looked over is pulled out of its row.
+        parked: Vec<solstice_viewer::shell::ForSale>,
+        pulled: bool,
         /// Which of the kept games is being played: its number, from 1.
         slot: u32,
         /// Which of the truck's doors are open, for a picture: `--open all`, `--open door_FL,tailgate`.
@@ -514,6 +530,9 @@ mod native {
                     }
                     log::info!("lamps: {} behind, {} in front", tail.len(), head.len());
                     play.set_lamps(tail, head);
+                    // A truck baked into its map is measured from it, for what a blow
+                    // lands on (one put together from its pack comes with its measure).
+                    play.measure_truck(loaded);
                 }
                 log::info!(
                     "playing: {} instances move, scripts {}",
@@ -648,6 +667,8 @@ mod native {
             budget: StreamingBudget::default(),
             scene: PathBuf::from("assets/temple.solstice"),
             capture: None,
+            film: None,
+            film_from: 0,
             frames: 60,
             size: (1600, 900),
             camera: None,
@@ -659,8 +680,12 @@ mod native {
             capture_motion: 0.0,
             coat: None,
             kit: None,
+            damage: None,
+            hits: Vec::new(),
             truck: None,
             shown: Vec::new(),
+            parked: Vec::new(),
+            pulled: false,
             slot: 1,
             open: None,
             flyover: None,
@@ -708,6 +733,11 @@ mod native {
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
             match arg.as_str() {
                 "--capture" => options.capture = Some(PathBuf::from(value()?)),
+                "--film" => options.film = Some(PathBuf::from(value()?)),
+                "--film-from" => {
+                    options.film_from =
+                        value()?.parse().map_err(|e| format!("--film-from: {e}"))?;
+                }
                 "--frames" => {
                     options.frames = value()?.parse().map_err(|e| format!("--frames: {e}"))?
                 }
@@ -845,7 +875,27 @@ mod native {
                 }
                 "--coat" => options.coat = Some(solstice_viewer::play::Wear::parse(&value()?)?),
                 "--kit" => options.kit = Some(value()?),
+                "--damage" => options.damage = Some(value()?),
+                "--hit" => options
+                    .hits
+                    .push(solstice_viewer::damage::Hit::parse(&value()?)?),
                 "--truck" => options.truck = Some(value()?),
+                // For a picture: these trucks parked in the map's used-truck yard, in its
+                // places in turn, each with a colour and a price made up from its place.
+                "--park" => {
+                    let colours = solstice_viewer::yard::COLOURS;
+                    options.parked = value()?
+                        .split(',')
+                        .enumerate()
+                        .map(|(place, truck)| solstice_viewer::shell::ForSale {
+                            place,
+                            truck: truck.to_owned(),
+                            paint: Some(colours[(place * 5 + 3) % colours.len()].1),
+                            price: 4_300 + 2_150 * place as u64,
+                            km: 96_000.0 + 31_500.0 * place as f32,
+                        })
+                        .collect();
+                }
                 "--open" => options.open = Some(value()?),
                 "--stream" => options.stream = true,
                 "--play" => options.play = true,
@@ -1106,6 +1156,27 @@ mod native {
                         .map_err(|error| format!("{}: {error}", pack.display()))?;
                 solstice_viewer::shared::swap_truck(&mut scene, truck)?;
             }
+            // A map with a used-truck yard has the day's trucks parked in it, as they
+            // were made.
+            let spots = solstice_viewer::shared::lot(&scene.scene.gameplay);
+            if !spots.is_empty() && !options.parked.is_empty() {
+                let mut trucks = Vec::new();
+                for sale in &options.parked {
+                    let pack = truck_pack(path, &sale.truck);
+                    let mut file = std::fs::File::open(&pack)
+                        .map_err(|error| format!("{}: {error}", pack.display()))?;
+                    let truck = solstice_viewer::kit::assemble(&mut file, Some("stock"), 1.0)
+                        .map_err(|error| format!("{}: {error}", pack.display()))?;
+                    trucks.push(solstice_viewer::shared::Parked {
+                        place: sale.place,
+                        truck,
+                        paint: sale.paint,
+                        price: sale.price,
+                        km: sale.km,
+                    });
+                }
+                solstice_viewer::shared::park_trucks(&mut scene, trucks, &spots, options.pulled)?;
+            }
             Source::Loaded(scene)
         })
     }
@@ -1334,6 +1405,14 @@ mod native {
                 if let (0, Some(wear)) = (frame, options.coat) {
                     play.set_wear(wear);
                 }
+                if frame == 0 {
+                    if let Some(words) = &options.damage {
+                        play.stage_damage(words);
+                    }
+                    for hit in &options.hits {
+                        play.strike(*hit);
+                    }
+                }
                 if let (0, Some(build)) = (frame, &options.kit) {
                     play.fit(build)?;
                 }
@@ -1377,6 +1456,14 @@ mod native {
             }
             renderer.render(&gpu, &camera, &environment, &view, options.size, 1.0 / 60.0);
             gpu.device.poll(wgpu::PollType::wait_indefinitely())?;
+            if let Some(film) = options.film.as_ref().filter(|_| frame >= options.film_from) {
+                let shot = frame - options.film_from;
+                if shot % 2 == 0 {
+                    std::fs::create_dir_all(film)?;
+                    let name = format!("{:05}.png", shot / 2);
+                    save_png(&gpu, &target, options.size, &film.join(name))?;
+                }
+            }
             if frame > 10 {
                 slowest = slowest.max(last_time.elapsed().as_secs_f32());
                 if let Some(times) = renderer.section_times() {
@@ -2082,13 +2169,18 @@ mod native {
     /// Hands the game what the first gamepad plugged in is doing: each button by how far it is
     /// pressed, so that the triggers are pedals, and each stick, by the names the standard
     /// layout gives them (`solstice_game::input`).
-    fn read_pads(pads: &mut gilrs::Gilrs, devices: &mut solstice_game::Devices) {
+    ///
+    /// Returns whose controller it is, an Xbox's or a PlayStation's, for its buttons to be
+    /// drawn as they are; or `None` with none plugged in.
+    fn read_pads(
+        pads: &mut gilrs::Gilrs,
+        devices: &mut solstice_game::Devices,
+    ) -> Option<solstice_viewer::shell::PadKind> {
         use gilrs::{Axis, Button};
         // Its events are what keeps its picture of each pad up to date.
         while pads.next_event().is_some() {}
-        let Some((_, pad)) = pads.gamepads().next() else {
-            return;
-        };
+        let (_, pad) = pads.gamepads().next()?;
+        let kind = solstice_viewer::shell::PadKind::of(pad.name(), pad.vendor_id());
         const BUTTONS: [(Button, &str); 16] = [
             (Button::South, "south"),
             (Button::East, "east"),
@@ -2120,6 +2212,7 @@ mod native {
         ] {
             devices.gamepad_axis(name, pad.value(axis) * sign);
         }
+        Some(kind)
     }
 
     impl App {
@@ -2393,6 +2486,7 @@ mod native {
             // stand here to be looked at.
             if let Some(shell) = &mut self.shell {
                 self.options.shown = shell.showing();
+                (self.options.parked, self.options.pulled) = shell.parked();
                 self.options.pull = shell.power();
                 self.options.stand = shell.stand().map(str::to_owned);
                 let wearing = shell.wearing();
@@ -2583,16 +2677,32 @@ mod native {
                     }
                 }
                 if !tapping && self.options.trial.is_none() {
+                    use solstice_viewer::shell::PadKind;
+                    let mut kind = None;
                     if let Some(pads) = &mut self.pads {
-                        read_pads(pads, &mut play.devices);
+                        kind = read_pads(pads, &mut play.devices);
                     }
                     // A PlayStation controller, if there is one, has the last word.
                     if let Some(sony) = &mut self.sony {
-                        sony.read(&mut play.devices, delta);
+                        if sony.read(&mut play.devices, delta) {
+                            kind = Some(PadKind::PlayStation);
+                        }
+                    }
+                    // Whose buttons the pages draw: those of the controller there is.
+                    if let (Some(kind), Some(shell)) = (kind, &mut self.shell) {
+                        shell.pad_kind(kind);
                     }
                 }
                 let step = match &mut self.shell {
-                    Some(shell) => shell.before(&mut play.devices, delta),
+                    Some(shell) => {
+                        // What hour it is, for what a sleep can be till; and how fast the
+                        // right stick looks, from the next time it is read.
+                        if let Some(clock) = clock.as_ref() {
+                            shell.set_hour(clock.time.hours);
+                        }
+                        play.devices.look = shell.look_gain();
+                        shell.before(&mut play.devices, delta)
+                    }
                     None => Step::Play,
                 };
                 let camera = &mut state.camera.camera;
@@ -2609,7 +2719,12 @@ mod native {
                 if let Some(shell) = &mut self.shell {
                     shell.see(play.things());
                     shell.after(play.play.hud());
+                    shell.bound(play.play.input_map());
                     shell.see_dirt(play.dirt());
+                    let blows = play.take_damage_changes();
+                    if !blows.is_empty() {
+                        shell.see_damage(play.damage().to_text(), &blows);
+                    }
                     // While somebody else's run is watched, the camera is the shot's.
                     if let Some((position, yaw, pitch)) = shell.view() {
                         (camera.position, camera.yaw, camera.pitch) = (position, yaw, pitch);
@@ -2621,7 +2736,7 @@ mod native {
                     if let Some((at, turned, seconds)) = shell.showroom() {
                         let (at, turned) = play.stand().unwrap_or((at, turned));
                         (camera.position, camera.yaw, camera.pitch) =
-                            play.showroom_camera(at, turned, seconds);
+                            play.showroom_camera(at, turned, seconds, shell.focus());
                     }
                     // Behind the main menu there is no truck: only the bush, looked round.
                     let preview = shell.preview();
@@ -2667,10 +2782,10 @@ mod native {
                             Order::Look => self.look = true,
                             Order::Quit => self.quit = true,
                             // A night slept through: it is the next morning.
-                            Order::Sleep => {
+                            Order::Sleep { hours, days } => {
                                 if let Some(clock) = clock.as_mut() {
-                                    clock.time.hours = solstice_viewer::shell::MORNING;
-                                    clock.time.day += 1.0;
+                                    clock.time.hours = hours;
+                                    clock.time.day += days as f32;
                                 }
                                 // The new day has its own weather, as it was forecast.
                                 let (name, soaked) = shell.today_sky();
@@ -2693,9 +2808,15 @@ mod native {
                             }
                             Order::Paint(colour) => play.paint(colour),
                             Order::Dirt(dirt) => play.set_dirt(dirt),
+                            Order::Damage(damage) => {
+                                if let Err(error) = play.set_damage(&damage) {
+                                    log::warn!("the truck's damage: {error}");
+                                }
+                            }
                             Order::Show { index, paint } => {
                                 play.display(&mut state.renderer, index, paint);
                             }
+                            Order::Unpark(place) => play.unpark(&mut state.renderer, place),
                             Order::Fit(build) => {
                                 if let Err(error) = play.display_fit(&build) {
                                     log::warn!("fitting {build}: {error}");
@@ -2758,9 +2879,11 @@ mod native {
                         if self.shell.is_some() {
                             state.window.set_title("Aussie Outback 4x4");
                         } else {
+                            // (And what the truck last hit, for a while after it.)
                             state.window.set_title(&format!(
-                                "{}   |   {:.0} fps",
+                                "{}{}   |   {:.0} fps",
                                 hud.line(),
+                                play.damage_line(),
                                 state.fps
                             ));
                         }

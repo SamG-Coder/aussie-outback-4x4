@@ -3,8 +3,9 @@
     python scripts/package-release.py
 
 - `target/release-pack/AussieOutback4x4-windows.zip`: the game's program, its pages, its
-  sounds, the two runtime files the program needs from Microsoft's Visual C++ runtime, a
-  `game.txt` that says what the program does when it is opened, and the credits. About 40 MB.
+  sounds, its trucks, the two runtime files the program needs from Microsoft's Visual C++
+  runtime, a `game.txt` that says what the program does when it is opened, and the credits.
+  About 190 MB, most of it the fifty trucks.
   The program is the engine's viewer as built with a window and no console
   (`viewer-windowed`, apps/viewer/src/windowed.rs); with `game.txt` beside it, opening it is
   starting the game (apps/viewer/src/game.rs).
@@ -56,8 +57,9 @@ maps https://rust4x4.com https://rust4x4.pages.dev
 log save/game.log
 """
 
-CREDITS = """Aussie Outback 4x4 (pre-alpha)
+CREDITS = """Aussie Outback 4x4 (alpha 0.2)
 https://rust4x4.com
+Source, MIT licence: https://github.com/SamG-Coder/aussie-outback-4x4
 
 To play: open AussieOutback4x4.exe. The first time, it downloads the game's maps into the
 assets folder (about 1.2 GB, to download and on the disk), which needs the internet, and
@@ -118,6 +120,11 @@ def main():
         # its name is a take: neither is played.
         if not sound.name.startswith("_") and sound.stem.count(".") == 0:
             add(sound, f"assets/sounds/{sound.name}")
+
+    # The game's own trucks, each a pack that is put together as a map is read. They are
+    # squeezed already.
+    for truck in sorted((ROOT / "assets" / "trucks").glob("*.truck")):
+        add(truck, f"assets/trucks/{truck.name}", True)
 
     OUT.mkdir(parents=True, exist_ok=True)
     pack = OUT / f"{NAME}-windows.zip"

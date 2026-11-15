@@ -18,8 +18,8 @@ pub struct PlayMode {
     /// The instances of the player's car that are its tail lamps, and its headlamps.
     tail_lamps: Vec<u32>,
     head_lamps: Vec<u32>,
-    /// What the player's car's wheels throw up.
-    spray: Spray,
+    /// What the player's car's wheels throw up (`mud.rs`).
+    spray: crate::mud::Fling,
     /// What the player's car wears, the instances that are it, and where its axles are:
     /// its front's and its rear's along it, half its track, and its wheels' radius.
     wear: Wear,
@@ -35,8 +35,17 @@ pub struct PlayMode {
     /// The trucks stood in a showroom to be looked at, and which of them is shown.
     display: Vec<crate::kit::Fitted>,
     displayed: usize,
+    /// The trucks parked in the map's used-truck yard, each its place on the lot and the
+    /// instances that draw it; and whether whichever of them is shown is pulled out of its
+    /// row, to stand where the trucks that are looked at do.
+    parked: Vec<(usize, Vec<u32>)>,
+    pulled: bool,
     /// Which side of a truck in the showroom the camera is on: the more open one.
     show_side: Option<f32>,
+    /// Where the showroom's view was last, and what it looked at; and when that was, in the
+    /// seconds the showroom has been looked at.
+    show_view: Option<(glam::Vec3, glam::Vec3)>,
+    show_at: f32,
     /// Where the trucks that stand to be looked at are, and how they are turned, if they
     /// are not where the map's own truck is.
     stand: Option<(glam::Vec3, glam::Quat)>,
@@ -62,84 +71,13 @@ pub struct PlayMode {
     /// set `SOLSTICE_TRACE` to try a track without watching it.
     frames: u32,
     trace: bool,
+    /// The player's truck's damage: what it has hit, piece by piece, and how that is drawn
+    /// (`wreck.rs`).
+    wrecks: crate::wreck::Wrecks,
 }
 
 /// How bright the car's high beams are, in candela, as the renderer counts them.
 const LAMPS: f32 = 560.0;
-
-/// What a wheel throws up from the ground it is on: clods of mud, dust off dry clay, and
-/// water where it fords a creek. One effect a wheel, moved with it, with how much of each it
-/// throws and which way set from how the wheel is turning.
-const WHEEL_SPRAY: &str = "\
-param mud 0
-param dust 0
-param water 0
-# Which way it is thrown, from the wheel: to the car's right, up, and behind it.
-param vx 0
-param vy 2.5
-param vz 3
-
-# Clods of mud off the tread: thrown up and back, falling where they land.
-emitter clods
-  budget 900
-  spawn rate=320*mud
-  shape sphere 0.14
-  lifetime 0.7 1.4
-  velocity vx vy vz cone=26 spread=0.5
-  size 0.012 0.04
-  gravity
-  drag 0.1
-  color 0.1 0.048 0.022 1
-  collide depth field kill
-  render sprite solid
-
-# Dust off dry ground: it hangs, drifts with the wind, and thins.
-emitter dust
-  budget 420
-  spawn rate=34*dust
-  shape sphere 0.3
-  lifetime 2.4 4
-  velocity 0 0.5 1.2 cone=45 spread=0.5
-  size 0.3 0.6
-  drag 1.3
-  wind 0.8
-  curl 0.5 scale=1.6 change=0.4
-  color 0.6 0.36 0.2 0.14
-  color life 0=1 1 1 0 0.1=1 1 1 1 1=1 1 1 0
-  size life 0=0.5 1=3.4
-  render sprite sort soft=0.5 phase=0.3
-
-# Water thrown out of a ford: sheets of drops to the side and up, brown with the silt.
-emitter splash
-  budget 2600
-  spawn rate=1100*water
-  shape sphere 0.25
-  lifetime 0.7 1.4
-  velocity vx vy vz cone=36 spread=0.55
-  size 0.008 0.024
-  gravity
-  drag 0.2
-  color 0.62 0.55 0.45 1
-  collide depth field water kill
-  render sprite solid phase=0.65
-
-# And the spray that hangs over it.
-emitter spume
-  budget 320
-  spawn rate=46*water
-  shape sphere 0.4
-  offset 0 0.3 0
-  lifetime 1.2 2.2
-  velocity 0 1.3 0.6 cone=60 spread=0.5
-  size 0.2 0.45
-  gravity 0.25
-  drag 0.9
-  wind 0.6
-  color 0.82 0.8 0.74 0.07
-  color life 0=1 1 1 0 0.2=1 1 1 1 1=1 1 1 0
-  size life 0=0.6 1=2.8
-  render sprite sort soft=0.5 phase=0.6
-";
 
 /// The scrub a car drives through: bushes, ferns and whippy saplings, which go down under it
 /// and stay down. The bake lists them (`outback.plants` among the scene's gameplay files), a
@@ -445,16 +383,6 @@ impl Soundscape {
     }
 }
 
-/// The spray off each wheel of the player's car.
-#[derive(Default)]
-struct Spray {
-    effects: Option<[solstice_render::EffectId; 4]>,
-    /// Whether starting the effects has been tried: once is enough to say it failed.
-    tried: bool,
-    /// What the four wheels threw between them this frame: mud, dust and water.
-    thrown: [f32; 3],
-}
-
 /// What the player's truck wears: the colour of its paint, how rusted it is, and the dust
 /// and the mud it has gathered, each from 0 to 1; `wet` is how fresh its mud is. The
 /// renderer draws it (`solstice_render::Coat`); the game gathers it as the truck is driven
@@ -468,6 +396,13 @@ pub struct Wear {
     pub wet: f32,
     /// Whether the driving changes it: a picture of a truck in a given state holds it still.
     pub held: bool,
+}
+
+/// A colour as a page writes it, as light: a page's is as the eye sees it, and the renderer
+/// wants light.
+fn light(colour: u32) -> glam::Vec3 {
+    let channel = |shift: u32| (((colour >> shift) & 0xff) as f32 / 255.0).powf(2.2);
+    glam::Vec3::new(channel(16), channel(8), channel(0))
 }
 
 /// The colour the Raptor's paint was made in, which the renderer tells its paint from what
@@ -557,104 +492,6 @@ impl Wear {
     }
 }
 
-impl Spray {
-    /// Moves each wheel's spray to the wheel, and sets what it throws: `wetness` is how wet
-    /// the rain has left the ground.
-    fn follow(&mut self, renderer: &mut Renderer, hud: &solstice_game::Hud, wetness: f32) {
-        self.thrown = [0.0; 3];
-        if self.effects.is_none() && !self.tried {
-            self.tried = true;
-            match solstice_render::Effect::parse(WHEEL_SPRAY) {
-                Ok(effect) => {
-                    let mut ids = Vec::new();
-                    for _ in 0..4 {
-                        ids.extend(renderer.particles().spawn(&effect, glam::Mat4::IDENTITY));
-                    }
-                    self.effects = ids.try_into().ok();
-                    if self.effects.is_none() {
-                        log::warn!("no room among the particles for the spray off the wheels");
-                    }
-                }
-                Err(error) => log::error!("the spray off the wheels: {error}"),
-            }
-        }
-        let Some(effects) = self.effects else {
-            return;
-        };
-        let forward = hud.forward;
-        let yaw = (-forward.x).atan2(-forward.z);
-        let turned = glam::Quat::from_rotation_y(yaw);
-        let speed = hud.velocity.length();
-        let going = hud.telemetry.speed;
-        for (index, (wheel, id)) in hud.wheels.iter().zip(effects).enumerate() {
-            let particles = renderer.particles();
-            particles.set_transform(
-                id,
-                glam::Mat4::from_rotation_translation(turned, wheel.at + glam::Vec3::Y * 0.1),
-            );
-            let (mut mud, mut dust, mut water) = (0.0_f32, 0.0_f32, 0.0_f32);
-            // How fast the tread passes over the ground, and so how hard it throws.
-            let scrub = wheel.slip.abs();
-            let pressed = wheel.load.clamp(0.0, 1.5);
-            if wheel.on_ground {
-                match wheel.surface.name() {
-                    "ford" => water = (speed * 0.22 + scrub * 0.35).min(2.2),
-                    "mud" | "bog" => {
-                        mud = ((scrub * 0.55 + speed * 0.1) * (0.5 + wheel.sink * 7.0)).min(1.6)
-                    }
-                    // Wet clay throws mud; dry, it smokes.
-                    "dirt" | "sand" | "litter" | "gravel" => {
-                        mud = (scrub * 0.4 + speed * 0.05).min(1.2) * wetness;
-                        dust = (speed * 0.07 + scrub * 0.45).min(1.6) * (1.0 - wetness).powi(2);
-                    }
-                    "grass" => dust = (scrub * 0.25).min(0.6) * (1.0 - wetness).powi(2),
-                    _ => {}
-                }
-            }
-            for (sum, thrown) in self.thrown.iter_mut().zip([mud, dust, water]) {
-                *sum += thrown * pressed;
-            }
-            // The left wheels throw to the left, the right to the right. A wheel throws
-            // behind it the way its tread is going: forward, when it turns backwards.
-            let side = if index % 2 == 0 { -1.0 } else { 1.0 };
-            let back = if going + wheel.slip >= 0.0 { 1.0 } else { -1.0 };
-            let (vx, vy, vz) = if water > 0.0 {
-                (
-                    side * (1.3 + 0.28 * speed).min(6.0),
-                    (2.0 + 0.32 * speed).min(7.5),
-                    back * (0.4 + 0.12 * speed),
-                )
-            } else {
-                (
-                    side * 0.5,
-                    (1.4 + 0.3 * scrub + 0.06 * speed).min(6.0),
-                    back * (1.4 + 0.45 * scrub + 0.1 * speed).min(8.0),
-                )
-            };
-            for (name, value) in [
-                ("mud", mud * pressed),
-                ("dust", dust * pressed),
-                ("water", water),
-                ("vx", vx),
-                ("vy", vy),
-                ("vz", vz),
-            ] {
-                particles.set(id, name, value);
-            }
-        }
-    }
-
-    /// Stops every wheel throwing: the car is not being driven.
-    fn rest(&mut self, renderer: &mut Renderer) {
-        self.thrown = [0.0; 3];
-        for id in self.effects.into_iter().flatten() {
-            for name in ["mud", "dust", "water"] {
-                renderer.particles().set(id, name, 0.0);
-            }
-        }
-    }
-}
-
 impl PlayMode {
     /// Starts the game in a scene's gameplay files, making every instance an actor draws with
     /// movable, and giving each animated actor its skeleton and clips. Returns every mistake
@@ -681,6 +518,19 @@ impl PlayMode {
                 renderer.set_instance_hidden(id, true);
             }
         }
+        // Trucks parked in a used-truck yard are each in a colour of their own.
+        let (parked, pulled) = crate::shared::parked(files);
+        let colours: Vec<(glam::Vec3, glam::Vec3, Vec<u32>)> = parked
+            .iter()
+            .filter_map(|(_, instances, paint, was)| {
+                Some((light(paint.as_ref().copied()?), (*was)?, instances.clone()))
+            })
+            .collect();
+        renderer.set_resprays(&colours);
+        let parked: Vec<(usize, Vec<u32>)> = parked
+            .into_iter()
+            .map(|(place, instances, ..)| (place, instances))
+            .collect();
         let kit = crate::kit::Fitted::find(files).map_err(|error| vec![error])?;
         let made = kit
             .as_ref()
@@ -692,7 +542,7 @@ impl PlayMode {
             lamps: false,
             tail_lamps: Vec::new(),
             head_lamps: Vec::new(),
-            spray: Spray::default(),
+            spray: crate::mud::Fling::default(),
             wear: Wear {
                 paint: made,
                 ..Wear::default()
@@ -705,7 +555,11 @@ impl PlayMode {
             kit,
             display,
             displayed: 0,
+            parked,
+            pulled,
             show_side: None,
+            show_view: None,
+            show_at: 0.0,
             stand: crate::shared::stand(files),
             unseen: false,
             nuggets: {
@@ -724,6 +578,7 @@ impl PlayMode {
             sound: None,
             frames: 0,
             trace: std::env::var_os("SOLSTICE_TRACE").is_some(),
+            wrecks: crate::wreck::Wrecks::new(files),
         })
     }
 
@@ -994,11 +849,16 @@ impl PlayMode {
     /// and a pitch: before the truck and to one side of it, as a truck for sale is looked
     /// at, swaying a little as time goes by. It is to whichever side the ground falls away
     /// on, and it is kept above the ground: a truck stands on a hillside as often as not.
+    ///
+    /// With a part of the truck to look at (`focus`, a group of its kit's), it goes in close
+    /// to where that part is: its nose, its roof, a wheel, its back. It moves there, and
+    /// back, over a moment.
     pub fn showroom_camera(
         &mut self,
         origin: glam::Vec3,
         turned: glam::Quat,
         seconds: f32,
+        focus: Option<&str>,
     ) -> (glam::Vec3, f32, f32) {
         use glam::Vec3;
         let flat = |way: Vec3| Vec3::new(way.x, 0.0, way.z).normalize_or(Vec3::NEG_Z);
@@ -1017,12 +877,53 @@ impl PlayMode {
                 -1.0
             }
         });
-        let mut eye = stand(side, 0.62 + 0.28 * (seconds * 0.22).sin());
-        eye.y = (origin.y + 1.5).max(land(eye) + 1.25);
-        // The truck is a little to the left of the middle: what it is is down the right.
-        let middle = origin + Vec3::Y * 0.95;
-        let aside = (middle - eye).cross(Vec3::Y).normalize_or_zero();
-        let look = middle + aside * 0.7 - eye;
+        let out = right * side;
+        let (mut eye, at) = match focus {
+            // Its nose: a bar, and the lamps on it.
+            Some("bullbar" | "spots" | "lightbar") => (
+                origin + forward * 5.3 + out * 1.9 + Vec3::Y * 1.15,
+                origin + forward * 1.9 + Vec3::Y * 0.95,
+            ),
+            Some("snorkel") => (
+                origin + forward * 3.5 + out * 3.1 + Vec3::Y * 1.75,
+                origin + forward * 0.9 + Vec3::Y * 1.35,
+            ),
+            // Its roof.
+            Some("rack") => (
+                origin + forward * 3.8 + out * 3.3 + Vec3::Y * 3.1,
+                origin - forward * 0.3 + Vec3::Y * 1.75,
+            ),
+            // A front wheel, and what is by it: low, from the side.
+            Some("arches" | "steps" | "suspension" | "tyres" | "rims") => (
+                origin + forward * 2.9 + out * 4.0 + Vec3::Y * 0.75,
+                origin + forward * 1.2 + out * 0.9 + Vec3::Y * 0.5,
+            ),
+            // Its back.
+            Some("tub" | "tray" | "spare") => (
+                origin - forward * 5.2 + out * 2.8 + Vec3::Y * 2.0,
+                origin - forward * 1.5 + Vec3::Y * 1.15,
+            ),
+            // All of it: a little to the left of the middle, what it is being down the right.
+            _ => {
+                let eye = stand(side, 0.62 + 0.28 * (seconds * 0.22).sin());
+                let eye = Vec3::new(eye.x, origin.y + 1.5, eye.z);
+                let middle = origin + Vec3::Y * 0.95;
+                let aside = (middle - eye).cross(Vec3::Y).normalize_or_zero();
+                (eye, middle + aside * 0.7)
+            }
+        };
+        let least = if focus.is_some() { 0.45 } else { 1.25 };
+        eye.y = eye.y.max(land(eye) + least);
+        // It goes from where it was to where it is to be, not all at once.
+        let passed = (seconds - self.show_at).clamp(0.0, 0.1);
+        self.show_at = seconds;
+        let nearer = 1.0 - (-passed * 5.0).exp();
+        let (eye, at) = match self.show_view {
+            Some((was_eye, was_at)) => (was_eye.lerp(eye, nearer), was_at.lerp(at, nearer)),
+            None => (eye, at),
+        };
+        self.show_view = Some((eye, at));
+        let look = at - eye;
         (
             eye,
             (-look.x).atan2(-look.z),
@@ -1088,6 +989,14 @@ impl PlayMode {
                 renderer.set_instance_hidden(id, true);
             }
         }
+        // In a used-truck yard, the one that is shown has been pulled out of its row.
+        if self.pulled {
+            for (place, instances) in &self.parked {
+                for &id in instances {
+                    renderer.set_instance_hidden(id, *place == index);
+                }
+            }
+        }
         self.displayed = index;
         let truck = &mut self.display[index];
         truck.redraw();
@@ -1099,6 +1008,16 @@ impl PlayMode {
             ..Wear::default()
         };
         self.paint(colour);
+    }
+
+    /// A truck parked in the used-truck yard has been sold: it is gone from its row.
+    pub fn unpark(&mut self, renderer: &mut Renderer, place: usize) {
+        for (_, instances) in self.parked.iter().filter(|(parked, _)| *parked == place) {
+            for &id in instances {
+                renderer.set_instance_hidden(id, true);
+            }
+        }
+        self.parked.retain(|(parked, _)| *parked != place);
     }
 
     /// Fits the truck that is shown, where it stands: `stock`, `showroom`, or choices over
@@ -1124,11 +1043,7 @@ impl PlayMode {
     /// back in the colour it was made in.
     pub fn paint(&mut self, colour: Option<u32>) {
         self.wear.paint = match colour {
-            // As the eye sees it: the renderer wants light.
-            Some(colour) => {
-                let channel = |shift: u32| (((colour >> shift) & 0xff) as f32 / 255.0).powf(2.2);
-                glam::Vec3::new(channel(16), channel(8), channel(0))
-            }
+            Some(colour) => light(colour),
             None => self.made,
         };
     }
@@ -1281,7 +1196,8 @@ impl PlayMode {
                 intensity: glam::Vec3::new(1.0, 0.95, 0.84) * LAMPS,
             }
         });
-        renderer.set_lamp(lamp);
+        // (As brightly as the head lamps that are not broken light it: `wreck.rs`.)
+        renderer.set_lamp(self.beam(lamp));
         // Its lamps glow as they are lit. By dark everything is seen with eyes opened up, a
         // lamp's glow with it, so each is turned down to look as it should: the tail lamps a
         // dull red, and bright under braking; by day, lit only under braking.
@@ -1293,20 +1209,43 @@ impl PlayMode {
             (false, false) => (0.0, 0.4),
         };
         // Below zero is red: the model's tail lamps are white behind what should be red glass.
+        // (A lamp that is broken is out.)
+        let lit = |instance: u32, glow: f32| {
+            if self.wrecks.is_dark(instance) {
+                0.0
+            } else {
+                glow
+            }
+        };
         for &instance in &self.tail_lamps {
-            renderer.set_instance_glow(instance, -tail);
+            renderer.set_instance_glow(instance, lit(instance, -tail));
         }
         for &instance in &self.head_lamps {
-            renderer.set_instance_glow(instance, head);
+            renderer.set_instance_glow(instance, lit(instance, head));
         }
         let mut flattened = (0, 0.0);
+        // What the wheels throw; and the lumps of it that land lie where they fell, in the
+        // map of the ruts, which is drawn round the truck (`mud.rs`).
+        let mut lumps = Vec::new();
+        let mut looked_at = camera.position;
         match self.play.hud() {
             Some(hud) => {
-                self.spray.follow(renderer, hud, wetness);
+                lumps = self.spray.follow(renderer, hud, wetness, seconds);
                 flattened = self.scrub.flatten(renderer, hud);
+                if !hud.afoot {
+                    looked_at = hud.origin;
+                }
             }
             None => self.spray.rest(renderer),
         }
+        if !lumps.is_empty() {
+            self.play.ruts(|ruts| {
+                for (at, across) in lumps {
+                    ruts.splat(at, across, 1.0);
+                }
+            });
+        }
+        crate::mud::draw(renderer, &self.play, looked_at);
         self.coat(renderer, seconds);
         if let Some(truck) = self.display.get_mut(self.displayed) {
             truck.show(renderer);
@@ -1320,6 +1259,9 @@ impl PlayMode {
                 self.play.move_within(instance, by);
             }
         }
+        // What the truck hit this frame, and what that has done to it.
+        self.wrecks
+            .frame(&mut self.play, self.kit.as_ref(), renderer, seconds);
         if let Some(sound) = &mut self.sound {
             // A truck that is not there is not heard either.
             let hud = self.play.hud().filter(|_| !self.unseen);
@@ -1361,5 +1303,78 @@ impl PlayMode {
             camera.pitch = view.pitch;
         }
         self.play.take_messages()
+    }
+}
+
+/// The player's truck's damage (`damage.rs`, `wreck.rs`): what a kept game keeps of it, what
+/// a repair shop would do to it, and what a picture is told to show.
+impl PlayMode {
+    /// The truck's damage: each piece that is hurt, and how hard it has been hit.
+    pub fn damage(&self) -> &crate::damage::Damage {
+        self.wrecks.damage()
+    }
+
+    /// The parts table the damage is reckoned with: how strong each kind of piece is.
+    pub fn parts(&self) -> &crate::damage::Table {
+        &self.wrecks.table
+    }
+
+    /// Puts damage on the truck, from its text (`Damage::to_text`): what it had on it when
+    /// it was last driven.
+    pub fn set_damage(&mut self, text: &str) -> Result<(), String> {
+        self.wrecks.set_damage(crate::damage::Damage::parse(text)?);
+        Ok(())
+    }
+
+    /// Damage as words say it, for a picture: `bumper_front=dented,door_FL=loose`.
+    pub fn stage_damage(&mut self, words: &str) {
+        self.wrecks.stage(words);
+    }
+
+    /// Hits the truck, as if the game had measured the blow: for a picture, or a trial.
+    pub fn strike(&mut self, hit: crate::damage::Hit) {
+        self.wrecks.strike(hit);
+    }
+
+    /// Mends the whole truck, or one piece of it. Whether that piece was hurt.
+    pub fn repair(&mut self) {
+        self.wrecks.repair();
+    }
+
+    pub fn mend(&mut self, piece: &str) -> bool {
+        self.wrecks.mend(piece)
+    }
+
+    /// What blows have done to the truck since this was last asked: each piece whose
+    /// stage changed, for whoever tells the player.
+    pub fn take_damage_changes(&mut self) -> Vec<crate::damage::Change> {
+        self.wrecks.take_changes()
+    }
+
+    /// What the truck's last blow did to it, to show beside its instruments for a few
+    /// seconds after: nothing once that long has passed, or if it did nothing.
+    pub fn damage_line(&self) -> String {
+        self.wrecks.told()
+    }
+
+    /// Measures the truck's pieces from the scene it is in, if its own files do not say
+    /// where they are: a truck baked into its map, and not put together from its pack.
+    pub fn measure_truck(&mut self, scene: &solstice_asset::LoadedScene) {
+        let stood = self.play.car_pose();
+        if let (Some(kit), Some((at, turned))) = (&mut self.kit, stood) {
+            if !kit.is_measured() {
+                kit.measure(scene, glam::Mat4::from_rotation_translation(turned, at));
+            }
+        }
+    }
+
+    /// The beam of the truck's head lamps, as many of them as still light.
+    fn beam(&self, lamp: Option<solstice_render::Lamp>) -> Option<solstice_render::Lamp> {
+        let share = self.wrecks.beam();
+        lamp.filter(|_| share > 0.0)
+            .map(|lamp| solstice_render::Lamp {
+                intensity: lamp.intensity * share,
+                ..lamp
+            })
     }
 }

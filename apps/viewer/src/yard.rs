@@ -27,7 +27,12 @@ pub const BLOCK: u64 = 100_000;
 const FIRST_TRUCK: u32 = 10_000;
 /// The repayment that comes out every Friday, and what is added to a part of it that is
 /// not paid.
-pub const REPAYMENT: u64 = 1_850;
+pub const REPAYMENT_SHARE: f32 = 0.017;
+/// The least a Friday's repayment is, while that much is owed.
+pub const REPAYMENT_LEAST: u64 = 250;
+/// The interest on what is owed, a week: with no credit at all, and with the best there is.
+/// (About thirteen and a half per cent a year, down to a little over five.)
+const INTEREST: (f32, f32) = (0.0026, 0.0010);
 const SHORT_PENALTY: f32 = 0.05;
 /// What the bank will lend beyond what a story begins owing, at no credit and at full.
 const LIMIT: (u64, u64) = (115_000, 320_000);
@@ -40,6 +45,8 @@ pub const OIL_EVERY: f32 = 150.0;
 pub const OIL_WEAR: (f32, f32) = (0.004, 0.2);
 pub const OIL_CHANGE: u64 = 180;
 pub const RESPRAY: u64 = 1_200;
+/// What mending one hurt piece of a truck costs: scuffed, dented, loose, and torn off.
+pub const REPAIRS: [u64; 4] = [40, 150, 280, 480];
 /// The colours a truck is resprayed in, and that a used one may be: as a page writes them.
 pub const COLOURS: [(&str, u32); 12] = [
     ("White", 0xe8e6de),
@@ -75,6 +82,9 @@ pub struct Owned {
     pub roll: f32,
     /// What is on it, each from 0 to 1: dust, mud, and rust. It goes where the truck goes.
     pub dirt: [f32; 3],
+    /// What it has hit: each hurt piece, as `Damage::to_text` writes them, a line a piece.
+    /// It goes where the truck goes, until it is mended.
+    pub damage: String,
 }
 
 impl Owned {
@@ -287,6 +297,23 @@ pub fn part_price(group: &str, choice: &str, grade: u32) -> u64 {
 }
 
 /// Why something could not be done.
+/// What paying for something would come to (`Yard::quote`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quote {
+    /// What of it is paid from what is in hand, and what goes on the debt.
+    pub cash: u64,
+    pub financed: u64,
+    /// What would then be owed, and what would come out each Friday.
+    pub debt: u64,
+    pub repayment: u64,
+}
+
+/// What comes out each Friday while this much is owed.
+pub fn repayment_of(debt: u64) -> u64 {
+    let share = (debt as f32 * REPAYMENT_SHARE / 10.0).round() as u64 * 10;
+    share.max(REPAYMENT_LEAST).min(debt)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum No {
     /// There is not the money for it, nor the credit to borrow it.
@@ -332,6 +359,7 @@ impl Yard {
             oiled: km,
             roll,
             dirt: [0.0; 3],
+            damage: String::new(),
         });
         self.next += 1;
         self.trucks.len() - 1
@@ -377,7 +405,9 @@ impl Yard {
     /// was not. Paid in full, credit rises; short, what was not paid goes back on the debt
     /// with a penalty, and credit falls.
     pub fn friday(&mut self, money: &mut u64) -> (u64, u64) {
-        let due = REPAYMENT.min(self.debt);
+        // The week's interest goes on what is owed, and then the repayment comes out.
+        self.debt += self.interest();
+        let due = self.repayment();
         let paid = due.min(*money);
         *money -= paid;
         self.debt -= paid;
@@ -389,6 +419,44 @@ impl Yard {
             self.credit = (self.credit + 2).min(100);
         }
         (paid, short)
+    }
+
+    /// What comes out each Friday: a share of what is owed, to the nearest ten dollars, and
+    /// never less than a little, nor more than is owed.
+    pub fn repayment(&self) -> u64 {
+        repayment_of(self.debt)
+    }
+
+    /// The interest on what is owed, a week, as a share of it: less the better the credit.
+    pub fn rate(&self) -> f32 {
+        INTEREST.0 + (INTEREST.1 - INTEREST.0) * self.credit.min(100) as f32 / 100.0
+    }
+
+    /// The interest that goes on what is owed this Friday, in dollars.
+    pub fn interest(&self) -> u64 {
+        (self.debt as f32 * self.rate()).round() as u64
+    }
+
+    /// What paying so many dollars for something would come to, with this much in hand:
+    /// what of it is paid from hand and what goes on the debt, and what would then be owed
+    /// and come out each Friday. Or that the bank will not lend the rest.
+    pub fn quote(&self, money: u64, dollars: u64) -> Result<Quote, No> {
+        let financed = dollars.saturating_sub(money);
+        if financed > 0 && self.debt + financed > self.limit() {
+            return Err(No::Money);
+        }
+        Ok(Quote {
+            cash: dollars - financed,
+            financed,
+            debt: self.debt + financed,
+            repayment: repayment_of(self.debt + financed),
+        })
+    }
+
+    /// Buys a truck new, off the dealer's floor: it has done no kilometres, and is as new.
+    pub fn buy_new(&mut self, money: &mut u64, truck: &Truck) -> Result<usize, No> {
+        self.pay(money, u64::from(truck.price))?;
+        Ok(self.own(&truck.name, 0.0, 0.97, None))
     }
 
     /// Pays for something: out of what is in hand, and, if that is not enough and the bank
@@ -530,6 +598,16 @@ impl Yard {
         Ok(())
     }
 
+    /// Mends the truck that is driven, for what its damage comes to.
+    pub fn repair(&mut self, money: &mut u64, cost: u64) -> Result<(), No> {
+        if self.driven().is_none() {
+            return Err(No::Nothing);
+        }
+        self.pay(money, cost)?;
+        self.trucks[self.driving].damage.clear();
+        Ok(())
+    }
+
     /// Changes the oil of the truck that is driven.
     pub fn oil(&mut self, money: &mut u64) -> Result<(), No> {
         if self.driven().is_none() {
@@ -605,6 +683,11 @@ impl Yard {
                             number("mud").unwrap_or(0.0),
                             number("rust").unwrap_or(0.0),
                         ],
+                        // (A word has no gaps in it: a line's are commas, and lines end `;`.)
+                        damage: value("damage")
+                            .unwrap_or("")
+                            .replace(',', " ")
+                            .replace(';', "\n"),
                     });
                 }
                 _ => {}
@@ -640,6 +723,15 @@ impl Yard {
             if owned.dirt != [0.0; 3] {
                 let [dust, mud, rust] = owned.dirt;
                 *kept += &format!(" dust={dust:.3} mud={mud:.3} rust={rust:.3}");
+            }
+            if !owned.damage.trim().is_empty() {
+                let lines: Vec<String> = owned
+                    .damage
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| line.split_whitespace().collect::<Vec<_>>().join(","))
+                    .collect();
+                *kept += &format!(" damage={}", lines.join(";"));
             }
             if !owned.fitted.0.is_empty() {
                 *kept += &format!(" fitted={}", owned.fitted.to_text());
@@ -712,15 +804,32 @@ mod tests {
         assert_eq!(yard.borrow(&mut money, 5_000), Ok(()));
         assert_eq!((money, yard.debt), (5_000, BLOCK + 14_000));
         assert_eq!(yard.borrow(&mut money, 200_000), Err(No::Credit));
-        // A Friday paid in full: the debt is down, and credit up.
+        // What something would come to is said before it is bought: what is in hand goes
+        // first, the rest is on the debt, and the Friday repayment is more for it.
+        let quote = yard.quote(money, 8_000).unwrap();
+        assert_eq!((quote.cash, quote.financed), (5_000, 3_000));
+        assert_eq!(quote.debt, yard.debt + 3_000);
+        assert!(quote.repayment > yard.repayment());
+        assert_eq!(yard.quote(money, 400_000), Err(No::Money));
+        // A Friday paid in full: the week's interest is on it, a share of the whole comes
+        // out, the debt is down, and credit up.
         let (credit, owed) = (yard.credit, yard.debt);
-        assert_eq!(yard.friday(&mut money), (REPAYMENT, 0));
-        assert_eq!((money, yard.debt), (5_000 - REPAYMENT, owed - REPAYMENT));
+        let interest = yard.interest();
+        assert!(interest > 200 && interest < 320, "{interest}");
+        let due = repayment_of(owed + interest);
+        assert!(due > 1_800 && due < 2_100, "{due}");
+        assert_eq!(yard.friday(&mut money), (due, 0));
+        assert_eq!((money, yard.debt), (5_000 - due, owed + interest - due));
         assert!(yard.credit > credit);
+        // The better the credit, the less the interest.
+        let mut trusted = yard.clone();
+        trusted.credit = 100;
+        assert!(trusted.rate() < yard.rate() * 0.5);
         // One that cannot be paid: what there is goes, the rest is owed with more on it.
         money = 350;
         let (credit, owed) = (yard.credit, yard.debt);
-        assert_eq!(yard.friday(&mut money), (350, REPAYMENT - 350));
+        let due = repayment_of(owed + yard.interest());
+        assert_eq!(yard.friday(&mut money), (350, due - 350));
         assert_eq!(money, 0);
         assert!(yard.debt > owed - 350 && yard.credit < credit);
         // Paid back early, as much as there is to pay with.
@@ -881,9 +990,21 @@ mod tests {
         yard.buy(&mut money, 7, 3, &trucks, 1).unwrap();
         yard.went(1234.5);
         yard.trucks[0].dirt = [0.25, 0.5, 0.125];
+        // And what it has hit, a line a piece, which reads back as the damage it was.
+        let driving = yard.driving;
+        yard.trucks[driving].damage = "bumper_front 143.2 0.10 0.92 -2.32 0.000 0.000 1.000\n\
+                                 lamp_head_R 80.0 0.50 0.90 -2.30 0.000 0.000 1.000"
+            .to_owned();
         let mut kept = String::from("day 3\nmoney 12\n");
         yard.keep(&mut kept);
         assert_eq!(Yard::read(&kept), yard);
+        let hurt = crate::damage::Damage::parse(&Yard::read(&kept).trucks[driving].damage).unwrap();
+        assert_eq!(hurt.list(&crate::damage::Table::built_in()).len(), 2);
+        // Mended, it is paid for and nothing is on it.
+        let before = money;
+        yard.repair(&mut money, 430).unwrap();
+        assert_eq!(money, before - 430);
+        assert!(yard.trucks[driving].damage.is_empty());
         // A game with no story yet keeps nothing of it.
         let mut nothing = String::new();
         Yard::default().keep(&mut nothing);

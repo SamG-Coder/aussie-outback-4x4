@@ -256,6 +256,179 @@ pub fn show_trucks(
     Ok(())
 }
 
+/// The gameplay file that says which trucks are parked in a map's used-truck yard: a line a
+/// truck, `PLACE FIRST COUNT PAINT WAS_R WAS_G WAS_B`: its place on the day's lot, the run
+/// of instances that draws it, the colour it is in (six hex digits, or `-` for the colour
+/// it was made in), and the colour its paint was made in. A first line `pulled` says that
+/// whichever of them is being looked over is not in its row: it stands out before it.
+pub const PARKED: &str = "lot.parked";
+
+/// A truck to be parked in the used-truck yard: its place on the day's lot, the truck put
+/// together from its pack, the colour it is in, what is asked for it and how far it has
+/// been.
+pub struct Parked {
+    pub place: usize,
+    pub truck: crate::kit::Assembled,
+    pub paint: Option<u32>,
+    pub price: u64,
+    pub km: f32,
+}
+
+/// How much of the ground a parked truck takes up, for whoever walks or drives into it:
+/// across, high, and long. And how far before its middle its price stands.
+const PARKED_SIZE: Vec3 = Vec3::new(2.1, 1.8, 5.3);
+const PRICE_AHEAD: f32 = 3.7;
+
+/// Where a map's used-truck yard has its trucks stand, in the order of their places: each
+/// where, and its yaw in degrees (`place lot:N X Y Z YAW` among the map's places). None, in
+/// a map with no such yard.
+pub fn lot(files: &[GameFile]) -> Vec<(Vec3, f32)> {
+    let places = files.iter().filter(|file| file.name.ends_with(".places"));
+    let mut spots: Vec<(usize, Vec3, f32)> = places
+        .flat_map(|file| file.text.lines())
+        .filter_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let ["place", what, x, y, z, yaw] = words[..] else {
+                return None;
+            };
+            let spot = what.strip_prefix("lot:")?.parse().ok()?;
+            let number = |word: &str| word.parse::<f32>().ok();
+            Some((
+                spot,
+                Vec3::new(number(x)?, number(y)?, number(z)?),
+                number(yaw)?,
+            ))
+        })
+        .collect();
+    spots.sort_by_key(|(spot, ..)| *spot);
+    spots.into_iter().map(|(_, at, yaw)| (at, yaw)).collect()
+}
+
+/// Parks the day's used trucks in a map's yard, each in its place in the row (`spots`, from
+/// [`lot`]): the truck as it was made, at rest, with a box round it that stops whoever
+/// walks or drives into it, and before it a board with its price on (`board::board`).
+/// Nothing drives them. What they are and what colour each is in is said in [`PARKED`],
+/// for whoever draws them (`PlayMode`).
+pub fn park_trucks(
+    scene: &mut solstice_asset::LoadedScene,
+    trucks: Vec<Parked>,
+    spots: &[(Vec3, f32)],
+    pulled: bool,
+) -> Result<(), String> {
+    let mut list = String::new();
+    if pulled {
+        list.push_str("pulled\n");
+    }
+    let mut blockers = String::new();
+    for parked in trucks {
+        let Some(&(at, yaw_degrees)) = spots.get(parked.place) else {
+            continue;
+        };
+        let turned = Quat::from_rotation_y(yaw_degrees.to_radians());
+        let place = Mat4::from_rotation_translation(turned, at);
+        // The colour its paint was made in is its kit's to say.
+        let kit = parked
+            .truck
+            .files
+            .iter()
+            .find(|file| file.name.ends_with(".kit"));
+        let was = kit
+            .and_then(|file| crate::kit::Kit::parse(&file.text).ok())
+            .and_then(|kit| kit.paint);
+        let count = parked.truck.scene.scene.instances.len() as u32;
+        let joined = scene
+            .join(parked.truck.scene)
+            .map_err(|error| error.to_string())?;
+        for id in joined.instances..joined.instances + count {
+            let instance = &mut scene.scene.instances[id as usize];
+            instance.transform = place * instance.transform;
+        }
+        let paint = match parked.paint {
+            Some(colour) => format!("{colour:06x}"),
+            None => "-".to_owned(),
+        };
+        let was = was.map_or("- - -".to_owned(), |was| {
+            format!("{} {} {}", was.x, was.y, was.z)
+        });
+        list.push_str(&format!(
+            "{} {} {count} {paint} {was}\n",
+            parked.place, joined.instances
+        ));
+        let stops = |centre: Vec3, size: Vec3| {
+            solstice_game::Blocker {
+                centre,
+                size,
+                yaw_degrees,
+            }
+            .to_text()
+        };
+        blockers.push_str(&stops(at + Vec3::Y * PARKED_SIZE.y * 0.5, PARKED_SIZE));
+        blockers.push('\n');
+        // Its price, on a board before its nose.
+        let ahead = at + turned * Vec3::new(0.0, 0.0, -PRICE_AHEAD);
+        let board = crate::board::board(parked.price, parked.km);
+        let count = board.scene.instances.len() as u32;
+        let joined = scene.join(board).map_err(|error| error.to_string())?;
+        let stood = Mat4::from_rotation_translation(turned, ahead);
+        for id in joined.instances..joined.instances + count {
+            let instance = &mut scene.scene.instances[id as usize];
+            instance.transform = stood * instance.transform;
+        }
+        blockers.push_str(&stops(ahead + Vec3::Y * 0.55, Vec3::new(1.1, 1.1, 0.5)));
+        blockers.push('\n');
+    }
+    let files = &mut scene.scene.gameplay;
+    if let Some(game) = files.iter_mut().find(|file| file.name == GAME_FILE) {
+        if !game.text.ends_with('\n') {
+            game.text.push('\n');
+        }
+        game.text.push_str(&blockers);
+    }
+    files.retain(|other| other.name != PARKED);
+    files.push(GameFile {
+        name: PARKED.to_owned(),
+        text: list,
+    });
+    Ok(())
+}
+
+/// The trucks a scene's files say are parked in its used-truck yard: each its place on the
+/// lot, the instances that draw it, the colour it is in and the colour its paint was made
+/// in, where the file says; and whether the one being looked over is pulled out of its row.
+#[allow(clippy::type_complexity)]
+pub fn parked(files: &[GameFile]) -> (Vec<(usize, Vec<u32>, Option<u32>, Option<Vec3>)>, bool) {
+    let Some(file) = files.iter().find(|file| file.name == PARKED) else {
+        return (Vec::new(), false);
+    };
+    let mut pulled = false;
+    let mut trucks = Vec::new();
+    for line in file.text.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words[..] {
+            ["pulled"] => pulled = true,
+            [place, first, count, paint, r, g, b] => {
+                let (Ok(place), Ok(first), Ok(count)) = (
+                    place.parse::<usize>(),
+                    first.parse::<u32>(),
+                    count.parse::<u32>(),
+                ) else {
+                    continue;
+                };
+                let number = |word: &str| word.parse::<f32>().ok();
+                let was = (|| Some(Vec3::new(number(r)?, number(g)?, number(b)?)))();
+                trucks.push((
+                    place,
+                    (first..first + count).collect(),
+                    u32::from_str_radix(paint, 16).ok(),
+                    was,
+                ));
+            }
+            _ => {}
+        }
+    }
+    (trucks, pulled)
+}
+
 /// Whether a scene's game has actors that are in the shared file.
 pub fn wanted(files: &[GameFile]) -> bool {
     actors(files).iter().any(|(_, actor)| actor.shared)
@@ -371,5 +544,46 @@ mod tests {
             Some("actor outback/driver.actor 1 2 3 0\n")
         );
         assert_eq!(text("outback.places"), Some("place shed 0 0 0 3\n"));
+    }
+
+    #[test]
+    fn a_maps_yard_says_where_its_trucks_stand_and_which_are_parked() {
+        let file = |name: &str, text: &str| GameFile {
+            name: name.to_owned(),
+            text: text.to_owned(),
+        };
+        // Its places, in whatever order they were written, are in the order of the lot.
+        let files = [file(
+            "town.places",
+            "place buyer 1 2 3 5.5\nplace lot:1 10 80 -20 90\nplace lot:0 4 80 -20 90\nplace door:used 0 0 0 1.7\n",
+        )];
+        assert_eq!(
+            lot(&files),
+            vec![
+                (Vec3::new(4.0, 80.0, -20.0), 90.0),
+                (Vec3::new(10.0, 80.0, -20.0), 90.0)
+            ]
+        );
+        assert!(lot(&[file("hub.places", "place shed 0 0 0 3\n")]).is_empty());
+        // What is parked is read back as it was written: one resprayed, one as it was made.
+        let files = [file(
+            PARKED,
+            "pulled\n2 40 3 c8102e 0.16 0 0\n4 60 2 - - - -\n",
+        )];
+        let (trucks, pulled) = parked(&files);
+        assert!(pulled);
+        assert_eq!(
+            trucks,
+            vec![
+                (
+                    2,
+                    vec![40, 41, 42],
+                    Some(0xc8102e),
+                    Some(Vec3::new(0.16, 0.0, 0.0))
+                ),
+                (4, vec![60, 61], None, None),
+            ]
+        );
+        assert_eq!(parked(&[]), (Vec::new(), false));
     }
 }

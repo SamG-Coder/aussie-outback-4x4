@@ -319,6 +319,13 @@ pub struct Renderer {
     /// What whatever is driven wears, and which of the scene's instances are it: the first
     /// of them as the GPU numbers them, and how many.
     coat: Option<(crate::Coat, u32, u32)>,
+    /// Trucks that stand about, each in a colour of its own: the colour, the colour it was
+    /// made in, and the instances that draw it.
+    resprays: Vec<(Vec3, Vec3, Vec<u32>)>,
+    /// The ruts tyres have pressed into the ground, round the camera, and the colour of
+    /// the soil they churn up.
+    ruts: crate::ruts::RutMap,
+    rut_soil: Vec3,
     streamer: Streamer,
     settings: RendererSettings,
     scene: GpuScene,
@@ -799,6 +806,9 @@ impl Renderer {
             scene,
             lamp: None,
             coat: None,
+            resprays: Vec::new(),
+            ruts: crate::ruts::RutMap::new(gpu),
+            rut_soil: Vec3::new(0.33, 0.15, 0.075),
             streamer,
             frame_uniform,
             view_slots,
@@ -989,6 +999,27 @@ impl Renderer {
             });
             (first <= last).then(|| (coat, first, last - first + 1))
         });
+    }
+
+    /// Says which trucks stand about in colours of their own: for each, its colour, the
+    /// colour its paint was made in, and the instances that draw it, which are taken as one
+    /// run of the scene's. Only the first [`crate::frame::RESPRAYS`] of them are painted.
+    /// It holds until it is set again.
+    pub fn set_resprays(&mut self, resprays: &[(Vec3, Vec3, Vec<u32>)]) {
+        self.resprays = resprays.to_vec();
+    }
+
+    /// Brings the ruts that are drawn up to date with the map of them that `source` keeps
+    /// (see [`crate::ruts`]), round `centre`: the world's x and z of what is looked at. Call
+    /// each frame something may have been driven; on ground nobody has pressed it does
+    /// nothing. Returns how many squares of the map were copied to the GPU.
+    pub fn sync_ruts(&mut self, centre: glam::Vec2, source: &dyn crate::ruts::RutSource) -> usize {
+        self.ruts.sync(centre, source)
+    }
+
+    /// Says what colour the soil is that tyres churn up: red clay, unless told.
+    pub fn set_rut_soil(&mut self, soil: Vec3) {
+        self.rut_soil = soil;
     }
 
     /// Turns on the lamps of whatever is driven, where they are now, or turns them off. Set
@@ -1612,6 +1643,7 @@ impl Renderer {
             &visibility,
             &self.main_work,
             &gbuffer,
+            &self.ruts.view,
         );
 
         let history = PostProcess::history_targets(gpu, output_size);
@@ -1724,6 +1756,24 @@ impl Renderer {
             let to_car = coat.car.inverse();
             [to_car.row(0), to_car.row(1), to_car.row(2)]
         });
+        // And of what stands about: each where its instances are numbered now.
+        let mut resprays = [crate::frame::Respray::default(); crate::frame::RESPRAYS];
+        for (slot, (paint, was, instances)) in resprays.iter_mut().zip(&self.resprays) {
+            let numbered = instances
+                .iter()
+                .filter_map(|&instance| self.scene.instance_table.gpu_number(instance));
+            let (first, last) = numbered.fold((u32::MAX, 0), |(first, last), number| {
+                (first.min(number), last.max(number))
+            });
+            if first <= last {
+                *slot = crate::frame::Respray {
+                    paint: *paint,
+                    first,
+                    was: *was,
+                    count: last - first + 1,
+                };
+            }
+        }
         let frame = FrameUniform {
             view_proj: jittered,
             inv_view_proj: jittered.inverse(),
@@ -1786,6 +1836,10 @@ impl Renderer {
             coat_axles: coat.map_or(glam::Vec4::ZERO, |(coat, ..)| {
                 glam::Vec4::from_array(coat.axles)
             }),
+            resprays,
+            rut_window: self.ruts.window(),
+            rut_soil: self.rut_soil,
+            rut_cell: self.ruts.cell(),
             daylight_illuminance: environment.daylight(),
         };
         gpu.queue

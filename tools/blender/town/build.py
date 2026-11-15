@@ -45,6 +45,14 @@ HOTEL = ("hotel", -27.0, -13.0, 9.0)
 STORE = ("store", -10.0, 0.0, 9.0)
 BUYER = ("buyer", 3.0, 11.0, 7.0)
 HALL = ("hall", 14.0, 26.0, 11.0)
+# The used-truck yard, across the road (the road's middle is 15.5 m before the model's
+# origin): its ground, its office at the back of it, the posts of its sign by the road, and
+# how far its fence comes toward the road at its two ends.
+LOT = (-22.0, -41.0, 22.0, -20.5)
+OFFICE = (13.0, -39.5, 19.0, -35.0)
+OFFICE_DOOR = 14.6
+SIGN_POSTS = ((12.3, -21.4), (17.7, -21.4))
+FENCE, FENCE_TO = 0.4, -27.0
 
 # Paint, over the shed's boards; and the letters of the signs, which are flat colour.
 kit.PAINTS.update({
@@ -214,14 +222,15 @@ def letters(words, middle, along, out, tall, paint="letter"):
     signs.append((words, Vector(middle), Vector(along), Vector(out), tall, paint))
 
 
-def sign(words, middle, wide, tall, paint="letter"):
+def sign(words, middle, wide, tall, paint="letter", along=(1, 0, 0), out=(0, -1, 0)):
     """A painted board facing the street, with what it says on it: dark letters on a pale
-    board, or gold ones on a dark."""
+    board, or gold ones on a dark. (Or facing `out`, its words running `along`.)"""
     board = "sign_dark" if paint == "letter_gold" else "sign_board"
-    box(board, wide, 0.03, tall, frame(Vector(middle), (1, 0, 0), (0, -1, 0), UP))
+    along, out = Vector(along), Vector(out)
+    box(board, wide, 0.03, tall, frame(Vector(middle), along, out, UP))
     for z in (-tall / 2, tall / 2):
-        box("white", wide + 0.06, 0.045, 0.05, frame(Vector(middle) + UP * z, (1, 0, 0), (0, -1, 0), UP))
-    letters(words, Vector(middle) + Vector((0, -0.022, 0)), (1, 0, 0), (0, -1, 0), tall * 0.56, paint)
+        box("white", wide + 0.06, 0.045, 0.05, frame(Vector(middle) + UP * z, along, out, UP))
+    letters(words, Vector(middle) + out * 0.022, along, out, tall * 0.56, paint)
 
 
 # =============================================================== The hotel.
@@ -268,8 +277,6 @@ def build_hotel():
     box("brick", 0.6, 0.8, rise + 0.4, move(cx + 0.08, cy, wall_h + 1.2 + (rise + 0.4) / 2), tile=1.1)
     box("brick", 0.72, 0.92, 0.12, move(cx + 0.08, cy, wall_h + 1.2 + rise + 0.46), tile=1.1)
     sign("HOTEL", ((x0 + x1) / 2, FRONT - DECK - 0.36, top - 0.1), 4.6, 0.62)
-    # The publican deals in trucks: a board by the first door says so.
-    sign("USED TRUCKS  BOUGHT  &  SOLD", (x0 + 3.6, FRONT - 0.05, FLOOR + 2.42), 3.0, 0.3)
 
 
 # =============================================================== The store and the buyer's.
@@ -372,6 +379,68 @@ def build_hall():
         box("white", 0.18, 0.025, long, at @ move(0, 0, long / 2), grain="z")
 
 
+# =============================================================== The used-truck yard.
+def build_yard():
+    """Across the road: a weatherboard office under a low gable, its door and window to the
+    road; a sign on two posts by the road, lettered on both its faces; and a fence of posts
+    and rails round the back of the yard and its two ends. Its trucks are not the model's:
+    the game stands each day's there."""
+    x0, y0, x1, y1 = OFFICE
+    wall_h, pitch = 2.7, math.radians(18)
+    depth, ridge = y1 - y0, (y0 + y1) / 2
+    rise = depth / 2 * math.tan(pitch)
+    box("concrete", x1 - x0 + 0.1, depth + 0.1, FLOOR, move((x0 + x1) / 2, ridge, FLOOR / 2 - 0.01), tile=2.4)
+    walls = (((x1, y1, 0), (-1, 0, 0), (0, 1, 0), x1 - x0), ((x0, y0, 0), (1, 0, 0), (0, -1, 0), x1 - x0),
+             ((x0, y1, 0), (0, -1, 0), (-1, 0, 0), depth), ((x1, y0, 0), (0, 1, 0), (1, 0, 0), depth))
+    for origin, along, out, wide in walls:
+        boards(origin, along, out, wide, wall_h, "sage")
+        trim(origin, along, out, wide, wall_h)
+    gable_end((x0, y1, 0), (x0, y0, 0), wall_h, rise, (-1, 0, 0), "sage")
+    gable_end((x1, y0, 0), (x1, y1, 0), wall_h, rise, (1, 0, 0), "sage")
+    # Its door and its window are in the wall that faces the road, and a step up to the door.
+    door((OFFICE_DOOR, y1, FLOOR), (-1, 0, 0), (0, 1, 0), "door_red", glazed=True)
+    window((x1 - 1.9, y1, FLOOR), (-1, 0, 0), (0, 1, 0), wide=1.5, tall=1.2, sill=0.95, across=3)
+    window((x0, ridge, FLOOR), (0, -1, 0), (-1, 0, 0), wide=0.9, tall=1.1, sill=1.0)
+    box("timber", 1.3, 0.4, 0.05, move(OFFICE_DOOR, y1 + 0.24, FLOOR / 2 + 0.01))
+    for x in (OFFICE_DOOR - 0.55, OFFICE_DOOR + 0.55):
+        box("timber", 0.06, 0.4, FLOOR / 2, move(x, y1 + 0.24, FLOOR / 4))
+    over, reach = 0.3, (depth / 2 + 0.35) / math.cos(pitch)
+    for side in (-1, 1):
+        down = Vector((0, side * math.cos(pitch), -math.sin(pitch)))
+        roof((x0 - over, ridge, wall_h + rise + 0.06), (1, 0, 0), down, x1 - x0 + 2 * over, reach)
+    capping((x0 - over, ridge, wall_h + rise + 0.1), (x1 + over, ridge, wall_h + rise + 0.1))
+    sign("OFFICE", ((x0 + x1) / 2 + 0.6, y1 + 0.05, wall_h - 0.32), 2.2, 0.34, along=(-1, 0, 0), out=(0, 1, 0))
+    # The sign by the road: two posts, a rail between their heads, and two boards back to
+    # back, so that it is read from the town and from the yard alike.
+    (ax, ay), (bx, _) = SIGN_POSTS
+    middle, high = (ax + bx) / 2, 4.3
+    for x in (ax, bx):
+        box("timber", 0.16, 0.16, high, move(x, ay, high / 2), grain="z")
+        box("iron_dull", 0.2, 0.2, 0.03, move(x, ay, high + 0.015))
+    box("timber", bx - ax, 0.07, 0.12, move(middle, ay, high - 0.1))
+    for along, out in (((-1, 0, 0), (0, 1, 0)), ((1, 0, 0), (0, -1, 0))):
+        face = Vector(out) * 0.05
+        sign("IRONBARK MOTORS", Vector((middle, ay, 3.5)) + face, bx - ax - 0.3, 0.86, along=along, out=out)
+        sign("USED TRUCKS   BOUGHT  &  SOLD", Vector((middle, ay, 2.78)) + face, bx - ax - 0.3, 0.36, "letter_gold", along=along, out=out)
+    # The fence: posts a couple of paces apart and two rails, round the back and both ends.
+    lx, ly, hx, _ = LOT
+    lx, ly, hx = lx + FENCE, ly + FENCE, hx - FENCE
+    runs = (((lx, ly), (hx, ly)), ((lx, ly), (lx, FENCE_TO)), ((hx, ly), (hx, FENCE_TO)))
+    for (ax, ay), (bx, by) in runs:
+        long = math.hypot(bx - ax, by - ay)
+        posts = max(2, round(long / 2.6) + 1)
+        for index in range(posts):
+            t = index / (posts - 1)
+            x, y = ax + (bx - ax) * t, ay + (by - ay) * t
+            tall = 1.18 + rng.uniform(-0.03, 0.03)
+            box("timber", 0.13, 0.13, tall, move(x, y, tall / 2) @ turn("Z", rng.uniform(-6, 6)), grain="z")
+        for z in (0.45, 0.95):
+            if ay == by:
+                box("timber", long, 0.045, 0.1, move((ax + bx) / 2, ay, z))
+            else:
+                box("timber", 0.045, long, 0.1, move(ax, (ay + by) / 2, z), grain="y")
+
+
 # =============================================================== Into Blender.
 def make_letters(materials, images):
     """The signs' words, as flat letters standing a little off their boards."""
@@ -434,7 +503,8 @@ def pictures(folder):
     scene.collection.objects.link(camera)
     scene.camera = camera
     for name, at, to, lens in (("street", (-36.0, -9.0, 2.0), (4.0, 7.0, 2.6), 28), ("buyer", (2.0, -7.5, 1.7), (7.5, 6.0, 2.4), 28),
-                               ("hotel", (-31.0, -6.0, 1.8), (-19.0, 7.0, 2.4), 30), ("above", (8.0, -42.0, 30.0), (0.0, 9.0, 1.0), 35)):
+                               ("hotel", (-31.0, -6.0, 1.8), (-19.0, 7.0, 2.4), 30), ("above", (8.0, -42.0, 30.0), (0.0, 9.0, 1.0), 35),
+                               ("yard", (-6.0, -8.0, 2.2), (10.0, -34.0, 1.6), 28)):
         camera.location = at
         camera.data.lens = lens
         look = Vector(to) - Vector(at)
@@ -452,6 +522,7 @@ def main():
     build_store()
     build_buyer()
     build_hall()
+    build_yard()
     folder = os.path.join(KEEP, "textures") if KEEP else os.path.join(os.path.dirname(os.path.abspath(OUT)), "shed_textures")
     os.makedirs(folder, exist_ok=True)
     images = kit.make_images(folder)

@@ -254,6 +254,52 @@ impl Surface {
     }
 }
 
+/// How a surface takes a tyre's mark: what is left in the ground where one has been
+/// ([`crate::rut`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Soil {
+    /// How wet what a tyre churns up is, from 0 to 1, and how wet it stays once the churned
+    /// ground has dried: a bog stays sodden, a clay track dries pale.
+    pub wet: f32,
+    pub stays: f32,
+    /// How much bare soil a tyre leaves showing where it broke the ground: all of it in
+    /// mud, most of it through leaf litter, none of it in sand, which is sand all the way
+    /// down.
+    pub churn: f32,
+    /// The share of what a tyre presses out of its rut that is heaped up beside it. Mud
+    /// flows aside; litter and dry soil pack down.
+    pub berm: f32,
+    /// How well it holds a tread's print: damp clay holds every lug, slop closes over it.
+    pub print: f32,
+}
+
+impl Surface {
+    /// How this ground takes a tyre's mark when it is this wet: 0 dry, 1 soaked.
+    pub fn soil(self, wetness: f32) -> Soil {
+        let w = wetness.clamp(0.0, 1.0);
+        let soil = |wet: f32, stays: f32, churn: f32, berm: f32, print: f32| Soil {
+            wet,
+            stays,
+            churn,
+            berm,
+            print,
+        };
+        match self {
+            Self::Asphalt | Self::Kerb | Self::Concrete | Self::Rock => {
+                soil(0.0, 0.0, 0.0, 0.0, 0.0)
+            }
+            Self::Grass => soil(0.2 + 0.5 * w, 0.1 + 0.3 * w, 0.5, 0.2, 0.5),
+            Self::Gravel => soil(0.3 * w, 0.0, 0.0, 0.45, 0.2),
+            Self::Dirt => soil(0.15 + 0.75 * w, 0.05 + 0.45 * w, 0.45 + 0.3 * w, 0.25, 0.85),
+            Self::Mud => soil(0.9, 0.55 + 0.25 * w, 1.0, 0.5, 0.85),
+            Self::Bog => soil(1.0, 0.8 + 0.2 * w, 1.0, 0.55, 0.45),
+            Self::Litter => soil(0.3 + 0.5 * w, 0.12 + 0.4 * w, 0.8, 0.2, 0.6),
+            Self::Ford => soil(1.0, 1.0, 0.25, 0.2, 0.2),
+            Self::Sand => soil(0.05 + 0.6 * w, 0.3 * w, 0.15, 0.45, 0.7),
+        }
+    }
+}
+
 impl SurfaceGrip {
     /// Rolling resistance at a speed, in metres a second, as a share of the load.
     pub fn rolling_at(&self, speed: f32) -> f32 {
@@ -357,6 +403,27 @@ mod tests {
         // The soft ones are the ones that hold a car back.
         assert!(Surface::Mud.is_soft() && Surface::Bog.is_soft() && Surface::Sand.is_soft());
         assert!(!Surface::Dirt.is_soft() && !Surface::Rock.is_soft());
+    }
+
+    #[test]
+    fn soft_ground_keeps_a_mark_and_hard_ground_none() {
+        for surface in Surface::ALL {
+            for wetness in [0.0, 0.5, 1.0] {
+                let soil = surface.soil(wetness);
+                for share in [soil.wet, soil.stays, soil.churn, soil.berm, soil.print] {
+                    assert!((0.0..=1.0).contains(&share), "{surface:?}");
+                }
+                assert!(
+                    soil.stays <= soil.wet,
+                    "{surface:?} dries wetter than it was"
+                );
+            }
+        }
+        assert_eq!(Surface::Rock.soil(1.0).churn, 0.0);
+        assert!(Surface::Bog.soil(0.0).stays > Surface::Mud.soil(0.0).stays);
+        // Rain makes a clay track's ruts wet; a bog's are wet whatever the weather.
+        assert!(Surface::Dirt.soil(1.0).wet > Surface::Dirt.soil(0.0).wet + 0.5);
+        assert_eq!(Surface::Bog.soil(0.0).wet, 1.0);
     }
 
     #[test]

@@ -1,9 +1,10 @@
 # Ironbark Flat: the town, and the road to it. Seven hundred metres of gentler country. A main
 # road comes in from the edge of the map, where the road from the Crossroads' shed arrives,
 # and driving back out by it is the way back. It runs four hundred metres, wide and smooth, to
-# what is left of a gold town: one street, and along it a hotel where used trucks are sold, a
-# motor spares store, the gold buyer's, in whose yard a truck with gold in its tray stops to
-# sell it, and a bank. The road ends at the far end of the street.
+# what is left of a gold town: one street, and along it a hotel, a motor spares store, the
+# gold buyer's, in whose yard a truck with gold in its tray stops to sell it, and a bank;
+# and across the road from them Ironbark Motors, a yard where each day's used trucks are
+# parked for sale. The road ends at the far end of the street.
 texture_size 1024
 camera -100 86 -310 1.8 -0.1
 outback 700 town >crossroads

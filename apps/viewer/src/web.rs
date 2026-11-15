@@ -452,7 +452,12 @@ impl WebViewer {
             if let Some(shell) = &mut self.shell {
                 shell.see(play.things());
                 shell.after(play.play.hud());
+                shell.bound(play.play.input_map());
                 shell.see_dirt(play.dirt());
+                let blows = play.take_damage_changes();
+                if !blows.is_empty() {
+                    shell.see_damage(play.damage().to_text(), &blows);
+                }
                 // While somebody else's run is watched, the camera is the shot's.
                 if let Some((position, yaw, pitch)) = shell.view() {
                     (camera.position, camera.yaw, camera.pitch) = (position, yaw, pitch);
@@ -461,7 +466,7 @@ impl WebViewer {
                 if let Some((at, turned, seconds)) = shell.showroom() {
                     let (at, turned) = play.stand().unwrap_or((at, turned));
                     (camera.position, camera.yaw, camera.pitch) =
-                        play.showroom_camera(at, turned, seconds);
+                        play.showroom_camera(at, turned, seconds, shell.focus());
                 }
                 let preview = shell.preview();
                 play.set_unseen(&mut self.renderer, preview.is_some());
@@ -480,9 +485,9 @@ impl WebViewer {
                         // The desktop's: in a browser the page takes hold of the mouse itself.
                         Order::Look => continue,
                         // A night slept through: it is the next morning.
-                        Order::Sleep => {
-                            self.clock.time.hours = crate::shell::MORNING;
-                            self.clock.time.day += 1.0;
+                        Order::Sleep { hours, days } => {
+                            self.clock.time.hours = hours;
+                            self.clock.time.day += days as f32;
                             continue;
                         }
                         Order::Item(shown) => {
@@ -513,10 +518,18 @@ impl WebViewer {
                             play.set_dirt(dirt);
                             continue;
                         }
+                        Order::Damage(damage) => {
+                            let _ = play.set_damage(&damage);
+                            continue;
+                        }
                         // A browser keeps one game.
                         Order::Saves(_) | Order::Options => continue,
                         Order::Show { index, paint } => {
                             play.display(&mut self.renderer, index, paint);
+                            continue;
+                        }
+                        Order::Unpark(place) => {
+                            play.unpark(&mut self.renderer, place);
                             continue;
                         }
                         Order::Fit(build) => {

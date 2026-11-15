@@ -103,6 +103,36 @@ pub fn asked(input: &Input) -> Asked {
     }
 }
 
+/// What is wrong with a car, as its driver feels it: what damage has done to how it drives.
+/// Whoever keeps the car's damage says ([`crate::Play::set_handicap`]); a sound car has none.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Handicap {
+    /// How far its steering pulls to one side, as a share of full lock: above zero to the
+    /// right. A bent wheel or a buckled arm does this, and it is held against.
+    pub pull: f32,
+    /// The share of its engine's pull it still has, from 0 to 1: an engine that has lost
+    /// its cooling is nursed.
+    pub power: f32,
+}
+
+impl Default for Handicap {
+    fn default() -> Self {
+        Self {
+            pull: 0.0,
+            power: 1.0,
+        }
+    }
+}
+
+impl Handicap {
+    /// What the car is asked for, with this wrong with it.
+    pub fn apply(&self, mut asked: Asked) -> Asked {
+        asked.steer = (asked.steer + self.pull).clamp(-1.0, 1.0);
+        asked.throttle *= self.power.clamp(0.0, 1.0);
+        asked
+    }
+}
+
 /// How hard a car that drives itself corners and brakes, in metres a second squared, and how
 /// fast it will go, in metres a second.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -508,6 +538,12 @@ pub struct HudWheel {
     /// share of its load standing still.
     pub sink: f32,
     pub load: f32,
+    /// What its tyre carries from where it has been, from 0 to 1: water, then mud.
+    pub carried: (f32, f32),
+    /// Its tyre's radius, in metres, and what its tread makes of soft ground: times its
+    /// grip there, more for a tyre with deep lugs.
+    pub radius: f32,
+    pub tread: f32,
 }
 
 impl Hud {
@@ -780,6 +816,29 @@ mod tests {
             },
         );
         assert!(low.position.y < ahead.position.y && low.position.y > 0.3);
+    }
+
+    #[test]
+    fn a_handicap_pulls_the_wheel_and_holds_the_engine_back() {
+        let asked = Asked {
+            throttle: 1.0,
+            steer: 0.2,
+            ..Asked::default()
+        };
+        // A sound car is asked for what its driver asks.
+        assert_eq!(Handicap::default().apply(asked), asked);
+        let wrecked = Handicap {
+            pull: -0.3,
+            power: 0.6,
+        };
+        let felt = wrecked.apply(asked);
+        assert!((felt.steer + 0.1).abs() < 1.0e-6 && (felt.throttle - 0.6).abs() < 1.0e-6);
+        // It pulls no further than the wheel turns.
+        let hard = Asked {
+            steer: -0.9,
+            ..asked
+        };
+        assert_eq!(wrecked.apply(hard).steer, -1.0);
     }
 
     #[test]

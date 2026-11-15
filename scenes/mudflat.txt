@@ -1,0 +1,18 @@
+# The mud proving ground: four lanes of track side by side on a flat of bush, joined into one
+# loop, for judging what tyres do to soft ground and what they throw (docs/mud.md). Not a map
+# of the game. Everything is built from the `proving` line (crates/solstice-bake/src/outback/
+# proving.rs): a bog, a wet clay track, a puddle run and dry clay, in that order from the
+# truck's left as it starts, which is at the top of the bog, facing down it.
+#
+#   bake --scene scenes/mudflat.txt --output assets/mudflat.solstice
+#   viewer assets/mudflat.solstice --play
+#
+# Baked beside assets/shared.solstice, which has the truck and the ground's textures.
+texture_size 1024
+camera -24 3.2 39 0 -0.2
+proving
+actor outback/raptor.actor -24.00 1.02 30.00 0.0 shared
+# The driver, who sits in the truck until they get out of it, and what the keys do.
+actor outback/driver.actor -24.00 1.02 30.00 0.0
+actor outback/detector.actor -24.00 1.02 30.00 0.0 shared
+input outback/game.input

@@ -230,7 +230,7 @@ public class MainActivity extends NativeActivity implements InputManager.InputDe
                 // A controller already plugged in, and any that comes or goes.
                 InputManager devices = (InputManager) getSystemService(INPUT_SERVICE);
                 devices.registerInputDeviceListener(this, null);
-                if (controllers() > 0) say("pad here");
+                if (controllers() > 0) padHere();
             }
             pages.loadUrl(address);
         });
@@ -259,9 +259,24 @@ public class MainActivity extends NativeActivity implements InputManager.InputDe
         return count;
     }
 
+    /** A controller is plugged in, and what it says it is (`pad kind`): its maker's number,
+     *  in hex, and its name, by which the game knows a PlayStation's from an Xbox's and
+     *  draws its buttons as they are. */
+    private void padHere() {
+        say("pad here");
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device != null && !device.isVirtual()
+                    && (device.getSources() & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD) {
+                say("pad kind " + String.format("%04x", device.getVendorId()) + " " + device.getName());
+                return;
+            }
+        }
+    }
+
     @Override
     public void onInputDeviceAdded(int id) {
-        if (controllers() > 0) say("pad here");
+        if (controllers() > 0) padHere();
     }
 
     @Override

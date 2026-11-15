@@ -14,7 +14,7 @@
 
 pub mod car;
 
-pub use car::Car;
+pub use car::{Car, Knock};
 pub use solstice_vehicle as vehicle;
 
 use glam::{Mat4, Quat, Vec3};
@@ -135,6 +135,8 @@ pub struct Physics {
     cars: BTreeMap<Entity, car::CarStep>,
     /// What the ground is made of at a place, for tyres.
     surfaces: Option<Box<dyn Fn(Vec3) -> solstice_vehicle::Surface>>,
+    /// What tyres have pressed into the ground: the ruts they stand in, which stay.
+    ruts: std::cell::RefCell<solstice_vehicle::Ruts>,
     /// Problems with the scene's shapes, for the viewer to show.
     pub warnings: Vec<String>,
 }
@@ -208,6 +210,7 @@ impl Physics {
             _tears: tears,
             cars: BTreeMap::new(),
             surfaces: None,
+            ruts: Default::default(),
             warnings: Vec::new(),
         }
     }
@@ -337,6 +340,23 @@ impl Physics {
             .map(|(_, distance)| from.y - distance)
     }
 
+    /// The height of whatever of the scene itself is under a place: its land, its floors and
+    /// its walls, and nothing that moves, a car or an actor or a thing lying about. For what
+    /// falls off a car to come to rest on. From inside something solid, as what comes off
+    /// against a wall is, it is what that stands on.
+    pub fn fixed_below(&self, from: Vec3) -> Option<f32> {
+        let queries = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.bodies,
+            &self.colliders,
+            QueryFilter::only_fixed().exclude_sensors(),
+        );
+        let ray = Ray::new(to_vector(from), -Vector::Y);
+        queries
+            .cast_ray(&ray, 10_000.0, false)
+            .map(|(_, distance)| from.y - distance)
+    }
+
     /// The height of the land itself under a place, if the scene has a grid of heights:
     /// not of a wall, a tree or a car that stands on it. For a camera to keep above.
     pub fn land_below(&self, from: Vec3) -> Option<f32> {
@@ -354,6 +374,17 @@ impl Physics {
             .map(|(_, distance)| from.y - distance)
     }
 
+    /// What tyres have pressed into the ground, which every car's wheels read and press
+    /// further (`solstice_vehicle::rut`): for whoever draws it.
+    pub fn ruts(&self) -> std::cell::Ref<'_, solstice_vehicle::Ruts> {
+        self.ruts.borrow()
+    }
+
+    /// The same, to change: to forget every rut, or to lay what was thrown where it landed.
+    pub fn ruts_mut(&mut self) -> &mut solstice_vehicle::Ruts {
+        self.ruts.get_mut()
+    }
+
     /// One fixed step: takes in new actors, moves kinematic ones to where their transforms say,
     /// steps the simulation, walks the characters, and writes back what physics moved.
     pub fn step(&mut self, world: &mut World) {
@@ -361,6 +392,9 @@ impl Physics {
         self.take_in_cars(world);
         self.follow_transforms(world);
         self.drive_cars(world);
+        self.ruts
+            .get_mut()
+            .advance(solstice_world::STEP_SECONDS as f32);
         self.pipeline.step(
             to_vector(Vec3::new(0.0, -GRAVITY, 0.0)),
             &self.params,

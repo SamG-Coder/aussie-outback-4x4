@@ -1,0 +1,7 @@
+# A repair bay: a place on a crash-test pad where a truck is mended. It is nothing to see
+# and nothing to bump into: the game looks for where it has been put (apps/viewer/src/wreck.rs).
+# A truck that stops within `radius` metres of it for a moment has every piece put right, and
+# one that has come to rest on its side or its roof anywhere on the pad is stood here, mended.
+# Its line in a scene may say how big it is: `actor damage/repair_bay.actor 0 0 16 0 radius=6`.
+name repair_bay
+property radius float 4.5

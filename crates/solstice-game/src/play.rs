@@ -119,6 +119,10 @@ pub struct Play {
     hud: Option<Hud>,
     /// What the timing of laps has to say, for the viewer to show.
     race_log: Rc<RefCell<Vec<String>>>,
+    /// The blows the player's car has taken since they were last asked for (`impact.rs`),
+    /// and what is wrong with it, as whoever keeps its damage last said.
+    impacts: Rc<RefCell<Vec<crate::Impact>>>,
+    handicap: Rc<Cell<drive::Handicap>>,
 }
 
 /// How fast a stick held right over swings the view round a car, in radians a second.
@@ -420,6 +424,9 @@ impl Play {
         // The pace the car is to be driven at by the game, when whoever runs it asks.
         let chauffeur: Rc<Cell<Option<drive::Pace>>> = Rc::default();
         let (hired, mut was_hired) = (chauffeur.clone(), false);
+        // What is wrong with the car, which it is driven with whoever drives it.
+        let handicap: Rc<Cell<drive::Handicap>> = Rc::default();
+        let wrong = handicap.clone();
         // On a bush track a car that drives itself tours; round a circuit, it races.
         let pace = if mapped {
             drive::Pace::TOURING
@@ -538,7 +545,12 @@ impl Play {
                 !away && world.input().pressed("tyres"),
             );
             if let Ok(mut car) = world.entities.get::<&mut Car>(entity) {
-                car.asked = asked;
+                // A car nobody is in is asked for nothing, whatever is wrong with it.
+                car.asked = if away {
+                    asked
+                } else {
+                    wrong.get().apply(asked)
+                };
                 // A four-wheel drive's lever, and its lockers: the rear, then both, then none.
                 if shift_drive {
                     let next = car.vehicle.drive_mode().next();
@@ -648,6 +660,37 @@ impl Play {
                 }
             }
         });
+        // What the player's car hits, and what comes up through its wheels: measured each
+        // step from what the physics made of it, and kept for whoever asks.
+        let impacts: Rc<RefCell<Vec<crate::Impact>>> = Rc::default();
+        let (struck, measured) = (impacts.clone(), physics.clone());
+        let mut blows = crate::impact::Blows::default();
+        schedule.add(TickGroup::PostPhysics, "blows", move |world| {
+            let Some(entity) = driven else {
+                return;
+            };
+            let measured = measured.borrow();
+            let Some(knock) = measured.car_knock(entity) else {
+                return;
+            };
+            let Ok((car, transform)) = world.entities.query_one_mut::<(&Car, &Transform)>(entity)
+            else {
+                return;
+            };
+            let spec = car.vehicle.spec();
+            let mut struck = struck.borrow_mut();
+            let touches = || measured.car_touches(entity);
+            struck.extend(blows.body(knock, transform.rotation, spec, touches));
+            let loads = std::array::from_fn(|index| car.vehicle.wheels[index].load);
+            let lifted = car.vehicle.telemetry().g.z;
+            let forces = crate::impact::wheel_forces(spec, loads, lifted);
+            for (index, force) in forces.into_iter().enumerate() {
+                struck.extend(blows.wheel(index, force, spec));
+            }
+            // Nobody asking is no reason to keep them for ever.
+            let kept = struck.len().saturating_sub(64);
+            struck.drain(..kept);
+        });
         let animated: Rc<RefCell<AnimatedActors>> = Default::default();
         let running = animated.clone();
         schedule.add(TickGroup::PostPhysics, "animation", move |world| {
@@ -700,7 +743,21 @@ impl Play {
             chase: Chase::default(),
             hud: None,
             race_log,
+            impacts,
+            handicap,
         })
+    }
+
+    /// The blows the player's car has taken since this was last asked: what its body hit
+    /// and what came up through its wheels, each with where, which way and how hard.
+    pub fn take_impacts(&mut self) -> Vec<crate::Impact> {
+        std::mem::take(&mut *self.impacts.borrow_mut())
+    }
+
+    /// Says what is wrong with the player's car, as its driver is to feel it. It stays so
+    /// until said again.
+    pub fn set_handicap(&self, handicap: drive::Handicap) {
+        self.handicap.set(handicap);
     }
 
     /// The circuit, if the scene is one.
@@ -714,9 +771,22 @@ impl Play {
         self.wetness.set(wetness.clamp(0.0, 1.0));
     }
 
+    /// What tyres have pressed into the ground (`solstice_vehicle::rut`): the ruts every
+    /// car's wheels stand in and deepen, for whoever draws them to read, and to lay what a
+    /// wheel threw where it landed.
+    pub fn ruts<R>(&self, with: impl FnOnce(&mut solstice_physics::vehicle::Ruts) -> R) -> R {
+        with(self.physics.borrow_mut().ruts_mut())
+    }
+
     /// The player's car's instruments as of the latest frame, if the player drives a car.
     pub fn hud(&self) -> Option<&Hud> {
         self.hud.as_ref()
+    }
+
+    /// How the devices' controls become the game's actions: the scene's `.input` file, or
+    /// the built-in set. For whoever shows a player which key or button does what.
+    pub fn input_map(&self) -> &InputMap {
+        &self.map
     }
 
     /// Whether the player is a car, whose instruments [`Play::hud`] has while it is driven.
@@ -786,6 +856,46 @@ impl Play {
                 }
             }
         }
+    }
+
+    /// Takes an instance off its actor: the actor no longer moves it, and whoever took it
+    /// off draws it where they will (a piece torn off a truck, lying where it fell). Gives
+    /// where it was in the actor's own space, to put it back with ([`Play::attach`]). A
+    /// car's wheel is not taken off: it is where its hub is.
+    pub fn detach(&mut self, instance: u32) -> Option<Mat4> {
+        for drawn in &mut self.drawn {
+            let Some(at) = drawn.instances.iter().position(|(id, _)| *id == instance) else {
+                continue;
+            };
+            if drawn.wheels[at].is_some() {
+                return None;
+            }
+            drawn.wheels.remove(at);
+            return Some(drawn.instances.remove(at).1);
+        }
+        None
+    }
+
+    /// Puts an instance on the player's car, there in the car's own space: one that was
+    /// taken off it ([`Play::detach`]). Whether there is a car to put it on.
+    pub fn attach(&mut self, instance: u32, local: Mat4) -> bool {
+        let Some(car) = self.player.as_ref().filter(|player| player.car) else {
+            return false;
+        };
+        let Some(drawn) = self
+            .drawn
+            .iter_mut()
+            .find(|drawn| drawn.entity == car.entity)
+        else {
+            return false;
+        };
+        if !drawn.instances.iter().any(|(id, _)| *id == instance) {
+            drawn.instances.push((instance, local));
+            drawn.wheels.push(None);
+            // Drawn again, though the car has not moved.
+            drawn.drawn = None;
+        }
+        true
     }
 
     /// Gets the player out of the car and stands them somewhere: where they came out of a
@@ -1012,6 +1122,12 @@ impl Play {
     /// thing lying there.
     pub fn surface_below(&self, from: Vec3) -> Option<f32> {
         self.physics.borrow().ground_below(from)
+    }
+
+    /// The height of whatever of the scene itself is under a place: its land and what is
+    /// built on it, and nothing that moves.
+    pub fn fixed_below(&self, from: Vec3) -> Option<f32> {
+        self.physics.borrow().fixed_below(from)
     }
 
     /// The height of the land itself under a place, whatever stands on it.
@@ -1251,6 +1367,9 @@ impl Play {
                     slip: wheel.speed * axle.radius - telemetry.speed,
                     sink: wheel.sink,
                     load: wheel.load / if index < 2 { front } else { rear },
+                    carried: car.vehicle.carried()[index],
+                    radius: axle.radius,
+                    tread: spec.tyre.tread.1,
                 };
             }
             match (entities.get::<&Lap>(player.entity).ok(), &mut hud.lap) {
