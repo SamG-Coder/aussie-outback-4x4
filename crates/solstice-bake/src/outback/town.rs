@@ -131,6 +131,25 @@ impl Town {
         .collect()
     }
 
+    /// Where a truck stands in the yard before each of those buildings, to be looked at
+    /// while what is behind its door is dealt with: where, and the way it faces, a yaw in
+    /// degrees. It faces the road, with the building behind it.
+    pub fn stands(&self) -> Vec<(&'static str, Vec3, f32)> {
+        let middle = |index: usize| (BUILDINGS[index][0] + BUILDINGS[index][1]) * 0.5;
+        let yaw = (-self.front.x).atan2(-self.front.y).to_degrees();
+        [
+            ("used", middle(0)),
+            ("shop", middle(1)),
+            ("bank", middle(3)),
+        ]
+        .into_iter()
+        .map(|(what, x)| {
+            let at = self.place(x, FRONT - DECK - 6.5);
+            (what, Vec3::new(at.x, self.height, at.y), yaw)
+        })
+        .collect()
+    }
+
     /// Each building as a truck meets it and as somebody on foot does: its walls, which
     /// stop both; its verandah's deck, which is low, and is stepped up onto to come to its
     /// doors; and the posts along the deck's edge.

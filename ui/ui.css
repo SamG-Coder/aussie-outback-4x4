@@ -65,8 +65,15 @@ body[data-screen="pause"] #pause,
 body[data-screen="offer"] #offer,
 body[data-screen="controls"] #controls,
 body[data-screen="shed"] #shed,
+body[data-screen="yard"] #yard,
+body[data-screen="newgame"] #newgame,
+body[data-screen="loadgame"] #loadgame,
 body[data-screen="buyer"] #buyer,
 body[data-screen="map"] #map,
+body[data-screen="lineup"] #lineup,
+body[data-screen="watch"] #watch,
+body[data-screen="result"] #result,
+body[data-screen="calendar"] #calendar,
 body[data-screen="loading"] #loading { display: block; animation: arrive 0.28s ease-out both; }
 /* Asleep: dark comes down, the new day is named, and it lifts. */
 body[data-screen="sleep"] #sleep { display: grid; place-items: center; background: #050403; animation: night 3.4s ease-in-out both; }
@@ -336,6 +343,83 @@ body.touch:not(.pad) .tilt { left: auto; right: 22rem; top: 2.4rem; bottom: auto
 .facts { display: flex; gap: 3rem; margin-top: 1.7rem; padding: 1.1rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .facts dt { font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
 .facts dd { font: 700 1.7rem/1.2 var(--sign); font-stretch: 75%; margin-top: 0.4rem; font-variant-numeric: tabular-nums; }
+/* ---- The kept games: a row each, the one being played marked. */
+.save-row { display: flex; align-items: center; gap: 0.8rem; margin-top: 0.6rem; padding: 0.7rem 0.9rem; border: 1px solid var(--line); }
+.save-row.playing { border-color: var(--ochre); background: rgba(229, 138, 46, 0.1); }
+.save-row > span { flex: 1; min-width: 0; }
+.save-row b { display: block; font: 700 1.5rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; }
+.save-row i { display: block; margin-top: 0.2rem; font: normal 1rem/1.3 var(--text); color: var(--dust); }
+.save-row button { padding: 0.5rem 0.9rem; border: 1px solid var(--line); font: 700 1.1rem/1 var(--sign); font-stretch: 75%; text-transform: uppercase; color: var(--dust); }
+.save-row button.held { color: var(--bone); border-color: var(--ochre); background: rgba(229, 138, 46, 0.2); }
+.save-row button.sure { color: var(--ink); background: var(--clay); border-color: var(--clay); }
+
+/* ---- The yard, over the showroom. The truck is in the middle of the screen, and is the
+   game's own picture of it: the page is round its edges, and dark only there. */
+.show-shade { position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 62% 58% at 46% 50%, rgba(6, 6, 8, 0) 55%, rgba(6, 6, 8, 0.62) 100%),
+    linear-gradient(180deg, rgba(6, 6, 8, 0.82) 0, rgba(6, 6, 8, 0) 21%, rgba(6, 6, 8, 0) 60%, rgba(6, 6, 8, 0.94) 86%); }
+/* Where there is no showroom to stand it in, a picture of it. */
+.show-flat { display: none; position: absolute; left: 44%; top: 46%; transform: translate(-50%, -50%); width: min(58vw, 62rem); }
+#yard.flat { background: radial-gradient(ellipse at 46% 46%, #4a4b4f 0, #1a1a1d 70%); }
+#yard.flat .show-flat { display: block; }
+.show-top { position: absolute; left: 3.2rem; right: 3.2rem; top: 2rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 2rem; }
+.show-title { font: 700 3.3rem/1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; margin-top: 0.3rem; }
+.show-about { margin-top: 0.7rem; max-width: 34rem; font-size: 1.05rem; line-height: 1.45; color: var(--dust); }
+.show-money { display: flex; gap: 2.2rem; text-align: right; }
+.show-money dt { font: 600 0.75rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.show-money dd { margin-top: 0.35rem; font: 700 1.7rem/1 var(--sign); font-stretch: 75%; font-variant-numeric: tabular-nums; }
+.show-money dd.owed { color: var(--ochre); }
+/* What the truck in hand is, down the right; and in the shop and the bank, what there is to choose. */
+.show-side { position: absolute; right: 3.2rem; top: 9.5rem; bottom: 17.5rem; width: 23rem; display: flex; flex-direction: column; gap: 1rem; min-height: 0; }
+.show-spec { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1.2rem; padding: 1rem 1.2rem; background: rgba(10, 10, 12, 0.62);
+  border-top: 0.2rem solid var(--ochre); backdrop-filter: blur(6px); }
+.show-spec:empty { display: none; }
+.show-spec dt { font: 600 0.75rem/1.5 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.show-spec dd { font: 600 1.1rem/1.2 var(--sign); text-align: right; font-variant-numeric: tabular-nums; }
+.show-spec dd.big { font-size: 1.6rem; font-weight: 700; color: var(--gum); }
+.show-spec p { grid-column: 1 / -1; font: normal 0.95rem/1.4 var(--text); color: var(--dust); padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); }
+.show-rows { overflow-y: auto; min-height: 0; padding: 0.2rem; }
+.show-rows:empty { display: none; }
+.part-row { display: flex; align-items: center; gap: 0.35rem; margin-top: 0.4rem; flex-wrap: wrap; padding: 0.5rem 0.6rem; background: rgba(10, 10, 12, 0.62); }
+.part-row > span { width: 100%; font: 600 0.72rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); margin-bottom: 0.2rem; }
+.part-row button { padding: 0.35rem 0.6rem; border: 1px solid var(--line); font: 600 0.95rem/1.1 var(--sign); color: var(--bone); text-align: left; }
+.part-row button small { display: block; font: normal 0.75rem/1.2 var(--text); color: var(--dust); }
+.part-row button.fitted { color: var(--ink); background: var(--gum); border-color: var(--gum); }
+.part-row button.fitted small { color: var(--ink); }
+.part-row button.held { border-color: var(--ochre); box-shadow: 0 0 0 0.12rem var(--ochre); }
+.part-row button.swatch { width: 2.2rem; height: 1.9rem; padding: 0; }
+/* Along the bottom: the trucks to choose from, the one in hand marked; its name; what can be done. */
+.show-foot { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 3.2rem 3.4rem; overflow-x: clip; }
+.yard-said { min-height: 1.4rem; text-align: center; font: 600 1.1rem/1.3 var(--sign); color: var(--ochre); }
+/* The row slides, so that the truck in hand is always in the middle of the screen: `--at` is
+   its place in the row. */
+.lot { display: flex; gap: 0.7rem; width: max-content; margin-left: 50%; padding: 0.9rem 0 0.5rem;
+  transform: translateX(calc(-5rem - var(--at, 0) * 10.7rem)); transition: transform 0.18s ease-out; }
+.lot:empty { display: none; }
+.lot button { flex: 0 0 10rem; position: relative; opacity: 0.55; border-bottom: 0.25rem solid transparent; transition: opacity 0.14s, transform 0.14s ease-out; }
+.lot button img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: #2a2a2e; }
+.lot button.held { opacity: 1; transform: translateY(-0.35rem); border-bottom-color: var(--ochre); box-shadow: 0 0.6rem 1.4rem rgba(0, 0, 0, 0.6); }
+.lot button.gone img { filter: grayscale(1) brightness(0.6); }
+.lot button .tag { position: absolute; left: 0; top: 0; font: 700 0.65rem/1 var(--sign); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); background: var(--ochre); padding: 0.2rem 0.4rem; }
+.lot button .dot { position: absolute; right: 0.3rem; top: 0.3rem; }
+.dot { display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 50%; border: 1px solid rgba(242, 234, 219, 0.7); }
+.show-name { text-align: center; margin-top: 0.3rem; min-height: 4.2rem; }
+.show-name b { display: block; font: 700 2.5rem/1.05 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.03em; text-shadow: 0 0.15rem 0.6rem rgba(0, 0, 0, 0.8); }
+.show-name span { display: block; margin-top: 0.3rem; font-size: 1.05rem; color: var(--dust); }
+.show-bar { display: flex; justify-content: space-between; align-items: flex-end; gap: 2rem; margin-top: 0.8rem; }
+.show-acts, .show-tabs { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.show-acts button { padding: 0.7rem 1.3rem 0.75rem; text-align: left; border: 1px solid var(--line); border-bottom: 0.25rem solid transparent; background: rgba(10, 10, 12, 0.7); }
+.show-acts button span { display: block; font: 700 1.5rem/1 var(--sign); font-stretch: 75%; text-transform: uppercase; }
+.show-acts button small { display: block; margin-top: 0.3rem; font-size: 0.9rem; color: var(--dust); }
+.show-acts button.held { border-color: var(--ochre); background: rgba(229, 138, 46, 0.22); }
+.show-acts button svg { display: block; width: 2.6rem; height: 2.6rem; margin-bottom: 0.5rem; fill: none; stroke: var(--bone); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.show-acts.home { position: absolute; left: 3.2rem; bottom: 9rem; flex-direction: column; }
+.show-acts.home button { min-width: 19rem; display: grid; grid-template-columns: auto 1fr; column-gap: 1rem; align-items: center; }
+.show-acts.home button svg { grid-row: 1 / 3; margin: 0; }
+.show-tabs button { padding: 0.5rem 0.9rem; font: 700 1.1rem/1 var(--sign); font-stretch: 75%; text-transform: uppercase; color: var(--dust); border-bottom: 0.2rem solid transparent; }
+.show-tabs button.held { color: var(--bone); border-bottom-color: var(--ochre); }
+
 /* What a track is driven in: a row of choices, one of them picked. */
 .choice { display: flex; align-items: center; gap: 1.4rem; margin-top: 1.1rem; }
 .choice > span { width: 6.5rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
@@ -393,3 +477,296 @@ kbd { display: inline-grid; place-items: center; min-width: 2rem; height: 1.9rem
   #controls kbd { height: 1.45rem; min-width: 1.7rem; font-size: 0.85em; }
   #controls .menu.small { margin-top: 0.5rem; }
 }
+
+/* ---- Timed runs (docs/campaign.md). The medals' colours, wherever a medal is. */
+.sprite { position: absolute; }
+.gold { --medal: #f0b93a; }
+.silver { --medal: #cdd3d6; }
+.bronze { --medal: #cf8a55; }
+/* A class's truck, where a mark would be. */
+.class-mark { width: 3.6rem; height: 1.8rem; fill: var(--ochre); }
+
+/* At a trailhead: the classes, each a truck and a number, and the class's three medals. */
+.chips.classes button { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.8rem 0.3rem 0.6rem; }
+.chips.classes svg { width: 3.4rem; height: 1.7rem; fill: currentColor; }
+.chosen { font: 700 1.15rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--bone); }
+.chips button small { margin-left: 0.5rem; font: 700 0.8rem/1 var(--sign); letter-spacing: 0.04em; color: var(--ochre); }
+.chips button.picked small { color: var(--clay); }
+.chips button.today::after { content: "today"; margin-left: 0.5rem; font: 600 0.7rem/1 var(--sign); letter-spacing: 0.12em; opacity: 0.7; }
+.medals { display: flex; align-items: center; gap: 2.2rem; margin: 0.9rem 0 0 7.9rem; }
+.medals > div { display: flex; align-items: center; gap: 0.6rem; opacity: 0.62; }
+.medals > div.won { opacity: 1; }
+.medals svg { width: 2.2rem; height: 2.2rem; fill: var(--medal); }
+.medals b { display: block; font: 700 1.4rem/1.1 var(--sign); font-stretch: 75%; font-variant-numeric: tabular-nums; }
+.medals span { font: 600 0.8rem/1 var(--sign); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dust); }
+.medals > div.won span { color: var(--medal); }
+.medals small { font-size: 0.95rem; color: var(--dust); max-width: 16rem; }
+#offer .card .art { height: 9rem; }
+#offer .facts { margin-top: 1.1rem; padding: 0.8rem 0; }
+#offer .tiles button { padding: 1rem 1.2rem 1.1rem; }
+
+/* Driving against the clock: each medal's time and how the lap stands against it. */
+.targets { list-style: none; margin: 0.7rem 0 0; padding: 0.6rem 0 0; border-top: 1px solid var(--line); display: grid; gap: 0.25rem;
+  font-variant-numeric: tabular-nums; }
+.targets li { display: grid; grid-template-columns: 1.5rem 1fr auto; align-items: center; gap: 0.6rem; opacity: 0.55; }
+.targets li.inside { opacity: 1; }
+.targets svg { width: 1.4rem; height: 1.4rem; fill: var(--medal); }
+.targets b { font: 600 1.15rem/1.2 var(--sign); }
+.targets span { font: 700 1.15rem/1.2 var(--sign); color: var(--clay); }
+.targets li.inside span { color: var(--gum); }
+/* The others, on the little map: a dot each, in its medal's colour. */
+.ghost { position: absolute; width: 0.9rem; height: 0.9rem; margin: -0.45rem 0 0 -0.45rem; border-radius: 50%; background: var(--medal);
+  border: 0.14rem solid #2a2018; box-shadow: 0 0 0.4rem rgba(0, 0, 0, 0.5); transition: left 0.1s linear, top 0.1s linear; }
+.ghost.far { opacity: 0.55; transform: scale(0.75); }
+
+/* The line-up: down the left, the truck at the line behind it. */
+.column.lineup { width: min(50rem, 86vw); }
+.lineup .heading { font-size: 4rem; }
+.label { margin-top: 1.5rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.rivals { display: grid; gap: 0.25rem; margin-top: 0.7rem; }
+.rivals button { display: grid; grid-template-columns: 2.4rem 0.9rem 1fr auto 6.5rem; align-items: center; gap: 0.9rem;
+  padding: 0.55rem 1rem 0.55rem 0.8rem; border-left: 0.3rem solid transparent; background: rgba(17, 13, 10, 0.5); }
+.rivals svg { width: 2.2rem; height: 2.2rem; fill: var(--medal); }
+.rivals i { width: 0.9rem; height: 0.9rem; border-radius: 50%; border: 1px solid var(--line); }
+.rivals b { display: block; font: 700 1.5rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
+.rivals small { font-size: 0.95rem; color: var(--dust); }
+.rivals em { font: 700 1.7rem/1 var(--sign); font-stretch: 75%; font-style: normal; font-variant-numeric: tabular-nums; }
+.rivals strong { text-align: right; font: 600 0.85rem/1.25 var(--sign); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dust); }
+.rivals button.won strong { color: var(--medal); }
+.rivals button.held { border-left-color: var(--ochre); background: linear-gradient(90deg, rgba(229, 138, 46, 0.24), rgba(17, 13, 10, 0.5) 85%); }
+.rivals button.held strong::after { content: "  \25B6  watch"; color: var(--ochre); }
+.lineup .tiles { margin-top: 1.2rem; }
+.lineup .menu.small { margin-top: 1rem; }
+.menu.small.row { display: flex; gap: 1.5rem; }
+
+/* Watching: bars above and below, and who it is, low on the left. */
+.bars i { position: absolute; left: 0; right: 0; height: 10vh; background: #050403; }
+.bars i:first-child { top: 0; }
+.bars i:last-child { bottom: 0; }
+.watching { position: absolute; left: 2.6rem; bottom: calc(10vh + 2rem); padding: 1rem 1.6rem 1.1rem 1.3rem; min-width: 22rem;
+  background: var(--panel); border-left: 0.3rem solid var(--medal, var(--ochre)); }
+.watching h2 { font: 700 2.4rem/1.05 var(--sign); font-stretch: 75%; text-transform: uppercase; margin-top: 0.5rem; }
+.watching .facts-line { margin-top: 0.4rem; font-size: 0.9rem; }
+.watching .clock { margin-top: 0.8rem; display: flex; align-items: baseline; gap: 1rem; font-variant-numeric: tabular-nums; }
+.watching .clock b { font: 700 3.4rem/1 var(--sign); font-stretch: 75%; }
+.watching .clock span { font: 600 0.9rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.skipper { position: absolute; right: 2.6rem; bottom: calc(10vh + 2rem); }
+.skipper button { display: flex; align-items: center; gap: 0.7rem; padding: 0.7rem 1.2rem; background: var(--panel); border-bottom: 0.2rem solid var(--ochre);
+  font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone); }
+body.pad .skipper kbd { border-radius: 50%; padding: 0; }
+
+/* The result: the time, the medal beside it, and what was paid, line by line. */
+.outcome { display: flex; align-items: center; gap: 1.6rem; margin-top: 1rem; }
+.outcome svg { width: 7rem; height: 7rem; fill: var(--medal, rgba(242, 234, 219, 0.18)); }
+.outcome .heading { margin-top: 0; font-size: 5.4rem; font-variant-numeric: tabular-nums; }
+.outcome .facts-line { color: var(--medal, var(--dust)); }
+#result-medals > div { opacity: 0.55; }
+#result-medals > div.won, #result-medals > div:last-child { opacity: 1; }
+#result-medals dt { color: var(--medal, var(--dust)); }
+#result-medals small { font: 600 0.95rem/1 var(--sign); color: var(--dust); font-variant-numeric: tabular-nums; }
+#result-medals .won small { color: var(--gum); }
+.purse { margin-top: 1.1rem; font-size: 1.15rem; }
+.purse td { padding: 0.36rem 0; }
+.purse td:first-child { width: auto; }
+.purse td:last-child { text-align: right; font: 700 1.3rem/1 var(--sign); font-variant-numeric: tabular-nums; color: var(--bone); }
+.purse tr.total td { border-top: 1px solid var(--dust); padding-top: 0.6rem; color: var(--bone); }
+.purse tr.total td:last-child { font-size: 1.9rem; color: #f0b93a; }
+#result .about { margin-top: 0.7rem; }
+#result .tiles button { padding: 1rem 1.2rem 1.1rem; }
+
+/* The calendar: four weeks of squares, and what is due beside them. */
+.card.calendar-card { width: min(92vw, 84rem); display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 2.6rem; align-items: start; }
+.calendar-card .heading { font-size: 3.4rem; }
+.weekdays, .days { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.4rem; }
+.weekdays { margin-top: 1.4rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.weekdays span { padding: 0 0.6rem 0.5rem; }
+.days > div { position: relative; height: 7.4rem; padding: 0.5rem 0.6rem; border: 1px solid var(--line); background: rgba(242, 234, 219, 0.03); }
+.days b { font: 700 1.5rem/1 var(--sign); font-stretch: 75%; }
+.days b small { margin-left: 0.4rem; font: 600 0.75rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ochre); }
+.days svg { position: absolute; right: 0.5rem; top: 0.45rem; width: 2.5rem; height: 2.5rem; fill: var(--bone); color: var(--bone); }
+.days .due { position: absolute; left: 0; right: 0; bottom: 0; padding: 0.28rem 0.6rem; background: rgba(194, 70, 31, 0.3); border-top: 1px solid var(--clay);
+  font: 700 0.95rem/1.1 var(--sign); letter-spacing: 0.04em; font-variant-numeric: tabular-nums; }
+.days .due span { display: block; font: 600 0.65rem/1.1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.days .past { opacity: 0.42; }
+.days .today { border-color: var(--ochre); box-shadow: inset 0 0 0 0.12rem var(--ochre); background: rgba(229, 138, 46, 0.14); }
+.days .forecast svg { fill: var(--bone); color: var(--bone); }
+.days .outlook svg { opacity: 0.45; }
+.days .storm svg { fill: #9fc3dc; color: #9fc3dc; }
+.days .when { position: absolute; left: 0.6rem; top: 2.5rem; font: 600 0.65rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.days .today .when { color: var(--ochre); }
+.calendar-side h2 { font: 700 1.9rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; margin-top: 0.5rem; }
+.calendar-side .label:first-child { margin-top: 0.3rem; }
+.sky-line { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.5rem; font: 600 1.05rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.sky-line svg { width: 2.2rem; height: 2.2rem; fill: var(--bone); color: var(--bone); }
+.dues { list-style: none; margin: 0.9rem 0 0; padding: 0; display: grid; gap: 0.3rem; font-size: 1.1rem; color: var(--dust); }
+.dues li { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--line); }
+.dues li b { font: 700 1.2rem/1.2 var(--sign); color: var(--bone); font-variant-numeric: tabular-nums; }
+.dues li.total { border-bottom: 0; color: var(--bone); }
+.dues li.total b { color: var(--ochre); font-size: 1.5rem; }
+.calendar-side .legend { font-size: 0.95rem; color: var(--dust); margin-top: 1.4rem; }
+.key-forecast { background: var(--bone); }
+.key-outlook { background: rgba(242, 234, 219, 0.4); }
+.key-due { background: rgba(194, 70, 31, 0.5); border-top: 1px solid var(--clay); }
+@media (max-height: 760px), (max-width: 1100px) {
+  .card.calendar-card { grid-template-columns: minmax(0, 1fr) 16rem; gap: 1.4rem; }
+  .days > div { height: 6rem; }
+}
+/* A timed run is one lap: only its clock is shown. */
+.where dl.once > :not(.keep) { display: none; }
+
+/* ---- The main menu: the game's name and its menu down a rail on the left, the bush behind;
+   what the choice in hand does, in one line under them all. */
+.scrim-title { background:
+  linear-gradient(90deg, rgba(8, 6, 4, 0.93) 0, rgba(8, 6, 4, 0.86) 30rem, rgba(8, 6, 4, 0.4) 44rem, rgba(8, 6, 4, 0) 62rem),
+  linear-gradient(0deg, rgba(8, 6, 4, 0.72) 0%, rgba(8, 6, 4, 0) 20%),
+  linear-gradient(180deg, rgba(8, 6, 4, 0.5) 0%, rgba(8, 6, 4, 0) 16%); }
+.rail { position: absolute; left: 6.5rem; top: 0; bottom: 0; width: 31rem; display: flex; flex-direction: column;
+  justify-content: center; gap: 2.8rem; padding-bottom: 3rem; }
+.rail .wordmark { font-size: 6.2rem; margin: 1.1rem 0 0; }
+.menu.main { position: relative; display: block; padding: 1rem 0 4.4rem; border-top: 1px solid var(--line); }
+.menu.main button { position: static; display: block; width: 100%; min-width: 0; padding: 0.62rem 1.3rem;
+  border-left: 0.25rem solid transparent; transition: background 0.12s ease-out, padding 0.12s ease-out; }
+.menu.main button span { font-size: 2.05rem; letter-spacing: 0.07em; }
+.menu.main button.held { padding-left: 1.7rem;
+  background: linear-gradient(90deg, rgba(229, 138, 46, 0.24), rgba(229, 138, 46, 0) 92%); }
+.menu.main button small { position: absolute; left: 0; right: 0; bottom: 0; height: 3.4rem; padding: 1rem 0 0 1.55rem;
+  border-top: 1px solid var(--line); font-size: 1.08rem; line-height: 1.3; }
+@media (max-height: 560px) {
+  .rail { gap: 1.2rem; padding-bottom: 2rem; }
+  .rail .wordmark { font-size: 4.4rem; }
+  .menu.main button { padding: 0.35rem 1.3rem; }
+  .menu.main button span { font-size: 1.7rem; }
+}
+
+/* ---- The kept games: a tile each, side by side. The one in hand is lit; one that is about
+   to be written over, or deleted, is the colour of a warning. */
+.card.slots-card { width: min(80rem, 94vw); }
+.slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.7rem; }
+.slot { display: flex; flex-direction: column; min-height: 22rem; padding: 1rem 1.1rem 1.1rem; text-align: left;
+  border: 1px solid var(--line); background: rgba(242, 234, 219, 0.035);
+  transition: background 0.12s ease-out, border-color 0.12s ease-out, transform 0.12s ease-out; }
+.slot > b { font: 600 0.85rem/1 var(--sign); letter-spacing: 0.22em; text-transform: uppercase; color: var(--ochre); }
+.slot img, .slot .blank { display: block; width: 100%; aspect-ratio: 16 / 9; margin: 0.8rem 0 0.9rem; object-fit: cover; }
+.slot .blank { display: grid; place-items: center; border: 1px dashed var(--line);
+  font: 600 0.9rem/1 var(--sign); letter-spacing: 0.2em; text-transform: uppercase; color: var(--dust); }
+.slot strong { font: 700 1.7rem/1.05 var(--sign); font-stretch: 75%; text-transform: uppercase; }
+.slot > i { margin-top: 0.25rem; font: normal 1rem/1.3 var(--text); color: var(--dust); }
+.slot dl { display: flex; gap: 1.6rem; margin: 0.8rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--line); }
+.slot dt { font: 600 0.7rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.slot dd { margin-top: 0.3rem; font: 700 1.25rem/1.1 var(--sign); font-stretch: 75%; font-variant-numeric: tabular-nums; }
+.slot em { margin-top: auto; padding: 0.65rem 0.9rem; text-align: center; border: 1px solid var(--line);
+  font: 700 1.15rem/1 var(--sign); font-stretch: 75%; font-style: normal; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dust); }
+.slot dl + em, .slot > i + em { margin-top: auto; }
+.slot.empty { opacity: 0.55; }
+button.slot.held { border-color: var(--ochre); background: rgba(229, 138, 46, 0.13); transform: translateY(-0.2rem); }
+button.slot.held em { color: var(--ink); background: var(--ochre); border-color: var(--ochre); }
+button.slot.sure em, button.slot.sure.held em { color: var(--bone); background: var(--clay); border-color: var(--clay); }
+.slot-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 0.6rem; }
+.slot-acts button { padding: 0.55rem 0.9rem; text-align: center; border: 1px solid var(--line);
+  font: 700 1rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dust); }
+.slot-acts button.held { color: var(--bone); border-color: var(--clay); background: rgba(194, 70, 31, 0.25); }
+.slot-acts button.sure { color: var(--bone); background: var(--clay); border-color: var(--clay); }
+@media (max-height: 560px) { .slot { min-height: 0; } .slot img, .slot .blank { display: none; } }
+
+/* ---- The options: tabs across the top, and under them the page of the one picked. */
+.card.options { width: min(74rem, 94vw); min-height: 44rem; display: flex; flex-direction: column; }
+.tabs { display: flex; gap: 0.2rem; margin-top: 1.2rem; border-bottom: 1px solid var(--line); }
+.tabs button { padding: 0.8rem 1.6rem 0.75rem; border-bottom: 0.25rem solid transparent; margin-bottom: -1px;
+  font: 700 1.5rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dust); }
+.tabs button.picked { color: var(--bone); border-bottom-color: var(--ochre); }
+.tabs button.held { background: rgba(229, 138, 46, 0.16); color: var(--bone); }
+.tab { display: none; flex: 1; padding-top: 0.6rem; }
+.tab.shown { display: block; }
+.tab .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 3rem; align-items: start; }
+.tab table { margin-top: 1rem; font-size: 1.05rem; }
+.tab td { padding: 0.42rem 0; }
+.tab td:first-child { width: 52%; }
+.option { display: grid; grid-template-columns: minmax(0, 1fr) auto 5rem; align-items: center; gap: 2rem; padding: 1.3rem 0;
+  border-bottom: 1px solid var(--line); }
+.option p b { display: block; font: 700 1.6rem/1.1 var(--sign); font-stretch: 75%; text-transform: uppercase; }
+.option p i { display: block; margin-top: 0.3rem; font: normal 1.05rem/1.35 var(--text); color: var(--dust); }
+.option output { font: 700 1.6rem/1 var(--sign); font-stretch: 75%; text-align: right; font-variant-numeric: tabular-nums; }
+.pips { display: flex; gap: 0.3rem; }
+.pips button { width: 1.5rem; height: 2.4rem; background: rgba(242, 234, 219, 0.12); border: 1px solid transparent; }
+.pips button.on { background: var(--ochre); }
+.pips button.held { border-color: var(--bone); }
+.choice { display: flex; gap: 0.5rem; }
+.choice button { padding: 0.7rem 1.3rem; border: 1px solid var(--line);
+  font: 700 1.15rem/1 var(--sign); font-stretch: 75%; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dust); }
+.choice button.picked { color: var(--ink); background: var(--ochre); border-color: var(--ochre); }
+.choice button.held { border-color: var(--bone); color: var(--bone); }
+.choice button.picked.held { color: var(--ink); }
+.card.options .menu.small { margin-top: 1.4rem; }
+@media (max-height: 560px) {
+  .card.options { min-height: 0; }
+  .tabs button { padding: 0.45rem 1rem; font-size: 1.2rem; }
+  .tab table { margin-top: 0.3rem; font-size: 0.95rem; }
+  .tab td { padding: 0.08rem 0; }
+  .tab kbd { height: 1.4rem; min-width: 1.6rem; font-size: 0.85em; }
+}
+
+/* ---- Loading: the map's picture, all of it, and along its foot where it is going, a word
+   of bush sense, and a line that runs while it loads. */
+#loading .scrim-loading { background:
+  linear-gradient(0deg, rgba(8, 6, 4, 0.97) 0%, rgba(8, 6, 4, 0.82) 22%, rgba(8, 6, 4, 0.25) 48%, rgba(8, 6, 4, 0) 64%),
+  linear-gradient(180deg, rgba(8, 6, 4, 0.55) 0%, rgba(8, 6, 4, 0) 18%); }
+#loading .column { left: 6.5rem; right: 6.5rem; top: auto; bottom: 8.2rem; width: auto; transform: none;
+  display: grid; grid-template-columns: minmax(0, 1fr) 30rem; column-gap: 4rem; align-items: end; }
+#loading .heading { font-size: 6.4rem; }
+#loading .tip { margin: 0; }
+#loading .tread { position: absolute; left: 6.5rem; right: 6.5rem; bottom: 6rem; width: auto; height: 0.3rem; margin: 0; }
+@media (max-height: 560px) {
+  #loading .column { bottom: 5.4rem; grid-template-columns: minmax(0, 1fr) 24rem; }
+  #loading .heading { font-size: 4.4rem; }
+  #loading .tread { bottom: 4rem; }
+}
+
+/* ---- The detector: what it hears, in words, and what to do about it. */
+.detector p.detector-tip { margin-top: 0.55rem; font: normal 0.95rem/1.3 var(--text); color: var(--dust);
+  letter-spacing: 0; text-transform: none; display: block; }
+
+/* The colour that is worn, among the colours to choose from. */
+.part-row button.swatch.fitted { outline: 0.18rem solid var(--bone); outline-offset: 0.14rem; }
+
+/* A first truck's colour, chosen in the strip its truck was chosen in: a swatch and its name. */
+.lot button.colour { text-align: center; }
+.lot button.colour i { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid rgba(242, 234, 219, 0.25); }
+.lot button.colour b { display: block; padding: 0.35rem 0 0.2rem; font: 600 0.8rem/1.1 var(--sign); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone); }
+
+/* ---- A place stopped at (the shed, the gold buyer's) is a menu down the rail, as the main
+   menu and the pause menu are: what it is and what is there above, what to do below. */
+.rail .heading { font-size: 4.4rem; }
+.rail .about { margin-top: 0.9rem; font-size: 1.08rem; }
+.rail .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 2rem; margin-top: 1.3rem; padding: 1rem 0 0; border-bottom: 0; }
+.rail .facts dd { font-size: 1.5rem; }
+.menu.main button:disabled span { opacity: 0.4; }
+@media (max-height: 560px) {
+  .rail .about { display: none; }
+  .rail .heading { font-size: 3rem; }
+  .rail .facts { margin-top: 0.6rem; padding-top: 0.6rem; gap: 0.4rem 2rem; }
+}
+
+/* ---- A tile of the strip that is words: a section of the auto shop, a part, something at
+   the bank's counter. The same size as a truck's picture, so the strip slides the same. */
+.lot button.tile { display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; aspect-ratio: 16 / 9;
+  padding: 0.5rem 0.8rem; text-align: left; border: 1px solid var(--line); border-bottom-width: 0.25rem;
+  background: rgba(17, 13, 10, 0.86); }
+.lot button.tile b { font: 700 1.2rem/1.05 var(--sign); font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase; color: var(--bone); }
+.lot button.tile small { font: normal 0.82rem/1.2 var(--text); color: var(--dust); }
+.lot button.tile.fitted, .lot button.colour.fitted i { border-color: var(--gum); }
+.lot button.tile.fitted small { color: var(--gum); }
+.lot button.tile.held { border-bottom-color: var(--ochre); }
+
+/* What being put back on the track has cost a lap so far, beside the section it is in. */
+#laps .penalty { color: var(--clay); margin-left: 0.5rem; font-weight: 700; }
+
+/* On the map: where the driver has said they are going, and the places to choose from. */
+.chart-flag { position: absolute; width: 1.9rem; height: 1.9rem; transform: translate(-25%, -92%); fill: var(--ochre);
+  stroke: var(--ink); stroke-width: 1.2; pointer-events: none; filter: drop-shadow(0 0.15rem 0.3rem rgba(0, 0, 0, 0.7)); }
+.chart { cursor: crosshair; }
+.menu.small.places { margin-top: 0.4rem; gap: 0; }
+.menu.small.places button { padding: 0.28rem 1rem 0.28rem 0.9rem; min-width: 0; }
+.menu.small.places button span { font-size: 1.2rem; }
+.menu.small.places button.going span { color: var(--ochre); }
+.chart-side .label { margin-top: 1.2rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.chart-side #chart-going { margin-top: 0.4rem; font-size: 1rem; }

@@ -361,6 +361,18 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
             use crate::outback::Country;
             let (country, leads) = match &values[1..] {
                 [] => (Country::TRACK, Vec::new()),
+                // (A track's `+MAP` is its gate: a trailhead beside its start, back to a hub.)
+                [gate] if gate.starts_with('+') => (Country::TRACK, vec![gate.to_string()]),
+                [kind, gate]
+                    if !matches!(*kind, "hub" | "town")
+                        && Country::named(kind).is_some()
+                        && gate.starts_with('+') =>
+                {
+                    (
+                        Country::named(kind).expect("just seen"),
+                        vec![gate.to_string()],
+                    )
+                }
                 [hub, maps @ ..] if matches!(*hub, "hub" | "town") && (1..=6).contains(&maps.len()) => (
                     Country::named(hub).expect("one of the two"),
                     maps.iter().map(|map| map.to_string()).collect(),

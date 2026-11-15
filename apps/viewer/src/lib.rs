@@ -42,7 +42,13 @@ mod sony {
     }
 }
 #[cfg(feature = "gameplay")]
+pub mod calendar;
+#[cfg(feature = "gameplay")]
+pub mod cinema;
+#[cfg(feature = "gameplay")]
 pub mod gold;
+#[cfg(feature = "gameplay")]
+pub mod kit;
 #[cfg(feature = "gameplay")]
 pub mod nugget;
 #[cfg(feature = "gameplay")]
@@ -57,6 +63,10 @@ pub mod sound_table;
 // In a browser the page plays the sounds, and the game's sound is what it asks of the page.
 #[cfg(feature = "gameplay")]
 pub mod sound_web;
+#[cfg(feature = "gameplay")]
+pub mod timed;
+#[cfg(feature = "gameplay")]
+pub mod yard;
 #[cfg(all(target_arch = "wasm32", feature = "gameplay"))]
 pub use sound_web as sound;
 #[cfg(target_arch = "wasm32")]
