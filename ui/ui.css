@@ -727,3 +727,21 @@ button.slot.sure em, button.slot.sure.held em { color: var(--bone); background: 
 
 /* The colour that is worn, among the colours to choose from. */
 .part-row button.swatch.fitted { outline: 0.18rem solid var(--bone); outline-offset: 0.14rem; }
+
+/* A first truck's colour, chosen in the strip its truck was chosen in: a swatch and its name. */
+.lot button.colour { text-align: center; }
+.lot button.colour i { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid rgba(242, 234, 219, 0.25); }
+.lot button.colour b { display: block; padding: 0.35rem 0 0.2rem; font: 600 0.8rem/1.1 var(--sign); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bone); }
+
+/* ---- A place stopped at (the shed, the gold buyer's) is a menu down the rail, as the main
+   menu and the pause menu are: what it is and what is there above, what to do below. */
+.rail .heading { font-size: 4.4rem; }
+.rail .about { margin-top: 0.9rem; font-size: 1.08rem; }
+.rail .facts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 2rem; margin-top: 1.3rem; padding: 1rem 0 0; border-bottom: 0; }
+.rail .facts dd { font-size: 1.5rem; }
+.menu.main button:disabled span { opacity: 0.4; }
+@media (max-height: 560px) {
+  .rail .about { display: none; }
+  .rail .heading { font-size: 3rem; }
+  .rail .facts { margin-top: 0.6rem; padding-top: 0.6rem; gap: 0.4rem 2rem; }
+}

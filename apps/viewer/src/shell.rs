@@ -425,6 +425,8 @@ pub enum Order {
     Saves(Saves),
     /// The driver gets out of the truck, or, on foot beside it, back in.
     Swap,
+    /// The driver is on foot, standing here: they have come out of a door.
+    Afoot(Vec3),
     /// Put the truck where it was when this map was last left: there, facing that way (a
     /// yaw in degrees).
     Place {
@@ -589,6 +591,13 @@ pub struct Shell {
     free_grade: u32,
     /// The colour a first truck is taken in, if one has been chosen: else as it was made.
     start_paint: Option<u32>,
+    /// Whether the game is in a browser, which reads one scene a page and has no trucks of
+    /// the game's own to stand in a showroom: there it is a free drive, and no more.
+    web: bool,
+    /// Where the driver stood when they went in at a door: they come out there, on foot.
+    door_from: Option<(String, Vec3)>,
+    /// The first truck that has been chosen, while its colour is: the second step.
+    start_truck: Option<String>,
     to_title: bool,
     records: crate::timed::Records,
     pars: BTreeMap<String, [f32; 5]>,
@@ -722,6 +731,9 @@ impl Shell {
             save: 0,
             free_grade: 1,
             start_paint: None,
+            start_truck: None,
+            web: false,
+            door_from: None,
             to_title: false,
             records: crate::timed::Records::read(kept),
             pars,
@@ -915,6 +927,15 @@ impl Shell {
             .then(|| self.gold.heard(&self.stands(), self.walker_yaw).0)
     }
 
+    /// The share of its engine's pull the truck that is driven still has: less, in a story,
+    /// if its oil is overdue.
+    pub fn power(&self) -> f32 {
+        match self.yard.driven().filter(|_| self.story) {
+            Some(owned) => owned.power(),
+            None => 1.0,
+        }
+    }
+
     /// The day's own weather, as the calendar has it: the renderer's name for it, and how
     /// many seconds of it there have been already. What it is at the hub and in a town.
     pub fn today_sky(&self) -> (&'static str, f32) {
@@ -956,6 +977,11 @@ impl Shell {
     /// each its nugget's number, where it is, and how it is turned.
     pub fn see(&mut self, seen: Vec<(u32, Vec3, glam::Quat)>) {
         self.seen = seen;
+    }
+
+    /// Says that the game is in a browser: see `web`.
+    pub fn set_web(&mut self) {
+        self.web = true;
     }
 
     /// Says whether this is a trial: see [`Shell::after`].
@@ -1130,6 +1156,12 @@ impl Shell {
                 self.orders.push(Order::Place { position, yaw });
             }
         }
+        // And a driver who went in at a door of it comes out at the door, on foot.
+        if let Some((map, at)) = self.door_from.take_if(|_| self.map != SHOWROOM) {
+            if map == self.map {
+                self.orders.push(Order::Afoot(at));
+            }
+        }
         self.unsaved = true;
         if self.screen == Screen::Loading {
             self.screen = if std::mem::take(&mut self.to_title) {
@@ -1251,7 +1283,8 @@ impl Shell {
             (owned.truck.clone(), build, owned.paint)
         };
         match self.yard_page {
-            "start" => {
+            // (Its colour is chosen with the same trucks standing there: nothing is read.)
+            "start" | "colour" => {
                 let offered = crate::yard::starters(trucks).into_iter();
                 offered
                     .map(|truck| (truck.name.clone(), "stock".to_owned(), self.start_paint))
@@ -1403,7 +1436,7 @@ impl Shell {
                 }
             }
             ["page", page] => {
-                for known in ["home", "start", "garage", "bank", "shop", "used", "free"] {
+                for known in ["start", "garage", "bank", "shop", "used", "free"] {
                     if page == known {
                         self.yard_page = known;
                         self.show_card(0);
@@ -1415,6 +1448,30 @@ impl Shell {
                 if let Some(index) = number(index) {
                     self.show_card(index);
                 }
+            }
+            // A first truck is chosen in two steps: which, and then in what colour.
+            ["choose", name] if self.yard_page == "start" => {
+                let offered = crate::yard::starters(&trucks);
+                if let Some(index) = offered.iter().position(|truck| truck.name == name) {
+                    self.start_truck = Some(name.to_owned());
+                    self.yard_page = "colour";
+                    self.show_card(index);
+                }
+            }
+            ["take", colour] if self.yard_page == "colour" => {
+                self.start_paint = u32::from_str_radix(colour, 16).ok().or(self.start_paint);
+                if let Some(name) = self.start_truck.take() {
+                    self.yard_page = "start";
+                    return self.yard_act(&format!("begin:{name}"));
+                }
+            }
+            // (Back from its colour is back to which.)
+            ["leave"] if self.yard_page == "colour" => {
+                let index = self.show_index;
+                self.start_truck = None;
+                self.start_paint = None;
+                self.yard_page = "start";
+                self.show_card(index);
             }
             ["begin", name] => {
                 let offered = crate::yard::starters(&trucks);
@@ -1517,7 +1574,7 @@ impl Shell {
                 }
             }
             // A first truck's colour: it is shown in it, and taken in it. Nothing is paid.
-            ["paint", colour] if self.yard_page == "start" => {
+            ["paint", colour] if self.yard_page == "colour" => {
                 if let Ok(colour) = u32::from_str_radix(colour, 16) {
                     self.start_paint = Some(colour);
                     if let Some(show) = &mut self.show {
@@ -1661,6 +1718,7 @@ impl Shell {
             "colours": crate::yard::COLOURS.iter().map(|(name, colour)| json!({ "name": name, "hex": format!("{colour:06x}") })).collect::<Vec<_>>(),
             "respray": crate::yard::RESPRAY,
             "start_paint": self.start_paint.map(|colour| format!("{colour:06x}")),
+            "chosen": self.start_truck.as_deref().and_then(of).map(card),
             "oil_change": crate::yard::OIL_CHANGE,
         })
     }
@@ -1906,60 +1964,18 @@ impl Shell {
             return;
         }
         match (self.screen, what) {
-            // The story: it begins with what is owed and the choice of a first truck, and
-            // goes on from where it was left.
-            (Screen::Title, "story") => {
-                if self.yard.begun() {
-                    self.story = true;
-                    self.act("start");
-                } else if !crate::yard::starters(&self.world.trucks).is_empty() {
-                    self.open_yard("start");
-                }
-            }
-            (Screen::Title, "garage") if self.yard.begun() => {
-                self.story = true;
-                self.open_yard("home");
-            }
             // A free drive is chosen in the showroom: any truck there is. (A trial, which
             // plays by itself, takes the first of them and drives.)
             (Screen::Title, "free_page") => {
-                if self.trial {
+                if self.trial || self.web {
                     self.act("free");
                 } else {
                     self.story = false;
                     self.open_yard("free");
                 }
             }
-            // Paused, in a story: the yard, with the garage, the shop, the lot and the bank.
-            (Screen::Pause, "garage") if self.story => self.open_yard("home"),
+            // In the shed, in a story: the garage, where the trucks that are owned are.
             (Screen::Shed, "garage") if self.story => self.open_yard("garage"),
-            // The next truck there is, or the one before; and built up, or bare.
-            (Screen::Title, "truck_next" | "truck_prev") => {
-                let count = (self.world.trucks.len() as i32).max(1);
-                let now = self
-                    .drives
-                    .as_ref()
-                    .and_then(|name| {
-                        self.world
-                            .trucks
-                            .iter()
-                            .position(|truck| truck.name == *name)
-                    })
-                    .map_or(0, |index| index as i32);
-                let next = (now + if what == "truck_next" { 1 } else { -1 }).rem_euclid(count);
-                self.drives = self
-                    .world
-                    .trucks
-                    .get(next as usize)
-                    .map(|truck| truck.name.clone());
-                self.unsaved = true;
-                self.told_screen = None;
-            }
-            (Screen::Title, "truck_fit") => {
-                self.built = !self.built;
-                self.unsaved = true;
-                self.told_screen = None;
-            }
             (Screen::Title, "start" | "free") => {
                 // A free drive is in the truck chosen at the title, with nothing owed.
                 if what == "free" {
@@ -2045,7 +2061,7 @@ impl Shell {
             // Back to the main menu: the game is kept and closed, so that nothing done from
             // the menu after it (a free drive, say) is written into it. (A trial keeps none.)
             (Screen::Pause, "title") => {
-                if self.trial {
+                if self.trial || self.web {
                     self.screen = Screen::Title;
                 } else {
                     self.orders.push(Order::Saves(Saves::Close));
@@ -2229,6 +2245,7 @@ impl Shell {
                 let door = self.at_door().filter(|_| menu.pressed("enter"));
                 if let Some(page) = door {
                     log::info!("door: {page}");
+                    self.door_from = Some((self.map.clone(), self.walker));
                     self.open_yard(page);
                 } else if self.afoot && menu.pressed("enter") {
                     use crate::gold::Use;
@@ -2556,6 +2573,7 @@ impl Shell {
             "hub": self.map == self.world.hub,
             // Whether there is a way back to the hub to drive: else the pause menu has one.
             "way_home": self.way_home(),
+            "web": self.web,
             "day": self.day,
             // The kept games: each its number and what is said of it, and which is played.
             "saves": self.saves.iter().map(|(number, game)| json!({ "slot": number, "game": game, "empty": game.is_none(), "playing": *number == self.save })).collect::<Vec<_>>(),

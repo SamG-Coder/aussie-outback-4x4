@@ -523,6 +523,10 @@ impl WebViewer {
                             let _ = play.display_fit(&build);
                             continue;
                         }
+                        Order::Afoot(at) => {
+                            play.play.stand_at(at);
+                            continue;
+                        }
                         Order::Swap => {
                             if play.play.afoot() {
                                 play.play.get_in(crate::shell::GET_IN + 1.0);
@@ -923,6 +927,7 @@ impl WebViewer {
     ) -> Result<(), JsValue> {
         let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
         let mut shell = crate::shell::Shell::new(world, kept);
+        shell.set_web();
         if !map.is_empty() {
             shell.start_in(map);
         }

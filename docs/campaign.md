@@ -435,6 +435,25 @@ night or in the rain.*
 | Timed runs | Classes, medal times from the track, practice, the run that counts, purses in gold, the others as times, dots and a cinematic | The others' own trucks on the track; a truck's grade deciding its class |
 | Winch | None | The rope, its physics, and what it can be hooked to |
 
+## What is built (15 November 2026)
+
+- Three kept games and a free drive that keeps nothing.
+- The debt on the block and a first truck on finance, chosen and then given its colour;
+  the bank (borrow, pay off, Friday's repayment, a credit rating); the calendar, which
+  shows what the bank will take.
+- Fifty trucks in five grades, each bare with a kit of parts; the garage at the shed; the
+  auto shop, the used trucks and the bank behind doors in the town.
+- Parts change how a truck drives, and so does oil that is overdue.
+- Gold: found with the detector, carried, kept behind a truck's doors or in the chest, sold
+  by weight in the town.
+- Timed runs in the class of the truck's grade, with medals, purses, the others to watch,
+  and more paid at night and in the rain.
+- The town down its own road from a gate by the shed; a gate home on every track.
+
+Not built: food, fuel and damage, jobs, travel time, repossession, the Lost Reef. The medal
+times and every price are untuned: they want driving, and what `save/game.log` says of the
+runs that are driven (`timed: class N round MAP in M:SS`).
+
 ## The order to build it in
 
 Each step is playable on its own and is put on the site when it works.

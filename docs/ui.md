@@ -72,8 +72,25 @@ are set out in docs/campaign.md (Timed runs). The rules are in `apps/viewer/src/
 and `crates/solstice-game/src/par.rs`; the watching is `apps/viewer/src/cinema.rs`.
 
 Either reads the map's scene into the same window, behind a loading screen with the map's
-picture. From a map, the pause menu goes back to the hub, which is always as the game was
-started. A map whose scene is not baked yet is still on the signs, and its card says so.
+picture. A map whose scene is not baked yet is still on the signs, and its card says so.
+
+**Gates.** Every map has a way home. A track has a gate beside where a truck starts on it
+(`outback SIZE KIND +crossroads` in its scene), and going through a trailhead arrives
+there; coming back to the Crossroads arrives at the trailhead that was left. The town is
+not on the Crossroads' road at all: its trailhead is a gate beside the shed
+(`+town`, the last of the hub's maps), and the town's map is a main road from its own gate,
+over the creek, to the town's street, which is where it ends. A map with no `length` in the
+world file, the town, is only driven to: its card says Gate and Drive there, with no class,
+hour or weather to choose.
+
+A timed track is driven at the hour and in the weather picked for it. The Crossroads and
+the town are at whatever hour the clock has got to, in the day's own weather as the
+calendar forecast it, and a night's sleep brings the next day's.
+
+One of the game's trucks runs a track in the class of its own grade: the card says which,
+and there is nothing to pick. What is fitted to it changes how it drives (`kit::tuned`):
+its tyres' tread on firm ground and on soft, its suspension's springs, dampers and travel,
+how high it stands, and what an engine overdue for its oil still pulls.
 
 The best lap of each map is kept in `save/profile.txt`, with what has been won in each class
 of it (`run MAP CLASS MEDAL SECONDS`), each map's gold times as last worked out (`par MAP ...`),
@@ -98,21 +115,55 @@ a material of their own, and the game tells the renderer to glow them red.
 
 ## The screens
 
-`title`, `drive`, `pause`, `offer` (a trailhead's card), `shed`, `sleep`, `buyer` (the gold
-buyer's card), `loading`, and for a track driven against the clock `lineup` (the class, the
-times to beat and who set them, before the start), `watch` (another driver's run, which any
-button skips) and `result` (a timed run's time, medal and purse). Behind the title and the
-line-up the game runs with nobody at the controls and the view goes slowly round the truck;
-while a run is watched the game drives the truck and the camera is the shot's
-(`Shell::view`); paused, offered a map, looking at a result or loading, the game is not
-stepped at all.
+**The main menu** (`title`) has no game behind it: the Crossroads with no truck, looked
+slowly round (`Shell::preview`, `PlayMode::preview_camera`), and the bush to hear. Its menu
+is New game, Free drive, Load game, Options and Quit.
 
-The pages have three more of their own, opened over the game's: `controls`, `map`, and
-`calendar` (from the pause menu and the shed: four weeks of days, each one's weather as far
-as it is forecast, and what falls due, docs/campaign.md).
+- **New game** (`newgame`) and **Load game** (`loadgame`) are three slots, a tile each: the
+  truck that is driven in it, the day, what is in hand and what is owed. A new game in a
+  slot that has one asks twice; so does deleting one. A slot is a file,
+  `save/profile.txt` for the first and `save/profileN.txt` for the others (`slot_file` in
+  `desktop.rs`); what is done with them is
+  `Order::Saves` (`Use`, `New`, `Delete`, and `Close` when the main menu is gone back to,
+  which keeps the game and stops playing it).
+- **Free drive** is any of the game's trucks, chosen in the showroom by its grade, with
+  nothing owed and nothing kept.
+- **Options** (`controls`) is in tabs: Keyboard, Controller, Sound (how loud) and Display
+  (a window, or the whole screen). They are the player's, not a game's, and are kept in
+  `save/options.txt`.
 
-Menus are worked with the mouse, with the arrows and Enter and Escape, or with a controller's
-d-pad or left stick and its bottom and right buttons. Escape, or Start, pauses.
+**The showroom** (`yard`) is one page with a truck standing behind it, in the Crossroads'
+bush: the first truck of a story (`start`, and then its colour, `colour`), a free drive's
+(`free`), the garage (`garage`), the auto shop (`shop`), the used trucks (`used`) and the
+bank (`bank`). The trucks to choose from are a strip along the bottom, the one in hand in
+the middle, and pressing on one chooses it. Each page is come to from its own place in the
+game and has one way out.
+
+**Driving**: `drive`, `pause` (Resume, Map, Options, Quit to main menu; Restart on a run
+against the clock; Back to the Crossroads only on a map with no gate home), `offer` (a
+trailhead's or a gate's card), `shed`, `sleep`, `buyer` (the gold buyer's), `loading`, and
+for a track driven against the clock `lineup`, `watch` and `result`. While a run is watched
+the game drives the truck and the camera is the shot's (`Shell::view`); paused, offered a
+map, looking at a result or loading, the game is not stepped at all.
+
+The pages have two more of their own, opened over the game's: `map`, from the pause menu,
+and `calendar`, from the shed (four weeks of days, each one's weather as far as it is
+forecast, and what the bank takes on the Fridays).
+
+Two layouts, and no others. A menu, somewhere there are a few things to do (the main menu,
+the pause menu, the shed, the gold buyer's), is a rail down the left. A sheet, somewhere
+there is something to read or to choose among (a trailhead's card, the kept games, the
+options, the calendar, the map), is a card in the middle.
+
+Everything is worked with the mouse, with the arrows and Enter and Escape, or with a
+controller's d-pad or left stick and its bottom and right buttons, and nothing needs the
+mouse. Escape, or Start, pauses.
+
+**Where things are done.** What a game is made of is out in it, not in a menu. The garage
+is at the shed. In the town the auto shop is behind the door of Motor Spares, the used
+trucks are asked about at the hotel's, and the bank is the bank: each a `place door:WHAT`
+of the town's places, walked up to on foot, where the button goes in; coming out, the
+driver is on foot at the door. Gold is sold from the tray in the buyer's yard.
 
 ## The day: the shed, and gold
 
@@ -488,10 +539,14 @@ what a run pays. Best laps and what has been won are kept in the browser's own
 storage. The sound is the browser's to mix (docs/sound.md), and starts with the first key or
 click, which is when a browser lets a page be heard.
 
+In a browser the game is a free drive in the map's own truck, and its main menu shows only
+that: there are no kept games to begin or go on with, and none of the game's own trucks,
+whose pieces a browser cannot yet be sent a part at a time (`Shell::set_web`).
+
 ## Still to do
 
-- In a browser: going from map to map without loading the page again.
-- Going back to the hub puts the truck at the camp, not at the trailhead it left from.
+- In a browser: the game's own trucks, and with them a story; and going from map to map
+  without loading the page again.
 - Restarting a map in free roam reads its scene again, which takes as long as going to it
   did. (Against the clock it goes back to the line.)
 - The others in a timed run are times, dots on the map and a cinematic of the map's own

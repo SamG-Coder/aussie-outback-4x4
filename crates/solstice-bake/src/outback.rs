@@ -558,7 +558,9 @@ mod tests {
             (true, false) => 3,
             _ => 0,
         };
-        let plan = Plan::new(size, country, trailheads, country.hub && !country.town);
+        // (`OUTBACK_GATE=1` gives a track its gate.)
+        let gate = (country.hub && !country.town) || std::env::var("OUTBACK_GATE").is_ok();
+        let plan = Plan::new(size, country, trailheads, gate);
         println!("trailheads {:?}", plan.places);
         let (start, yaw) = plan.start();
         println!("start {start} yaw {yaw}");

@@ -529,8 +529,6 @@ impl Street {
 
 /// Half the width of a hub's road: two trucks pass on it.
 pub const ROAD: f32 = 3.4;
-/// Half the width of the track to a town.
-pub const TOWN_TREAD: f32 = 2.2;
 /// How far round a trailhead's ring is.
 pub const RING: f32 = 7.0;
 
@@ -659,14 +657,7 @@ impl Plan {
             half,
             hub,
             country,
-            // (The way to a town is a track, a little wider than a fire trail.)
-            tread: if country.town {
-                TOWN_TREAD
-            } else if hub {
-                ROAD
-            } else {
-                TREAD
-            },
+            tread: if hub { ROAD } else { TREAD },
             places: vec![Vec2::ZERO; trailheads],
             land,
             wet,
@@ -724,6 +715,28 @@ impl Plan {
                 }
                 plan.shed = Some(shed);
             }
+        }
+        // A track has a gate too, the way back to the hub: a trailhead beside where a truck
+        // starts on it, off the track, on whichever side is the more level and the drier.
+        if gate && !hub {
+            let start = plan
+                .trail
+                .points
+                .iter()
+                .min_by(|a, b| {
+                    a.at.distance(plan.camp)
+                        .total_cmp(&b.at.distance(plan.camp))
+                })
+                .copied()
+                .unwrap_or_default();
+            let left = Vec2::new(start.forward.y, -start.forward.x);
+            let reach = plan.tread + RING + 2.5;
+            let rough = |at: Vec2| plan.land.slope(at.x, at.y) + 0.5 * plan.wet(at.x, at.y);
+            let (a, b) = (start.at + left * reach, start.at - left * reach);
+            let at = if rough(a) <= rough(b) { a } else { b };
+            println!("    a gate beside the start at {at}");
+            plan.gate = Some(at);
+            plan.places.push(at);
         }
         plan
     }
@@ -800,7 +813,8 @@ impl Plan {
         match (&self.shed, &self.town) {
             (Some(shed), _) => height + (shed.height - height) * shed.held(x, z).max(gated),
             (_, Some(town)) => height + (town.height - height) * town.held(x, z),
-            _ => height,
+            // (A track's gate is level with its camp.)
+            _ => height + (self.camp_height - height) * gated,
         }
     }
 
@@ -1547,9 +1561,8 @@ impl Plan {
                 i.rem_euclid(n as isize) as usize
             }
         };
-        // A town's track is rough, as a track is, until it is the town's street, which is
-        // graded as a road is.
-        let rough = !self.hub || self.country.town;
+        // A hub's road, and the road to a town, is graded: a track is rough.
+        let rough = !self.hub;
         let street_at = |p: Vec2| street.is_some_and(|street| street.on(p));
         // No bend tighter than a truck can turn. Each point is drawn towards the middle of
         // those a few metres either side of it, over and over, which opens a hairpin out to a

@@ -778,6 +778,28 @@ impl Play {
         }
     }
 
+    /// Gets the player out of the car and stands them somewhere: where they came out of a
+    /// door. Whether they are on foot there.
+    pub fn stand_at(&mut self, at: Vec3) -> bool {
+        if !self.afoot && !self.get_out() {
+            return false;
+        }
+        let Some(walker) = &self.walker else {
+            return false;
+        };
+        let at = at + Vec3::Y * 0.2;
+        if let Ok(mut transform) = self
+            .game
+            .world
+            .entities
+            .get::<&mut Transform>(walker.entity)
+        {
+            transform.translation = at;
+        }
+        self.physics.borrow_mut().place(walker.entity, at);
+        true
+    }
+
     /// The instances that draw the player's car, its wheels among them.
     pub fn car_instances(&self) -> Vec<u32> {
         let Some(car) = self.player.as_ref().filter(|player| player.car) else {

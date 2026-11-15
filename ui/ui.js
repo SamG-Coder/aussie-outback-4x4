@@ -408,12 +408,6 @@ const KINDS = { tube: "Tube bar", plate: "Winch bar", nudge: "Nudge bar", high: 
 const ALWAYS = ["arches", "suspension", "tyres", "rims"];
 const ROLLS = ["Rough", "Tired", "Fair", "Good", "Very good", "As new"];
 const condition = (roll) => ROLLS[Math.min(ROLLS.length - 1, Math.floor((roll || 0) * ROLLS.length))];
-const ICONS = {
-  garage: '<svg viewBox="0 0 32 32"><path d="M3 14 16 5l13 9v13H3z"/><path d="M8 27V17h16v10M8 20.5h16M8 24h16"/></svg>',
-  shop: '<svg viewBox="0 0 32 32"><path d="M20 4a6 6 0 0 0-5.6 8.2L4 22.6V28h5.4l10.4-10.4A6 6 0 0 0 28 12l-4 4-4-1-1-4 4-4a6 6 0 0 0-3-.9z"/></svg>',
-  used: '<svg viewBox="0 0 32 32"><path d="M3 21v-5l4-1 3-6h10l4 6 5 1v5h-3"/><path d="M10 21h11"/><circle cx="7.5" cy="21.5" r="2.5"/><circle cx="23.5" cy="21.5" r="2.5"/><path d="M11 15h11"/></svg>',
-  bank: '<svg viewBox="0 0 32 32"><path d="M3 12 16 4l13 8H3zM6 12v12M12 12v12M20 12v12M26 12v12M3 27h26M4 24h24"/></svg>',
-};
 // What each truck is, beyond what the game says of it: its body, its engine, its weight.
 let SPECS = {};
 fetch("trucks/specs.json").then((got) => got.json()).then((specs) => { SPECS = specs; yardKey = ""; if (state.screen === "yard") show(); }).catch(() => {});
@@ -437,9 +431,8 @@ function yardActs() {
   if (!yard) return;
   const acts = el("yard-acts"), cards = yardCards();
   const own = (yard.trucks || []).find((truck) => truck.driving);
-  const card = cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
+  const card = yard.page === "colour" ? yard.chosen : cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
   acts.replaceChildren();
-  acts.className = yard.page === "home" ? "show-acts home" : "show-acts";
   let detail = "";
   const spec = (card && SPECS[card.name]) || {};
   const lines = [];
@@ -451,7 +444,7 @@ function yardActs() {
     if (card.km !== undefined) lines.push(`<dt>Driven</dt><dd>${far(card.km)}</dd>`, `<dt>Condition</dt><dd>${condition(card.roll)}</dd>`);
     if (card.oil !== undefined) lines.push(`<dt>Oil</dt><dd>${card.oil > 0 ? `${far(card.oil)} overdue` : `due in ${far(-card.oil)}`}</dd>`);
   }
-  if (card && yard.page === "start") {
+  if (card && (yard.page === "start" || yard.page === "colour")) {
     detail = `${card.year}  ·  ${cash(card.price)} on finance: ${cash(yard.block + card.price)} owed in all`;
     lines.push(`<dt>Price</dt><dd class="big">${cash(card.price)}</dd>`);
 
@@ -469,14 +462,10 @@ function yardActs() {
   } else if (card) {
     detail = `${card.year}  ·  ${far(card.km)}  ·  the one you drive`;
   }
-  if (yard.page === "home") {
-    for (const [page, name, about] of [["garage", "Garage", "Your trucks: take one out, or sell one"], ["shop", "Auto shop", "Parts, a respray, an oil change"],
-      ["used", "Used trucks", "What is on the lot today"], ["bank", "Bank", "Borrow, or pay off what you owe"]]) {
-      acts.append(button(`${ICONS[page]}<span>${name}</span><small>${about}</small>`, `page:${page}`));
-    }
-  }
   el("yard-spec").innerHTML = lines.join("");
-  setText("yard-name", card ? card.title : "");
+  // (Its colour being chosen, the colour in hand is named with it.)
+  const tint = yard.page === "colour" ? (yard.colours || [])[yardPick] : null;
+  setText("yard-name", card ? `${card.title}${tint ? `  ·  ${tint.name}` : ""}` : "");
   setText("yard-detail", detail);
   const picture = el("yard-car");
   if (card && !yard.showroom) picture.src = `trucks/${card.name}.jpg`;
@@ -501,7 +490,9 @@ function yardHeld(held) {
   if (pick !== yardPick) { yardPick = pick; yardActs(); }
   if (pick !== yardShown) {
     clearTimeout(yardTimer);
-    yardTimer = setTimeout(() => { yardShown = pick; say(`do show:${pick}`); }, 260);
+    // A truck in hand is stood in the showroom; a colour in hand is put on the one there.
+    const tell = held.dataset.colour ? `do paint:${held.dataset.colour}` : `do show:${pick}`;
+    yardTimer = setTimeout(() => { yardShown = pick; say(tell); }, held.dataset.colour ? 120 : 260);
   }
 }
 function yard() {
@@ -512,11 +503,13 @@ function yard() {
   yardKey = key;
   const fresh = yard.page !== yardPage;
   yardPage = yard.page;
-  if (fresh) { yardPick = 0; yardShown = 0; }
+  // (On a new page the first thing is in hand and is what is shown; a first colour is not
+  // on the truck yet, and is put on it.)
+  if (fresh) { yardPick = 0; yardShown = yard.page === "colour" ? -1 : 0; }
   el("yard").classList.toggle("flat", !yard.showroom);
   const words = {
-    home: ["Your story", "The yard", ""],
     free: ["Free drive", "Choose a truck", "Any of the game's trucks, as it is sold. Nothing is owed, and nothing is kept."],
+    colour: ["Day one", "Choose its colour", "Any of these, at no cost. A respray later is paid for at Motor Spares."],
     start: ["Day one", "Choose your first truck", `You have bought a block in the high country with a shed on it, and you owe the bank ${cash(yard.block)} for it. You need a truck to work it. These three you can get on finance.`],
     garage: ["Your shed", "Garage", "The trucks you own. One is the one you drive."],
     shop: ["Ironbark Flat  ·  Motor Spares", "Auto shop", "A part you have bought is yours: taking it off and putting it back costs nothing."],
@@ -524,16 +517,25 @@ function yard() {
     bank: ["Ironbark Flat  ·  The Bank", "Bank", `Every Friday ${cash(yard.repayment)} comes out. Pay it and your credit goes up; miss it and it goes down.`],
   }[yard.page] || ["", "", ""];
   setText("yard-kicker", words[0]); setText("yard-title", words[1]); setText("yard-about", words[2]);
-  el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" ? yard.block : yard.debt)}</dd></div>`
-    + (yard.page === "start" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div>`);
+  el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" || yard.page === "colour" ? yard.block : yard.debt)}</dd></div>`
+    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div>`);
   // The strip of trucks.
   const lot = el("yard-lot");
   lot.replaceChildren();
+  // The second step of a first truck: the colours, in the strip the trucks were in.
+  if (yard.page === "colour") {
+    for (const [index, colour] of (yard.colours || []).entries()) {
+      const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}</b>`, `take:${colour.hex}`, "colour");
+      made.dataset.colour = colour.hex;
+      made.dataset.pick = String(index);
+      lot.append(made);
+    }
+  }
   for (const [index, card] of yardCards().entries()) {
     const dot = card.paint ? `<span class="dot" style="background:${card.paint}"></span>` : "";
     const tag = card.bargain && card.here ? '<span class="tag">Bargain</span>' : card.driving ? '<span class="tag">Driving</span>' : "";
     // Chosen where it stands: it is taken, taken out, bought or driven by pressing on it.
-    const act = yard.page === "start" ? `begin:${card.name}` : yard.page === "free" ? `free:${card.name}`
+    const act = yard.page === "start" ? `choose:${card.name}` : yard.page === "free" ? `free:${card.name}`
       : yard.page === "garage" ? (card.driving ? null : `drive:${card.index}`) : yard.page === "used" && card.here ? `buy:${card.place}` : null;
     const made = button(`<img src="trucks/${card.name}_small.jpg" alt="${card.title}">${tag}${dot}`, act, card.here === false ? "gone" : "");
     made.dataset.pick = String(index);
@@ -565,8 +567,6 @@ function yard() {
     const oil = driven && driven.oil > 0 ? `${far(driven.oil)} overdue` : driven ? `due in ${far(-driven.oil)}` : "";
     row("Oil").append(button(`Oil and filter<small>${cash(yard.oil_change)}, ${oil}</small>`, "oil"));
   }
-  // A first truck is taken in a colour: the same colours, and nothing to pay.
-  if (yard.page === "start") swatches(row("Colour  ·  included"), yard.colours, yard.start_paint && `#${yard.start_paint}`);
   if (yard.page === "bank") {
     const borrow = row(`Borrow  ·  you can owe up to ${cash(yard.limit)}`);
     for (const amount of [1000, 5000, 20000]) borrow.append(button(`${cash(amount)}`, `borrow:${amount}`));
@@ -656,6 +656,8 @@ function options() {
 function show() {
   const screen = screenShown();
   // Paused in a story, the yard is a button away.
+  // In a browser there are no kept games to begin or go on with: it is a free drive.
+  el("title-new").hidden = el("title-load").hidden = !!state.web;
   // Paused: a run is started again; a track is left for the Crossroads.
   el("pause-restart").hidden = !(state.mode === "practice" || state.mode === "timed");
   // (Only from a map with no trailhead home: where there is one, it is driven to.)

@@ -82,9 +82,9 @@
       <h1 class="wordmark"><span>Aussie</span><span>Outback</span><b>4x4</b></h1>
     </header>
     <nav class="menu main" data-menu="title">
-      <button data-open="newgame"><span>New game</span><small>Start out owing on the block, and choose a first truck.</small></button>
+      <button data-open="newgame" id="title-new"><span>New game</span><small>Start out owing on the block, and choose a first truck.</small></button>
       <button data-do="free_page"><span>Free drive</span><small>Any truck, anywhere. Nothing is owed and nothing is kept.</small></button>
-      <button data-open="loadgame"><span>Load game</span><small>Go on with a game you have begun.</small></button>
+      <button data-open="loadgame" id="title-load"><span>Load game</span><small>Go on with a game you have begun.</small></button>
       <button data-open="controls"><span>Options</span><small>Controls, sound and display.</small></button>
       <button data-do="quit"><span>Quit</span><small>Back to the desktop.</small></button>
     </nav>
@@ -266,55 +266,52 @@
 
 <!-- Stopped in the shed's bay: the day's end, and the chest. -->
 <section class="screen" id="shed">
-  <div class="scrim scrim-full"></div>
-  <article class="card">
-    <p class="kicker">The Crossroads &nbsp;·&nbsp; Day <span id="shed-day">1</span></p>
-    <h1 class="heading">The Shed</h1>
-    <p class="about">Tin roof, a bunk, and a chest for the gold. Get out, carry what is in the tray to the chest,
-      and sleep till morning: the gold in the ground is somewhere else every time you go out.</p>
-    <dl class="facts">
-      <div><dt>In the tray</dt><dd id="shed-tray">-</dd></div>
-      <div><dt>In the chest</dt><dd id="shed-chest">-</dd></div>
-      <div><dt>In hand</dt><dd id="shed-money">$0</dd></div>
-      <div><dt>Day</dt><dd id="shed-day-2">1</dd></div>
-    </dl>
-    <nav class="tiles" data-row data-first>
+  <div class="scrim scrim-title"></div>
+  <div class="rail">
+    <header>
+      <p class="kicker">The Crossroads &nbsp;·&nbsp; Day <span id="shed-day">1</span></p>
+      <h1 class="heading">The Shed</h1>
+      <p class="about">Tin roof, a bunk, and a chest for the gold. The gold in the ground is somewhere else every time you go out.</p>
+      <dl class="facts">
+        <div><dt>In the tray</dt><dd id="shed-tray">-</dd></div>
+        <div><dt>In the chest</dt><dd id="shed-chest">-</dd></div>
+        <div><dt>In hand</dt><dd id="shed-money">$0</dd></div>
+        <div><dt>Day</dt><dd id="shed-day-2">1</dd></div>
+      </dl>
+    </header>
+    <nav class="menu main" data-menu="shed">
       <button data-do="sleep" id="shed-sleep"><span>Sleep till morning</span><small>The day ends. The game is saved, and it is half past six tomorrow.</small></button>
-      <button data-do="walk"><span>Get out</span><small>On foot. Hold the same button beside the truck to get back in.</small></button>
+      <button data-do="walk"><span>Get out</span><small>On foot, to carry the gold to the chest. Hold the same button by the truck to get back in.</small></button>
+      <button data-do="garage" id="shed-yard" hidden><span>Garage</span><small>Your trucks: take one out, or sell one.</small></button>
+      <button data-open="calendar"><span>Calendar</span><small>The days, the weather, and what is due.</small></button>
+      <button data-do="leave"><span>Drive on</span><small>Back to the driving.</small></button>
     </nav>
-    <nav class="menu small row" data-row id="shed-yard" hidden>
-      <button data-do="garage"><span>Garage</span><small>Your trucks: take one out, or sell one</small></button>
-    </nav>
-    <nav class="menu small row" data-menu="shed-leave" data-row>
-      <button data-do="leave"><span>Drive on</span></button>
-      <button data-open="calendar"><span>Calendar</span></button>
-    </nav>
-  </article>
+  </div>
   <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Drive on</span></footer>
 </section>
 
 <!-- Stopped at the gold buyer's in town: what is in the tray is weighed and sold. -->
 <section class="screen" id="buyer">
-  <div class="scrim scrim-full"></div>
-  <article class="card">
-    <p class="kicker"><span id="buyer-town">Town</span> &nbsp;·&nbsp; Day <span id="buyer-day">1</span></p>
-    <h1 class="heading">Gold Buyer</h1>
-    <p class="about" id="buyer-about">Gold bought by weight, for cash. What is lying in the tray of your truck is put
-      on the scales: what bounced out on the way in is still out there on the track.</p>
-    <dl class="facts">
-      <div><dt>In the tray</dt><dd id="buyer-tray">-</dd></div>
-      <div><dt>Paying</dt><dd id="buyer-rate">-</dd></div>
-      <div><dt>For the lot</dt><dd id="buyer-pays">-</dd></div>
-      <div><dt>In hand</dt><dd id="buyer-money">$0</dd></div>
-    </dl>
-    <nav class="tiles" data-row data-first>
+  <div class="scrim scrim-title"></div>
+  <div class="rail">
+    <header>
+      <p class="kicker"><span id="buyer-town">Town</span> &nbsp;·&nbsp; Day <span id="buyer-day">1</span></p>
+      <h1 class="heading">Gold Buyer</h1>
+      <p class="about" id="buyer-about">Gold bought by weight, for cash. What is lying in the tray of your truck is put
+        on the scales: what bounced out on the way in is still out there on the track.</p>
+      <dl class="facts">
+        <div><dt>In the tray</dt><dd id="buyer-tray">-</dd></div>
+        <div><dt>Paying</dt><dd id="buyer-rate">-</dd></div>
+        <div><dt>For the lot</dt><dd id="buyer-pays">-</dd></div>
+        <div><dt>In hand</dt><dd id="buyer-money">$0</dd></div>
+      </dl>
+    </header>
+    <nav class="menu main" data-menu="buyer">
       <button data-do="sell" id="buyer-sell"><span>Sell the lot</span><small id="buyer-sell-words">Everything in the tray, weighed and paid for.</small></button>
-      <button data-do="walk"><span>Get out</span><small>On foot. Hold the same button beside the truck to get back in.</small></button>
+      <button data-do="walk"><span>Get out</span><small>On foot. Hold the same button by the truck to get back in.</small></button>
+      <button data-do="leave"><span>Drive on</span><small>Back to the driving.</small></button>
     </nav>
-    <nav class="menu small" data-menu="buyer-leave">
-      <button data-do="leave"><span>Drive on</span></button>
-    </nav>
-  </article>
+  </div>
   <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Drive on</span></footer>
 </section>
 

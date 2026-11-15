@@ -7,8 +7,8 @@
 texture_size 1024
 camera 255 56 22 1.6 -0.1
 outback 700 town crossroads
-actor outback/raptor.actor 248.60 50.81 21.75 95.4 shared
+actor outback/raptor.actor 248.60 51.28 21.75 95.4 shared
 # The driver, who sits in the truck until they get out of it, and what the keys do.
-actor outback/driver.actor 248.60 50.81 21.75 95.4
-actor outback/detector.actor 248.60 50.81 21.75 95.4 shared
+actor outback/driver.actor 248.60 51.28 21.75 95.4
+actor outback/detector.actor 248.60 51.28 21.75 95.4 shared
 input outback/game.input

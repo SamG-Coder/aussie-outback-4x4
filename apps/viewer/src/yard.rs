@@ -34,7 +34,10 @@ const LIMIT: (u64, u64) = (115_000, 320_000);
 /// How many trucks the used yard has on a day.
 const ON_THE_LOT: usize = 6;
 /// How far a truck goes between oil changes, in kilometres; what one costs; a respray.
-pub const OIL_EVERY: f32 = 10_000.0;
+pub const OIL_EVERY: f32 = 150.0;
+/// What an engine overdue for its oil loses of its pull for each kilometre overdue, and the
+/// most it loses.
+pub const OIL_WEAR: (f32, f32) = (0.004, 0.2);
 pub const OIL_CHANGE: u64 = 180;
 pub const RESPRAY: u64 = 1_200;
 /// The colours a truck is resprayed in, and that a used one may be: as a page writes them.
@@ -78,6 +81,11 @@ impl Owned {
     /// How far it is past its oil change, in kilometres: above nothing, it is overdue.
     pub fn oil_overdue(&self) -> f32 {
         self.km - self.oiled - OIL_EVERY
+    }
+
+    /// The share of its engine's pull it still has: all of it, until its oil is overdue.
+    pub fn power(&self) -> f32 {
+        1.0 - (self.oil_overdue().max(0.0) * OIL_WEAR.0).min(OIL_WEAR.1)
     }
 
     /// Its build as the game is told to put it together: every group that is fitted, and
