@@ -339,6 +339,21 @@ mod native {
         limits: Option<wgpu::Limits>,
         /// Metres per frame the capture camera slides sideways, for moving-view benchmarks.
         capture_motion: f32,
+        /// What the truck wears, for a picture: `--coat paint=#1f4fa0,rust=0.4,dust=0.3,mud=0.7`.
+        coat: Option<solstice_viewer::play::Wear>,
+        /// What is fitted to the truck, for a picture: `--kit showroom`, `--kit bullbar=plate,tyres=mud`.
+        kit: Option<String>,
+        /// A truck built of pieces to play in place of the map's own: its pack, made by
+        /// `bake --kit` (`--truck mitta` is `trucks/mitta.truck` beside the map). It is put
+        /// together as the map is read, of the pieces `kit` says and no others.
+        truck: Option<String>,
+        /// Trucks to stand in the scene to be looked at, in place of its own: each its name
+        /// and how it is fitted (`all` is every piece of it). One is shown at a time.
+        shown: Vec<(String, String)>,
+        /// Which of the kept games is being played: its number, from 1.
+        slot: u32,
+        /// Which of the truck's doors are open, for a picture: `--open all`, `--open door_FL,tailgate`.
+        open: Option<String>,
         /// A camera path to fly, with results written to `flyover_out`.
         flyover: Option<PathBuf>,
         flyover_out: PathBuf,
@@ -382,6 +397,8 @@ mod native {
         world: Option<PathBuf>,
         /// Whether night is shown as eyes used to the dark see it, so that it can be driven in.
         night_eyes: bool,
+        /// Whether the truck is not drawn: for a picture of a map and nothing else.
+        no_truck: bool,
         /// Whether a scene was named, rather than left to be the game's hub.
         scene_named: bool,
         /// For trying the menus with no hand on anything: scripts to run in the pages, and
@@ -636,6 +653,12 @@ mod native {
             unpack_textures: false,
             limits: None,
             capture_motion: 0.0,
+            coat: None,
+            kit: None,
+            truck: None,
+            shown: Vec::new(),
+            slot: 1,
+            open: None,
             flyover: None,
             flyover_out: PathBuf::from("screenshots/flyover"),
             stability: false,
@@ -656,6 +679,7 @@ mod native {
             ui: None,
             world: None,
             night_eyes: false,
+            no_truck: false,
             scene_named: false,
             ui_runs: Vec::new(),
             taps: Vec::new(),
@@ -813,6 +837,10 @@ mod native {
                         _ => return Err("--bob expects x,z,radius[,height[,amplitude]]".into()),
                     });
                 }
+                "--coat" => options.coat = Some(solstice_viewer::play::Wear::parse(&value()?)?),
+                "--kit" => options.kit = Some(value()?),
+                "--truck" => options.truck = Some(value()?),
+                "--open" => options.open = Some(value()?),
                 "--stream" => options.stream = true,
                 "--play" => options.play = true,
                 "--fly" => options.fly = true,
@@ -855,6 +883,7 @@ mod native {
                 }
                 "--trial" => options.trial = Some(PathBuf::from(value()?)),
                 "--night-eyes" => options.night_eyes = true,
+                "--no-truck" => options.no_truck = true,
                 "--world" => {
                     options.world = Some(PathBuf::from(value()?));
                     options.play = true;
@@ -1005,6 +1034,16 @@ mod native {
         )
     }
 
+    /// Where a truck's pack is: a path as it is given, or, for a name alone, `trucks/NAME.truck`
+    /// beside the map.
+    fn truck_pack(map: &Path, truck: &str) -> PathBuf {
+        if truck.contains(['/', '\\', '.']) {
+            PathBuf::from(truck)
+        } else {
+            map.with_file_name("trucks").join(format!("{truck}.truck"))
+        }
+    }
+
     fn read_source(
         options: &Options,
         path: &PathBuf,
@@ -1037,6 +1076,29 @@ mod native {
                 solstice_viewer::shared::adopt(&mut scene.scene, &files, joined)?;
                 solstice_viewer::nugget::join_loaded(&mut scene)?;
             }
+            // A truck built of pieces, in place of the map's own: put together now, of the
+            // pieces it is wearing. What is not fitted to it is not read.
+            if !options.shown.is_empty() {
+                // Trucks stood here to be looked at: every one of the page, each put together
+                // now, so that another is shown with nothing more read.
+                let mut trucks = Vec::new();
+                for (truck, build) in &options.shown {
+                    let pack = truck_pack(path, truck);
+                    let mut file = std::fs::File::open(&pack)
+                        .map_err(|error| format!("{}: {error}", pack.display()))?;
+                    let truck = solstice_viewer::kit::assemble(&mut file, Some(build))
+                        .map_err(|error| format!("{}: {error}", pack.display()))?;
+                    trucks.push(truck);
+                }
+                solstice_viewer::shared::show_trucks(&mut scene, trucks)?;
+            } else if let Some(truck) = &options.truck {
+                let pack = truck_pack(path, truck);
+                let mut file = std::fs::File::open(&pack)
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                let truck = solstice_viewer::kit::assemble(&mut file, options.kit.as_deref())
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                solstice_viewer::shared::swap_truck(&mut scene, truck)?;
+            }
             Source::Loaded(scene)
         })
     }
@@ -1055,9 +1117,41 @@ mod native {
                     .map_err(|error| format!("{}: {error}", path.display()))?;
                 let world = solstice_viewer::shell::World::parse(&text)
                     .map_err(|error| format!("{}: {error}", path.display()))?;
-                let kept = std::fs::read_to_string(save_file(&options)).unwrap_or_default();
+                // At the title no game is being played: one is begun, or gone back to, from
+                // there. (A trial plays the one in its own folder.)
+                let kept = match &options.trial {
+                    Some(_) => std::fs::read_to_string(save_file(&options)).unwrap_or_default(),
+                    None => String::new(),
+                };
+                options.slot = 0;
                 let mut shell = Shell::new(world, &kept);
                 shell.set_trial(options.trial.is_some());
+                if options.trial.is_none() {
+                    shell.set_saves(&kept_games(), 0);
+                    shell.set_options(&std::fs::read_to_string(OPTIONS_FILE).unwrap_or_default());
+                }
+                // A truck asked for is driven, whatever was kept; and whichever it is, the
+                // first scene is read with it.
+                if let Some(truck) = &options.truck {
+                    let built = options.kit.as_deref() == Some("showroom");
+                    shell.wear(
+                        Some(truck)
+                            .filter(|name| *name != "raptor")
+                            .map(String::as_str),
+                        built,
+                    );
+                }
+                if options.truck.is_none()
+                    || options.kit.is_none()
+                    || options.kit.as_deref() == Some("showroom")
+                {
+                    let wearing = shell.wearing();
+                    options.kit = wearing
+                        .as_ref()
+                        .map(|(_, fit)| (*fit).to_owned())
+                        .or(options.kit.take());
+                    options.truck = wearing.map(|(truck, _)| truck);
+                }
                 // A game starts in its hub, unless a scene of it was asked for.
                 let named = shell
                     .world()
@@ -1230,6 +1324,17 @@ mod native {
             }
             if let Some(play) = &mut play {
                 play.lamps = dark;
+                if let (0, Some(wear)) = (frame, options.coat) {
+                    play.set_wear(wear);
+                }
+                if let (0, Some(build)) = (frame, &options.kit) {
+                    play.fit(build)?;
+                }
+                if let (0, Some(doors)) = (frame, &options.open) {
+                    for door in doors.split(',') {
+                        play.swing(door.trim(), 1.0)?;
+                    }
+                }
                 for (action, at) in &options.presses {
                     if *at == frame {
                         // `get_out` is not an action of the game's: it is what its shell
@@ -1257,6 +1362,9 @@ mod native {
                     if *at == frame {
                         play.devices.mouse_motion(0.0, *pixels);
                     }
+                }
+                if options.no_truck {
+                    play.set_unseen(&mut renderer, true);
                 }
                 log_messages(play.frame(&mut renderer, &mut camera, 1.0 / 60.0));
             }
@@ -1793,8 +1901,90 @@ mod native {
     fn save_file(options: &Options) -> PathBuf {
         match &options.trial {
             Some(folder) => folder.join("profile.txt"),
-            None => PathBuf::from(SAVE_FILE),
+            None => slot_file(options.slot),
         }
+    }
+
+    /// The most games that are kept.
+    const SLOTS: u32 = 3;
+    /// Where the options are kept: they are the player's, whichever game is played.
+    const OPTIONS_FILE: &str = "save/options.txt";
+    /// The file that says which kept game is being played: its number.
+    const SLOT_FILE: &str = "save/slot.txt";
+
+    /// The file a kept game is in: the first is the one there has always been.
+    fn slot_file(slot: u32) -> PathBuf {
+        if slot <= 1 {
+            PathBuf::from(SAVE_FILE)
+        } else {
+            PathBuf::from(format!("save/profile{slot}.txt"))
+        }
+    }
+
+    /// The places there are for kept games: each its number, and what is kept in it, if a
+    /// game is.
+    fn kept_games() -> Vec<(u32, Option<String>)> {
+        (1..=SLOTS)
+            .map(|slot| (slot, std::fs::read_to_string(slot_file(slot)).ok()))
+            .collect()
+    }
+
+    /// Does what was asked with the kept games: begins a new one in a place, goes back to
+    /// one, or deletes one. What is being played is kept first.
+    fn change_game(
+        playing: &mut u32,
+        trial: bool,
+        shell: &mut Shell,
+        what: solstice_viewer::shell::Saves,
+    ) {
+        use solstice_viewer::shell::Saves;
+        if trial {
+            return;
+        }
+        let write = |file: &Path, text: &str| {
+            let saved = std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))
+                .and_then(|()| std::fs::write(file, text));
+            if let Err(error) = saved {
+                log::warn!("{}: {error}", file.display());
+            }
+        };
+        if *playing != 0 {
+            write(&slot_file(*playing), &shell.keep_now());
+        }
+        let known = |slot: u32| (1..=SLOTS).contains(&slot);
+        let play = match what {
+            Saves::Close => {
+                log::info!("games: the one in place {playing} is kept and closed");
+                *playing = 0;
+                shell.close();
+                None
+            }
+            Saves::New(slot) if known(slot) => {
+                write(&slot_file(slot), "");
+                log::info!("games: a new one is begun in place {slot}");
+                Some(slot)
+            }
+            Saves::Use(slot) if known(slot) && slot_file(slot).exists() => Some(slot),
+            Saves::Delete(slot) if known(slot) => {
+                if let Err(error) = std::fs::remove_file(slot_file(slot)) {
+                    log::warn!("{}: {error}", slot_file(slot).display());
+                }
+                log::info!("games: the one in place {slot} is deleted");
+                if slot == *playing {
+                    *playing = 0;
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(slot) = play {
+            *playing = slot;
+            write(Path::new(SLOT_FILE), &slot.to_string());
+            let kept = std::fs::read_to_string(slot_file(slot)).unwrap_or_default();
+            log::info!("games: playing the one in place {slot}");
+            shell.load(&kept);
+        }
+        shell.set_saves(&kept_games(), *playing);
     }
 
     struct App {
@@ -2183,7 +2373,8 @@ mod native {
             // The hour and the weather asked for, or the ones the game was started in.
             let (hours, weather, weathered) = match sky {
                 Some((hours, name, weathered)) => (
-                    Some(hours),
+                    // (No hour: the clock goes on from where it has got to.)
+                    Some(hours).filter(|hours| *hours >= 0.0),
                     Weather::by_name(name).unwrap_or(self.started.1),
                     weathered,
                 ),
@@ -2195,6 +2386,14 @@ mod native {
                 clock.time.hours = hours;
             }
             let path = PathBuf::from(scene);
+            // The truck the game says is driven, fitted as it says: or the trucks it says
+            // stand here to be looked at.
+            if let Some(shell) = &mut self.shell {
+                self.options.shown = shell.showing();
+                let wearing = shell.wearing();
+                self.options.kit = wearing.as_ref().map(|(_, fit)| (*fit).to_owned());
+                self.options.truck = wearing.map(|(truck, _)| truck);
+            }
             let source = read_source(&self.options, &path)?;
             self.options.scene = path;
             let scene = self.scene.insert(source);
@@ -2405,7 +2604,38 @@ mod native {
                 if let Some(shell) = &mut self.shell {
                     shell.see(play.things());
                     shell.after(play.play.hud());
+                    shell.see_dirt(play.dirt());
+                    // While somebody else's run is watched, the camera is the shot's.
+                    if let Some((position, yaw, pitch)) = shell.view() {
+                        (camera.position, camera.yaw, camera.pitch) = (position, yaw, pitch);
+                    }
+                    // In the showroom it is before the truck that stands there.
+                    // (Where that is is asked of the game: behind a menu the shell has not
+                    // been told where the map's truck stands.)
+                    let stands = play.play.car_pose();
+                    if let Some((at, turned, seconds)) = shell.showroom() {
+                        let (at, turned) = stands.unwrap_or((at, turned));
+                        (camera.position, camera.yaw, camera.pitch) =
+                            play.showroom_camera(at, turned, seconds);
+                    }
+                    // Behind the main menu there is no truck: only the bush, looked round.
+                    let preview = shell.preview();
+                    play.set_unseen(&mut state.renderer, preview.is_some());
+                    if let Some((at, seconds)) = preview {
+                        let (at, turned) = stands.unwrap_or((at, glam::Quat::IDENTITY));
+                        (camera.position, camera.yaw, camera.pitch) =
+                            play.preview_camera(at, turned, seconds);
+                    }
                     play.set_detector(shell.detector());
+                    // The options: how loud it is, and whether its window is the screen.
+                    play.set_volume(shell.volume());
+                    if self.options.trial.is_none() {
+                        let full = shell.fullscreen();
+                        if state.window.fullscreen().is_some() != full {
+                            let whole = winit::window::Fullscreen::Borderless(None);
+                            state.window.set_fullscreen(full.then_some(whole));
+                        }
+                    }
                     if let Some(told) = shell.tell(play.play.hud(), delta) {
                         if let Some(overlay) = &state.overlay {
                             overlay.show(&told);
@@ -2416,7 +2646,9 @@ mod native {
                             log::info!("told at {:.1}: {told}", state.age);
                         }
                     }
-                    if let Some(kept) = shell.to_keep() {
+                    // (What is not a kept game, the title and a free drive, is not kept.)
+                    let playing = self.options.trial.is_some() || self.options.slot != 0;
+                    if let Some(kept) = shell.to_keep().filter(|_| playing) {
                         let file = kept_in;
                         let saved =
                             std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))
@@ -2435,6 +2667,14 @@ mod native {
                                     clock.time.hours = solstice_viewer::shell::MORNING;
                                     clock.time.day += 1.0;
                                 }
+                                // The new day has its own weather, as it was forecast.
+                                let (name, soaked) = shell.today_sky();
+                                if let Some(weather) = Weather::by_name(name) {
+                                    state.renderer.set_weather(weather, 0.0);
+                                    state.renderer.advance_weather(soaked);
+                                    self.options.weather = weather;
+                                    self.options.weathered = soaked;
+                                }
                             }
                             // The gold: a nugget shown or put away, its body put in the
                             // world or taken out, and what is heard.
@@ -2442,6 +2682,34 @@ mod native {
                             Order::Thing(body) => play.thing(body),
                             Order::Carry(carried) => play.set_carried(carried),
                             Order::Sound(name) => play.sound_once(name),
+                            // A door of the truck's swings. (A truck with no kit has none.)
+                            Order::Door { piece, open } => {
+                                let _ = play.swing(&piece, if open { 1.0 } else { 0.0 });
+                            }
+                            Order::Paint(colour) => play.paint(colour),
+                            Order::Dirt(dirt) => play.set_dirt(dirt),
+                            Order::Show { index, paint } => {
+                                play.display(&mut state.renderer, index, paint);
+                            }
+                            Order::Fit(build) => {
+                                if let Err(error) = play.display_fit(&build) {
+                                    log::warn!("fitting {build}: {error}");
+                                }
+                            }
+                            Order::Options => {
+                                if self.options.trial.is_none() {
+                                    let kept = std::fs::create_dir_all("save").and_then(|()| {
+                                        std::fs::write(OPTIONS_FILE, shell.options_text())
+                                    });
+                                    if let Err(error) = kept {
+                                        log::warn!("{OPTIONS_FILE}: {error}");
+                                    }
+                                }
+                            }
+                            Order::Saves(what) => {
+                                let trial = self.options.trial.is_some();
+                                change_game(&mut self.options.slot, trial, shell, what);
+                            }
                             // Out of the truck, or, beside it, back in.
                             Order::Swap => {
                                 let done = if play.play.afoot() {
@@ -2462,6 +2730,8 @@ mod native {
                                 play.play.place_car(position, yaw);
                                 log::info!("the truck is where it was left: {position}");
                             }
+                            // A timed run, or somebody else's being watched.
+                            Order::Stage(stage) => crate::cinema::stage(play, stage),
                             Order::Load { map, scene, sky } => {
                                 log::info!("going to {map}: {scene}");
                                 self.loading = Some((scene, sky, Instant::now()));
@@ -2475,11 +2745,16 @@ mod native {
                     state.hud_timer += delta;
                     if state.hud_timer > 0.1 {
                         state.hud_timer = 0.0;
-                        state.window.set_title(&format!(
-                            "{}   |   {:.0} fps",
-                            hud.line(),
-                            state.fps
-                        ));
+                        // (A game has its instruments on its pages: its window has its name.)
+                        if self.shell.is_some() {
+                            state.window.set_title("Aussie Outback 4x4");
+                        } else {
+                            state.window.set_title(&format!(
+                                "{}   |   {:.0} fps",
+                                hud.line(),
+                                state.fps
+                            ));
+                        }
                     }
                 }
             }
@@ -2646,7 +2921,8 @@ mod native {
             match event {
                 WindowEvent::CloseRequested => {
                     // Closed with no warning: what there is of the game is kept first.
-                    if let Some(shell) = &mut self.shell {
+                    let playing = self.options.trial.is_some() || self.options.slot != 0;
+                    if let Some(shell) = self.shell.as_mut().filter(|_| playing) {
                         let file = save_file(&self.options);
                         let saved =
                             std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))

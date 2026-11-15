@@ -45,6 +45,148 @@ fn actors(files: &[GameFile]) -> Vec<(usize, ActorLine)> {
         .collect()
 }
 
+/// The gameplay file that says which instances of a scene are not to be drawn: a line a
+/// run of them, `FIRST COUNT`. A truck that another has taken the place of is in it.
+pub const HIDDEN: &str = "truck.hidden";
+
+/// The instances a scene's gameplay says are not to be drawn.
+pub fn hidden(files: &[GameFile]) -> Vec<u32> {
+    let Some(file) = files.iter().find(|file| file.name == HIDDEN) else {
+        return Vec::new();
+    };
+    let mut hidden = Vec::new();
+    for line in file.text.lines() {
+        let numbers: Vec<u32> = line
+            .split_whitespace()
+            .filter_map(|w| w.parse().ok())
+            .collect();
+        if let [first, count] = numbers[..] {
+            hidden.extend(first..first + count);
+        }
+    }
+    hidden
+}
+
+/// Puts a truck that was put together from its pack (`kit::assemble`) in a map, in place of
+/// the truck the map has: the map's car is given the new truck's instances, where the map
+/// has its car, and its actor file, its numbers and its kit; and the truck that was there
+/// is no longer drawn.
+pub fn swap_truck(
+    scene: &mut solstice_asset::LoadedScene,
+    truck: crate::kit::Assembled,
+) -> Result<(), String> {
+    let text = |files: &[GameFile], name: &str| {
+        files
+            .iter()
+            .find(|file| file.name == name)
+            .map(|file| file.text.clone())
+    };
+    // The map's car: the actor whose file makes it one, and that something draws.
+    let (line, mut actor) = actors(&scene.scene.gameplay)
+        .into_iter()
+        .find(|(_, actor)| {
+            let file = text(&scene.scene.gameplay, &actor.file);
+            let car = file.and_then(|text| solstice_game::ActorFile::parse(&text).ok());
+            car.is_some_and(|car| car.vehicle.is_some())
+        })
+        .ok_or("the map has no car to put the truck in place of")?;
+    let was = actor.instances.clone();
+    let count = truck.scene.scene.instances.len() as u32;
+    let joined = scene.join(truck.scene).map_err(|error| error.to_string())?;
+    let instances = joined.instances..joined.instances + count;
+    let place = Mat4::from_rotation_translation(
+        Quat::from_rotation_y(actor.yaw_degrees.to_radians()),
+        actor.position,
+    );
+    for id in instances.clone() {
+        let instance = &mut scene.scene.instances[id as usize];
+        instance.transform = place * instance.transform;
+    }
+    actor.file.clone_from(&truck.actor);
+    actor.instances = Some(instances);
+    actor.shared = false;
+    let files = &mut scene.scene.gameplay;
+    if let Some(game) = files.iter_mut().find(|file| file.name == GAME_FILE) {
+        let mut lines: Vec<String> = game.text.lines().map(str::to_owned).collect();
+        lines[line] = actor.to_text();
+        game.text = lines.join("\n") + "\n";
+    }
+    for file in truck.files {
+        files.retain(|other| other.name != file.name);
+        files.push(file);
+    }
+    if let Some(was) = was {
+        files.retain(|other| other.name != HIDDEN);
+        files.push(GameFile {
+            name: HIDDEN.to_owned(),
+            text: format!("{} {}\n", was.start, was.end - was.start),
+        });
+    }
+    Ok(())
+}
+
+/// Stands trucks in a map to be looked at, where the map has its car: each was put together
+/// from its pack (`kit::assemble`), and all of them stand in the one place, to be shown one
+/// at a time (`kit::displayed`). The map's own car is no longer drawn. Nothing drives them:
+/// they are as they were made, at rest.
+pub fn show_trucks(
+    scene: &mut solstice_asset::LoadedScene,
+    trucks: Vec<crate::kit::Assembled>,
+) -> Result<(), String> {
+    let text = |files: &[GameFile], name: &str| {
+        files
+            .iter()
+            .find(|file| file.name == name)
+            .map(|file| file.text.clone())
+    };
+    let (_, actor) = actors(&scene.scene.gameplay)
+        .into_iter()
+        .find(|(_, actor)| {
+            let file = text(&scene.scene.gameplay, &actor.file);
+            let car = file.and_then(|text| solstice_game::ActorFile::parse(&text).ok());
+            car.is_some_and(|car| car.vehicle.is_some())
+        })
+        .ok_or("the map has no car to stand the trucks in place of")?;
+    let place = Mat4::from_rotation_translation(
+        Quat::from_rotation_y(actor.yaw_degrees.to_radians()),
+        actor.position,
+    );
+    let mut list = String::new();
+    for (number, truck) in trucks.into_iter().enumerate() {
+        let count = truck.scene.scene.instances.len() as u32;
+        let joined = scene.join(truck.scene).map_err(|error| error.to_string())?;
+        for id in joined.instances..joined.instances + count {
+            let instance = &mut scene.scene.instances[id as usize];
+            instance.transform = place * instance.transform;
+        }
+        // Each has its files in a folder of its own: two of them may be the same truck.
+        let folder = format!("show{number}/");
+        let renamed = |name: &str| name.replacen(crate::kit::FOLDER, &folder, 1);
+        list.push_str(&format!("{} {}\n", renamed(&truck.actor), joined.instances));
+        for file in truck.files {
+            let name = renamed(&file.name);
+            scene.scene.gameplay.retain(|other| other.name != name);
+            scene.scene.gameplay.push(GameFile {
+                name,
+                text: file.text,
+            });
+        }
+    }
+    let files = &mut scene.scene.gameplay;
+    files.retain(|other| other.name != crate::kit::SHOWN && other.name != HIDDEN);
+    files.push(GameFile {
+        name: crate::kit::SHOWN.to_owned(),
+        text: list,
+    });
+    if let Some(was) = actor.instances {
+        files.push(GameFile {
+            name: HIDDEN.to_owned(),
+            text: format!("{} {}\n", was.start, was.end - was.start),
+        });
+    }
+    Ok(())
+}
+
 /// Whether a scene's game has actors that are in the shared file.
 pub fn wanted(files: &[GameFile]) -> bool {
     actors(files).iter().any(|(_, actor)| actor.shared)
@@ -85,6 +227,14 @@ pub fn adopt(scene: &mut PagedScene, shared: &[GameFile], joined: Joined) -> Res
                 .get_mut(id as usize)
                 .ok_or_else(|| format!("{FILE} has no instance {id} for {}", actor.file))?;
             instance.transform = moved * instance.transform;
+        }
+        // If it is a kit, the list of its pieces comes with it: it counts from the actor's
+        // first instance, wherever that now is.
+        let pieces = solstice_game::actor::pieces_file(&actor.file);
+        if let Some(file) = shared.iter().find(|file| file.name == pieces) {
+            if !scene.gameplay.iter().any(|f| f.name == pieces) {
+                scene.gameplay.push(file.clone());
+            }
         }
         actor.instances = Some(instances);
         actor.shared = false;
