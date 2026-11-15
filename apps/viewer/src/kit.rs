@@ -346,9 +346,9 @@ const TREADS: [(&str, (f32, f32)); 3] = [
 /// how far its wheels travel. (How much higher it stands is the kit's own `lift`.)
 const SUSPENSIONS: [(&str, [f32; 3]); 4] = [
     ("stock", [1.0, 1.0, 1.0]),
-    ("heavy", [1.25, 1.2, 1.0]),
-    ("lift", [1.05, 1.1, 1.25]),
-    ("long", [0.9, 1.1, 1.6]),
+    ("heavy", [1.12, 1.15, 1.0]),
+    ("lift", [1.0, 1.1, 1.1]),
+    ("long", [0.96, 1.15, 1.22]),
 ];
 
 /// A truck's numbers (its `.vehicle` file) as it is fitted: its tyres' tread, its suspension's
@@ -882,7 +882,7 @@ torque 1000 100
             "{built}"
         );
         assert!(
-            built.contains("travel=0.1250,0.1000") && built.contains("bump=3300.0000"),
+            built.contains("travel=0.1100,0.0880") && built.contains("bump=3300.0000"),
             "{built}"
         );
         assert!(built.contains("tread=0.93,1.18") && built.contains("torque 1000 90.0"));

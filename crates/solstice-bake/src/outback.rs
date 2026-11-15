@@ -176,6 +176,61 @@ fn items(plan: &Plan) -> String {
     text
 }
 
+/// Stands a gate at each of these places on the track: a post either side of it, clear of
+/// the wheels, with a glowing head, and the first, the line a lap starts and ends at, with
+/// two a side. They are looked at, not run into.
+fn gates<'a>(scene: &mut SceneAsset, plan: &Plan, at: impl Iterator<Item = &'a Sample>) {
+    let glow = scene.materials.len() as u32;
+    scene.materials.push(Material {
+        base_color: [0.9, 0.42, 0.1, 1.0],
+        emissive: RING_GLOW,
+        roughness: 0.5,
+        ..Default::default()
+    });
+    scene.materials.push(Material {
+        base_color: [0.16, 0.12, 0.09, 1.0],
+        roughness: 0.9,
+        ..Default::default()
+    });
+    let (mut heads, mut posts) = (Mesh::default(), Mesh::default());
+    for (number, sample) in at.enumerate() {
+        let left = sample.left.normalize_or_zero();
+        let along = Vec3::new(-left.z, 0.0, left.x);
+        for side in [-1.0, 1.0] {
+            // (The line itself has a second post a pace on, each side.)
+            for pace in 0..if number == 0 { 2 } else { 1 } {
+                let foot = sample.position
+                    + left * side * (plan.tread + 1.4)
+                    + along * (pace as f32 * 1.2);
+                let foot = Vec3::new(foot.x, plan.height(foot.x, foot.z), foot.z);
+                boxed(
+                    &mut posts,
+                    foot + Vec3::Y * 1.2,
+                    Vec3::new(0.07, 1.25, 0.07),
+                );
+                boxed(
+                    &mut heads,
+                    foot + Vec3::Y * 2.6,
+                    Vec3::new(0.11, 0.16, 0.11),
+                );
+            }
+        }
+    }
+    for (mesh, material) in [(heads, glow), (posts, glow + 1)] {
+        if mesh.indices.is_empty() {
+            continue;
+        }
+        scene.instances.push(Instance {
+            mesh: scene.meshes.len() as u32,
+            material,
+            transform: Mat4::IDENTITY,
+        });
+        scene
+            .meshes
+            .push(build_virtual_mesh(&mesh, &BuildOptions::default()));
+    }
+}
+
 /// Marks the trailheads: at each a ring on the ground, glowing, to drive into, and round it
 /// short posts with a glowing cap, left out where the road comes through. Returns the
 /// trailheads as a `.places` file's text, each leading to the map of its name.
@@ -420,6 +475,15 @@ pub fn build(
             "place buyer {:.2} {:.2} {:.2} {round}",
             buyer.x, buyer.y, buyer.z
         );
+        // Where a truck stands before each of them, to be looked at from the page of what
+        // is behind its door.
+        for (what, at, yaw) in town.stands() {
+            let _ = writeln!(
+                places,
+                "place stand:{what} {:.2} {:.2} {:.2} {yaw:.1}",
+                at.x, at.y, at.z
+            );
+        }
         // Its doors: each a place somebody walks up to, on foot.
         for (what, at) in town.doors() {
             let _ = writeln!(
@@ -528,7 +592,24 @@ pub fn build(
             right_bands: Vec::new(),
         })
         .collect();
-    let sectors = vec![samples.len() / 3, samples.len() * 2 / 3];
+    // A track is driven in sections, each some four hundred metres of it, and a gate stands
+    // at the start of each: a run against the clock goes through them in turn. A road has
+    // the three any lap has, and no gates.
+    let sectors: Vec<usize> = if plan.hub {
+        vec![samples.len() / 3, samples.len() * 2 / 3]
+    } else {
+        let count = ((plan.trail.length / 400.0).round() as usize).clamp(3, 12);
+        (1..count).map(|k| samples.len() * k / count).collect()
+    };
+    if !plan.hub {
+        gates(
+            scene,
+            &plan,
+            std::iter::once(0)
+                .chain(sectors.iter().copied())
+                .map(|at| &samples[at]),
+        );
+    }
     let track = Track::new(country.name, samples, sectors)?;
 
     // A wall at each edge of the square, well above and below the land.
@@ -611,6 +692,40 @@ mod tests {
             if let [x, z, half] = numbers[..] {
                 let close = super::terrain::picture_of(&plan, glam::Vec2::new(x, z), half, 0.2);
                 std::fs::write(folder.join("close.ppm"), close).unwrap();
+                // And how steep the steepest of the ground there is, half a metre to the
+                // next: a step where two roads meet, or a road and the land, shows as one.
+                let (mut most, mut at) = (0.0_f32, glam::Vec2::ZERO);
+                let across = (half * 2.0) as i32;
+                for row in -across..across {
+                    for column in -across..across {
+                        let (px, pz) = (x + column as f32 * 0.5, z + row as f32 * 0.5);
+                        let here = plan.height(px, pz);
+                        let rise = (plan.height(px + 0.5, pz) - here)
+                            .abs()
+                            .max((plan.height(px, pz + 0.5) - here).abs());
+                        if rise > most {
+                            (most, at) = (rise, glam::Vec2::new(px, pz));
+                        }
+                    }
+                }
+                println!("steepest {:.2} m in half a metre, at {at}", most);
+                for (name, step) in [("x", glam::Vec2::X), ("z", glam::Vec2::Y)] {
+                    let line: Vec<String> = (-8..=8)
+                        .map(|k| {
+                            let p = at + step * (k as f32 * 0.5);
+                            let near = plan.trail.near(p.x, p.y);
+                            format!(
+                                "{:.2}({})",
+                                plan.height(p.x, p.y),
+                                near.map_or("-".to_owned(), |n| format!(
+                                    "{}:{:.1}",
+                                    n.index, n.offset
+                                ))
+                            )
+                        })
+                        .collect();
+                    println!("  along {name}: {}", line.join(" "));
+                }
             }
         }
     }
