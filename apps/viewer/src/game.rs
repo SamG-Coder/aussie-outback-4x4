@@ -88,17 +88,24 @@ impl Game {
     }
 }
 
-/// Whether the program has a console to say things on. One opened with a double click that
-/// was built to have a window has none.
+/// Whether the program has anywhere to say things: a console, or a file or another program
+/// its errors are sent to. One opened with a double click that was built to have a window
+/// has none; one run by a script, with what it says taken down, has.
 pub fn has_console() -> bool {
     #[cfg(windows)]
     {
         #[link(name = "kernel32")]
         extern "system" {
             fn GetConsoleWindow() -> isize;
+            fn GetStdHandle(which: u32) -> isize;
         }
-        // SAFETY: it takes nothing and gives back a handle, or none.
-        unsafe { GetConsoleWindow() != 0 }
+        // The handle errors are written to: -12, as the system numbers it.
+        const STD_ERROR_HANDLE: u32 = -12_i32 as u32;
+        // SAFETY: both take a number or nothing and give back a handle, or none.
+        unsafe {
+            let errors = GetStdHandle(STD_ERROR_HANDLE);
+            GetConsoleWindow() != 0 || (errors != 0 && errors != -1)
+        }
     }
     #[cfg(not(windows))]
     true

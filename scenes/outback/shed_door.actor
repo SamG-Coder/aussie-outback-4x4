@@ -1,0 +1,10 @@
+# The door of the shed's room. Somebody on foot beside it uses it (E, or the bottom button on a
+# controller) and it swings open, into the room, or shut. It stops them while it is shut. Its
+# model is made with the shed's (tools/blender/shed/build.py), about its hinge.
+name shed_door
+mesh ../../target/outback/shed_door.glb 1
+collider box 0.86 1.9 0.06 at 0.43 0.95 0
+script shed_door.star
+property reach float 2.6        # how near to it somebody stands to use it, in metres
+property swing float 1.75       # how far it opens, in radians
+property speed float 2.8        # how fast it swings, in radians a second

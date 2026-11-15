@@ -27,6 +27,9 @@ pub struct ActorLine {
     pub settings: Vec<(String, String)>,
     /// The renderer instances drawing its mesh, once baked.
     pub instances: Option<Range<u32>>,
+    /// Its model is not in this scene's file but in the one every scene of a game shares,
+    /// which gives it its instances when the two are read together: `shared`, at the end.
+    pub shared: bool,
 }
 
 impl ActorLine {
@@ -45,8 +48,13 @@ impl ActorLine {
             yaw_degrees: number(words[4])?,
             settings: Vec::new(),
             instances: None,
+            shared: false,
         };
         for word in &words[5..] {
+            if *word == "shared" {
+                actor.shared = true;
+                continue;
+            }
             let (name, value) = word
                 .split_once('=')
                 .ok_or_else(|| format!("`{word}` should be NAME=VALUE"))?;
@@ -84,6 +92,9 @@ impl ActorLine {
         }
         if let Some(instances) = &self.instances {
             let _ = write!(text, " instances={}+{}", instances.start, instances.len());
+        }
+        if self.shared {
+            text.push_str(" shared");
         }
         text
     }

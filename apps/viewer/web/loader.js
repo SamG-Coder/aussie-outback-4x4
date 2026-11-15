@@ -306,6 +306,34 @@ export class SceneFile {
   }
 }
 
+/// A scene's file and, with it, the file of what it shares with other scenes of its game: the
+/// two are read as one, the second's bytes numbered on from `at`, which is past the end of
+/// the first (the viewer's `shared.rs`). What is asked of it is asked of whichever file it is
+/// in, and what it says of itself is said of both.
+export class JoinedFile {
+  #first;
+  #second;
+  #at;
+
+  constructor(first, second, at) {
+    this.#first = first;
+    this.#second = second;
+    this.#at = at;
+  }
+
+  read(start, end, signal) {
+    if (start >= this.#at) return this.#second.read(start - this.#at, end - this.#at, signal);
+    if (end > this.#at) throw new Error("a read of a scene runs from one of its files into the other");
+    return this.#first.read(start, end, signal);
+  }
+
+  get bytesFetched() { return this.#first.bytesFetched + this.#second.bytesFetched; }
+  get bytesKept() { return this.#first.bytesKept + this.#second.bytesKept; }
+  get bytesShared() { return this.#first.bytesShared + this.#second.bytesShared; }
+  get requests() { return this.#first.requests + this.#second.requests; }
+  get reading() { return this.#first.reading + this.#second.reading; }
+}
+
 /// Downloads a whole file with progress, for servers without Range support.
 async function downloadWhole(response, onDownload) {
   const total = Number(response.headers.get("content-length")) || 0;
@@ -634,6 +662,8 @@ export async function requestAdapter() {
 /// carries them after it (pages still come from `url`); `geometryBudget`, `textureBudget`,
 /// `unpackTextures`, `defaultLimits` as `WebViewer.create` takes them; `streaming`, the
 /// streamer's options; and `onDownload`, `onTablesProgress` and `onStage` to follow it.
+/// `sharedUrl` is the file a game's maps share, if the scene is one of a game's: a map that
+/// is read with it is joined with it, and the file given back is then the two as one.
 export async function openScene(wasm, canvas, options) {
   const { WebViewer, header_bytes, read_header } = wasm;
   // `bytes` opens a scene file already in memory instead of `url`.
@@ -641,9 +671,22 @@ export async function openScene(wasm, canvas, options) {
     ? SceneFile.fromBytes(options.bytes)
     : new SceneFile(options.url, options.onDownload);
   const tables = options.tablesUrl ? new SceneFile(options.tablesUrl, options.onDownload) : file;
+  // What the game's maps share, read alongside: its tables are wanted before anything is drawn.
+  const sharing = options.sharedUrl && wasm.shared_file_start
+    ? (async () => {
+      const other = new SceneFile(options.sharedUrl, options.onDownload);
+      const [offset, bytes] = read_header(await other.read(0, header_bytes()));
+      return { file: other, manifest: await inflate(await other.read(offset, offset + bytes)), dataOffset: offset + bytes };
+    })().catch((error) => {
+      // A scene that is not read with it does without, and one that is says so itself.
+      console.warn(`${options.sharedUrl} could not be read: ${error.message ?? error}`);
+      return null;
+    })
+    : null;
   const [manifestOffset, manifestBytes] = read_header(await tables.read(0, header_bytes()));
   const manifestEnd = manifestOffset + manifestBytes;
   const manifest = await inflate(await tables.read(manifestOffset, manifestEnd));
+  const shared = await sharing;
   const [pagesOffset, pagesManifestBytes] = tables === file
     ? [manifestOffset, manifestBytes]
     : read_header(await file.read(0, header_bytes()));
@@ -656,14 +699,18 @@ export async function openScene(wasm, canvas, options) {
     options.textureBudget,
     Boolean(options.unpackTextures),
     Boolean(options.defaultLimits),
+    shared?.manifest,
+    shared?.dataOffset,
   );
+  // Asked for a range from where the shared file's are numbered, the two files answer as one.
+  const both = shared ? new JoinedFile(file, shared.file, wasm.shared_file_start()) : file;
   // A GPU given less than the renderer asks for has passes that do without.
   const fallbacks = viewer.fallbacks();
   if (fallbacks) console.info(`fallbacks for this GPU's limits: ${fallbacks}`);
   await loadExternalTables(viewer, tables, manifestEnd, options.onTablesProgress);
-  const streamer = new Streamer(viewer, file, manifestEnd, {
+  const streamer = new Streamer(viewer, both, manifestEnd, {
     ...options.streaming,
     split: options.tablesUrl ? { url: options.url, tablesUrl: options.tablesUrl } : null,
   });
-  return { viewer, streamer, file };
+  return { viewer, streamer, file: both };
 }

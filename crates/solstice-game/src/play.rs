@@ -20,7 +20,7 @@ use solstice_physics::vehicle::{Surface, Vehicle, VehicleSpec};
 use solstice_physics::{Car, Overlap, Physics, GRAVITY};
 use solstice_script::{Script, ScriptEvent, ScriptHost};
 use solstice_world::{
-    Entity, Game, GlobalTransform, Name, Played, Schedule, TickGroup, Transform, World,
+    Entity, Game, GlobalTransform, Idle, Name, Played, Schedule, TickGroup, Transform, World,
     STEP_SECONDS,
 };
 use std::cell::{Cell, RefCell};
@@ -81,6 +81,14 @@ pub struct Play {
     host: Rc<RefCell<ScriptHost>>,
     drawn: Vec<Drawn>,
     player: Option<Player>,
+    /// Whoever drives the player's car, who can get out of it and walk: an actor of their
+    /// own with a camera, when the scene has one beside the car. And whether they are out.
+    walker: Option<Player>,
+    afoot: bool,
+    /// What the driver carries on foot, and where it is: in their hand, lying where it was
+    /// put down, or put away. Whoever runs the game says ([`Play::carry`]).
+    carried: Vec<Entity>,
+    carry: Option<(Vec3, Quat)>,
     map: InputMap,
     /// How far the camera looks up, as of the last step.
     pitch: f32,
@@ -111,7 +119,7 @@ pub struct Play {
 }
 
 /// How fast a stick held right over swings the view round a car, in radians a second.
-const STICK_ORBIT: f32 = 2.4;
+const STICK_ORBIT: f32 = 3.4;
 
 impl Play {
     /// Builds the game in a baked scene's gameplay `files`. `instance` gives where the bake
@@ -212,7 +220,9 @@ impl Play {
         }
         let mut world = World::new();
         let mut drawn = Vec::new();
-        let mut player = None;
+        let mut player: Option<Player> = None;
+        let mut walker: Option<Player> = None;
+        let mut carried = Vec::new();
         let mut scripts: Vec<String> = Vec::new();
         for (index, line) in scene.actors.iter().enumerate() {
             let at = format!("{GAME_FILE}: actor {} ({})", index + 1, line.file);
@@ -280,7 +290,7 @@ impl Play {
             if let Some(character) = actor.character {
                 components.add(character);
             }
-            if actor.camera.is_some() && player.is_none() {
+            if actor.camera.is_some() {
                 components.add(Played);
             }
             // A car: its numbers, its wheels as they are drawn, and its laps.
@@ -304,17 +314,30 @@ impl Play {
                 }
             }
             let entity = world.spawn(components.build());
+            if actor.carried {
+                carried.push(entity);
+            }
             if let Some(eye) = actor.camera {
-                if player.is_some() {
-                    errors.push(format!(
-                        "{at}: only one actor can have a camera, and one already does"
-                    ));
-                }
-                player = Some(Player {
+                let this = Player {
                     entity,
                     eye,
                     car: hubs.is_some(),
-                });
+                };
+                match (&player, &walker) {
+                    (None, _) => player = Some(this),
+                    // A car and whoever drives it: the car is played first, and its driver
+                    // when they get out.
+                    (Some(first), None) if first.car != this.car => {
+                        if this.car {
+                            walker = player.replace(this);
+                        } else {
+                            walker = Some(this);
+                        }
+                    }
+                    _ => errors.push(format!(
+                        "{at}: only one actor can have a camera, or a car and its driver, and there is one already"
+                    )),
+                }
             }
             if let Some(range) = &line.instances {
                 let placed = Mat4::from_rotation_translation(rotation, line.position);
@@ -375,6 +398,10 @@ impl Play {
         ScriptHost::install(&host, &mut schedule);
         // The player's car takes what the player asks of it, after scripts have had their say.
         let driven = player.as_ref().filter(|p| p.car).map(|p| p.entity);
+        // The driver sits in the car until they get out of it.
+        if let Some(walker) = &walker {
+            let _ = world.entities.insert_one(walker.entity, Idle);
+        }
         let circuit = track.clone();
         // Whether the car is driving itself round the circuit, and where on it it last was.
         let (mut itself, mut last_at) = (false, None);
@@ -403,12 +430,17 @@ impl Play {
             };
             // While the player is away flying the camera, the keys that fly it are not the
             // car's: it is asked for nothing, as a walker left standing hears nothing.
-            let away = world.input().away();
+            // Nor is a car whose driver has got out of it, which stands on its handbrake.
+            let idle = world.entities.get::<&Idle>(entity).is_ok();
+            let away = world.input().away() || idle;
             let mut asked = if away {
                 Default::default()
             } else {
                 drive::asked(world.input())
             };
+            if idle {
+                asked.handbrake = 1.0;
+            }
             let reset = !away && world.input().pressed("reset");
             // With no circuit there is nothing to drive round: the key does nothing.
             if !away && circuit.is_some() && world.input().pressed("autopilot") {
@@ -606,6 +638,10 @@ impl Play {
             host,
             drawn,
             player,
+            walker,
+            afoot: false,
+            carried,
+            carry: None,
             map,
             pitch: 0.0,
             unstepped: 0.0,
@@ -719,6 +755,147 @@ impl Play {
         self.flying = flying;
     }
 
+    /// Whether the player's car has a driver who can get out of it and walk.
+    pub fn can_walk(&self) -> bool {
+        self.walker.is_some() && self.player.as_ref().is_some_and(|player| player.car)
+    }
+
+    /// Whether the driver is out of the car, walking.
+    pub fn afoot(&self) -> bool {
+        self.afoot
+    }
+
+    /// Gets the driver out of the car, to stand beside its door: the car is left on its
+    /// handbrake, and the keys walk the driver. Whether they got out.
+    pub fn get_out(&mut self) -> bool {
+        if self.afoot || self.flying {
+            return false;
+        }
+        let (Some(car), Some(walker)) = (&self.player, &self.walker) else {
+            return false;
+        };
+        let entities = &mut self.game.world.entities;
+        let Ok(at) = entities.get::<&Transform>(car.entity).map(|at| *at) else {
+            return false;
+        };
+        let yaw = at.rotation.to_euler(EulerRot::YXZ).0;
+        let facing = Quat::from_rotation_y(yaw);
+        let beside = at.translation + facing * Vec3::new(-1.95, 0.0, 0.3) + Vec3::Y * 0.35;
+        if let Ok(mut transform) = entities.get::<&mut Transform>(walker.entity) {
+            transform.translation = beside;
+            transform.rotation = facing;
+        }
+        self.physics.borrow_mut().place(walker.entity, beside);
+        let _ = entities.remove_one::<Idle>(walker.entity);
+        let _ = entities.insert_one(car.entity, Idle);
+        self.afoot = true;
+        self.pitch = 0.0;
+        true
+    }
+
+    /// Gets the driver back into the car, if they are within `reach` of it. Whether they did.
+    pub fn get_in(&mut self, reach: f32) -> bool {
+        if !self.afoot {
+            return false;
+        }
+        let (Some(car), Some(walker)) = (&self.player, &self.walker) else {
+            return false;
+        };
+        let entities = &mut self.game.world.entities;
+        let place = |entity| entities.get::<&Transform>(entity).map(|at| at.translation);
+        let (Ok(car_at), Ok(walker_at)) = (place(car.entity), place(walker.entity)) else {
+            return false;
+        };
+        if car_at.distance(walker_at) > reach {
+            return false;
+        }
+        let _ = entities.remove_one::<Idle>(car.entity);
+        let _ = entities.insert_one(walker.entity, Idle);
+        self.afoot = false;
+        true
+    }
+
+    /// Puts the player's car somewhere, facing a way, at rest: where it was left. Whether
+    /// there is a car to put.
+    pub fn place_car(&mut self, position: Vec3, yaw_degrees: f32) -> bool {
+        let Some(car) = self.player.as_ref().filter(|player| player.car) else {
+            return false;
+        };
+        drive::put_at(&mut self.game.world, car.entity, position, yaw_degrees);
+        true
+    }
+
+    /// Loads the player's car with this many kilograms, which it then has to carry.
+    pub fn set_payload(&mut self, kilograms: f32) {
+        let Some(car) = self.player.as_ref().filter(|player| player.car) else {
+            return;
+        };
+        if let Ok(mut car) = self.game.world.entities.get::<&mut Car>(car.entity) {
+            car.vehicle.set_payload(kilograms);
+        }
+    }
+
+    /// Says where what the driver carries is: there, turned so, or put away. It stays until
+    /// said again.
+    pub fn carry(&mut self, pose: Option<(Vec3, Quat)>) {
+        self.carry = pose;
+    }
+
+    /// Puts a loose thing in the world: a box of this size, weighing this much, which falls,
+    /// lies where it comes to rest, is pushed by what meets it and weighs on what it lies
+    /// on. Nothing draws it: whoever put it there asks where it is ([`Play::thing`]).
+    pub fn add_thing(&mut self, at: Vec3, rotation: Quat, size: Vec3, kilograms: f32) -> Entity {
+        self.game.world.spawn((
+            Name::new("thing"),
+            Transform::from_translation(at).with_rotation(rotation),
+            solstice_physics::ActorCollider {
+                shape: solstice_physics::Shape::Box(size),
+                kind: solstice_physics::BodyKind::Dynamic(kilograms.max(0.01)),
+                offset: Vec3::ZERO,
+            },
+        ))
+    }
+
+    /// Takes a loose thing out of the world.
+    pub fn remove_thing(&mut self, thing: Entity) {
+        let _ = self.game.world.entities.despawn(thing);
+    }
+
+    /// Where a loose thing is, and how it is turned.
+    pub fn thing(&self, thing: Entity) -> Option<(Vec3, Quat)> {
+        self.game
+            .world
+            .entities
+            .get::<&Transform>(thing)
+            .ok()
+            .map(|at| (at.translation, at.rotation))
+    }
+
+    /// Puts a loose thing somewhere else, at rest.
+    pub fn move_thing(&mut self, thing: Entity, at: Vec3, rotation: Quat) {
+        if let Ok(mut transform) = self.game.world.entities.get::<&mut Transform>(thing) {
+            transform.translation = at;
+            transform.rotation = rotation;
+        }
+    }
+
+    /// The height of whatever is under a place: the ground, a floor, a truck's tray, a
+    /// thing lying there.
+    pub fn surface_below(&self, from: Vec3) -> Option<f32> {
+        self.physics.borrow().ground_below(from)
+    }
+
+    /// The height of the land itself under a place, whatever stands on it.
+    pub fn land_below(&self, from: Vec3) -> Option<f32> {
+        self.physics.borrow().land_below(from)
+    }
+
+    /// Where the player's car is, and how it is turned.
+    pub fn car_pose(&self) -> Option<(Vec3, Quat)> {
+        let car = self.player.as_ref().filter(|player| player.car)?;
+        self.thing(car.entity)
+    }
+
     /// Whether the player is flying the camera, away from whoever they play.
     pub fn flying(&self) -> bool {
         self.flying && self.player.is_some()
@@ -750,6 +927,37 @@ impl Play {
         input.set_away(flying);
         for action in self.presses.drain(..) {
             input.press(&action);
+        }
+        // While the driver is in the car they are not standing anywhere: their body is kept
+        // well up out of the way, where the car's wheels cannot find it to stand on.
+        if let (false, Some(walker), Some(car)) = (self.afoot, &self.walker, &self.player) {
+            let entities = &self.game.world.entities;
+            let above = entities
+                .get::<&Transform>(car.entity)
+                .ok()
+                .map(|at| at.translation + Vec3::Y * 120.0);
+            if let Some(above) = above {
+                if let Ok(mut transform) = entities.get::<&mut Transform>(walker.entity) {
+                    transform.translation = above;
+                }
+                self.physics.borrow_mut().place(walker.entity, above);
+            }
+        }
+        // What the driver carries is where it was last said to be, or put away.
+        if !self.carried.is_empty() {
+            let entities = &self.game.world.entities;
+            for &entity in &self.carried {
+                if let Ok(mut transform) = entities.get::<&mut Transform>(entity) {
+                    match self.carry {
+                        Some((at, turned)) => {
+                            transform.translation = at;
+                            transform.rotation = turned;
+                        }
+                        // Away under the ground.
+                        None => transform.translation.y = -900.0,
+                    }
+                }
+            }
         }
         let steps = self.game.frame(seconds, &input);
         devices.end_frame();
@@ -816,7 +1024,12 @@ impl Play {
             // The car is not being driven, and its instruments go with the player.
             self.hud = None;
         }
-        let player = self.player.as_ref().filter(|_| !flying)?;
+        let player = if self.afoot {
+            &self.walker
+        } else {
+            &self.player
+        };
+        let player = player.as_ref().filter(|_| !flying)?;
         let world = entities
             .get::<&GlobalTransform>(player.entity)
             .ok()?
@@ -854,6 +1067,12 @@ impl Play {
             // Filled in place each frame: the lap's times are copied into what the last frame
             // had, and the track's name is set once.
             let hud = self.hud.get_or_insert_with(|| Hud {
+                afoot: false,
+                walker: Vec3::ZERO,
+                walker_yaw: 0.0,
+                origin: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+                tray: None,
                 telemetry,
                 limit: 0.0,
                 throttle: 0.0,
@@ -873,6 +1092,7 @@ impl Play {
                 pitch: 0.0,
                 roll: 0.0,
             });
+            hud.afoot = false;
             hud.telemetry = telemetry;
             hud.limit = car.vehicle.spec().engine.limit;
             hud.throttle = car.controls.throttle;
@@ -886,6 +1106,8 @@ impl Play {
             let (_, pitch, roll) = rotation.to_euler(glam::EulerRot::YXZ);
             (hud.pitch, hud.roll) = (pitch.to_degrees(), -roll.to_degrees());
             hud.forward = rotation * Vec3::NEG_Z;
+            (hud.origin, hud.rotation) = (origin, rotation);
+            hud.tray = car.vehicle.spec().tray;
             hud.velocity = hud.forward * telemetry.speed;
             let spec = car.vehicle.spec();
             let (front, rear) = spec.static_loads(9.81);
@@ -914,6 +1136,12 @@ impl Play {
             });
         }
         let (_, rotation, translation) = world.to_scale_rotation_translation();
+        // Out of the car, its instruments are as it was left, and say where its driver is.
+        if let Some(hud) = self.hud.as_mut().filter(|_| self.afoot) {
+            hud.afoot = true;
+            hud.walker = translation;
+            hud.walker_yaw = rotation.to_euler(EulerRot::YXZ).0;
+        }
         Some(View {
             position: translation + rotation * player.eye,
             yaw: rotation.to_euler(EulerRot::YXZ).0,

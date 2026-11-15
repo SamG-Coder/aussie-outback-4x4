@@ -8,6 +8,10 @@ about crossroads A dirt main road through the high country, with a trailhead for
 kind crossroads Main road
 length crossroads 3.0 km
 
+map town assets/town.solstice Ironbark Flat
+about town What is left of a gold town, down the main road: a hotel, a store, a hall, and a man who buys gold by weight. Park in his yard with the tray full.
+kind town Township
+
 map wombat assets/outback.solstice Wombat Creek Track
 about wombat A washed-out fire trail through stringybark and manna gum: two creek fords, bog holes, rock steps and ruts cut by a wet winter.
 kind wombat Fire trail

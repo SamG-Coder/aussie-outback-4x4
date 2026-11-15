@@ -34,8 +34,9 @@ use std::sync::mpsc::{channel, Receiver};
 pub const GRAVITY: f32 = 9.81;
 /// The steepest slope, in degrees, a character can walk up.
 pub const MAX_SLOPE_DEGREES: f32 = 45.0;
-/// The highest step, in metres, a character climbs without jumping.
-pub const MAX_STEP: f32 = 0.35;
+/// The highest step, in metres, a character climbs without jumping: a kerb, a verandah's
+/// edge, a ledge of rock on a track.
+pub const MAX_STEP: f32 = 0.6;
 /// How fast a character may fall, in metres a second.
 pub const TERMINAL_SPEED: f32 = 50.0;
 
@@ -101,6 +102,8 @@ struct CharacterState {
     collider: ColliderHandle,
     /// Falling speed, negative downward.
     vertical: f32,
+    /// Whether it stood on something at the end of the last step: only then can it jump.
+    grounded: bool,
 }
 
 /// The simulation of one world.
@@ -439,7 +442,12 @@ impl Physics {
     ) {
         let kind = collider.map_or(BodyKind::Kinematic, |c| c.kind);
         let builder = match kind {
-            BodyKind::Dynamic(_) => RigidBodyBuilder::dynamic(),
+            // What is loose may be small and heavy, and is carried on trucks: it is not to
+            // pass through a floor in a step, and it comes to rest where it is put.
+            BodyKind::Dynamic(_) => RigidBodyBuilder::dynamic()
+                .ccd_enabled(true)
+                .linear_damping(0.05)
+                .angular_damping(0.6),
             _ => RigidBodyBuilder::kinematic_position_based(),
         };
         let handle = self.bodies.insert(
@@ -460,7 +468,7 @@ impl Physics {
                     );
             }
             if let BodyKind::Dynamic(mass) = kind {
-                shape = shape.mass(mass);
+                shape = shape.mass(mass).friction(0.9).restitution(0.0);
             }
             shape
         };
@@ -502,6 +510,7 @@ impl Physics {
             CharacterState {
                 collider,
                 vertical: 0.0,
+                grounded: false,
             }
         });
         self.actors.insert(
@@ -571,11 +580,22 @@ impl Physics {
             let collider = &self.colliders[state.collider];
             let shape = collider.shared_shape().clone();
             let pose = *collider.position();
-            let walk = world
+            let wanted = world
                 .entities
                 .get::<&Walk>(entity)
-                .map_or(Vec3::ZERO, |w| Vec3::new(w.0.x, 0.0, w.0.z));
+                .map_or(Vec3::ZERO, |w| w.0);
+            let walk = Vec3::new(wanted.x, 0.0, wanted.z);
+            // A jump: what a walk says of going up is the speed to leave the ground with,
+            // and is heeded only on the ground.
+            if wanted.y > 0.0 && state.grounded {
+                state.vertical = wanted.y;
+            }
             let falling = (state.vertical - GRAVITY * dt).max(-TERMINAL_SPEED);
+            // Going up, it is not held down to the ground it has just left.
+            let mut controller = self.controller;
+            if falling > 0.0 {
+                controller.snap_to_ground = None;
+            }
             let desired = walk * dt + Vec3::Y * falling * dt;
             let filter = QueryFilter::new()
                 .exclude_sensors()
@@ -586,21 +606,31 @@ impl Physics {
                 &self.colliders,
                 filter,
             );
-            let moved = self.controller.move_shape(
-                dt,
-                &queries,
-                &*shape,
-                &pose,
-                to_vector(desired),
-                |_| {},
-            );
-            state.vertical = if moved.grounded { 0.0 } else { falling };
+            let moved =
+                controller.move_shape(dt, &queries, &*shape, &pose, to_vector(desired), |_| {});
+            state.grounded = moved.grounded && falling <= 0.0;
+            state.vertical = if state.grounded { 0.0 } else { falling };
             let next = rigid.translation() + moved.translation;
             self.bodies
                 .get_mut(body.handle)
                 .expect("found above")
                 .set_next_kinematic_translation(next);
             body.at = from_vector(next);
+        }
+    }
+
+    /// Puts a walking character somewhere else: it is not walked there, it is there.
+    pub fn place(&mut self, entity: Entity, at: Vec3) {
+        let Some(body) = self.actors.get_mut(&entity) else {
+            return;
+        };
+        if let Some(rigid) = self.bodies.get_mut(body.handle) {
+            rigid.set_translation(to_vector(at), true);
+            rigid.set_next_kinematic_translation(to_vector(at));
+        }
+        body.at = at;
+        if let Some(state) = body.character.as_mut() {
+            state.vertical = 0.0;
         }
     }
 

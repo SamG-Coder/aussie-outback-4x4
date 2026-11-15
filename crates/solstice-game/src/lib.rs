@@ -32,6 +32,7 @@ pub use input::{Binding, Device, Devices, InputMap};
 pub use play::{Message, Play, View};
 pub use scene::{missing_files, ActorLine, Blocker, SceneGame, GAME_FILE};
 pub use solstice_vehicle::VehicleSpec;
+pub use solstice_world::Entity;
 pub use track::Track;
 
 use std::fmt;

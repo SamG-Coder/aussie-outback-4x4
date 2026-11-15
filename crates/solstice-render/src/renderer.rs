@@ -379,6 +379,11 @@ pub struct Renderer {
     time: f32,
     /// Seconds since the previous frame.
     frame_seconds: f32,
+    /// What is to be written over in installed pages before the next frame is drawn: the
+    /// page, how far into it, and the bytes. See [`Self::rewrite_page`].
+    rewrites: Vec<(u32, u32, Vec<u8>)>,
+    /// Materials to be changed before the next frame is drawn. See [`Self::set_material`].
+    recoloured: Vec<(u32, solstice_asset::Material)>,
 }
 
 impl Renderer {
@@ -452,6 +457,24 @@ impl Renderer {
         Self::from_parts(gpu, scene, streamer, output_format, settings)
             .with_sea(&paged.sea)
             .with_still_water(&paged.still_water)
+    }
+
+    /// Writes over part of a page from the next frame on: `data` in place of what is
+    /// `offset` bytes into it, both whole words. This is how a thing is made as the game is
+    /// played: the scene holds a mesh for it, built with nothing coarser made from it
+    /// (`solstice_builder::BuildOptions::flat`) so that it is all in pages that are always
+    /// loaded, with bounds wide enough for whatever it will be, and its points are written
+    /// here when they are known. Its triangles stay as they are. An instance of it should
+    /// be movable ([`Self::set_instance_movable`]), so that it is drawn afresh each frame
+    /// rather than kept in a view drawn before.
+    pub fn rewrite_page(&mut self, page: u32, offset: u32, data: Vec<u8>) {
+        self.rewrites.push((page, offset, data));
+    }
+
+    /// Makes one of the scene's materials this one from the next frame on. For materials
+    /// with no texture alone: one with a texture is refused, and stays as it is.
+    pub fn set_material(&mut self, index: u32, material: solstice_asset::Material) {
+        self.recoloured.push((index, material));
     }
 
     /// For a scene that keeps its tables outside its manifest: takes a pinned page and its
@@ -801,6 +824,8 @@ impl Renderer {
             frame_index: 0,
             time: 0.0,
             frame_seconds: 1.0 / 60.0,
+            rewrites: Vec::new(),
+            recoloured: Vec::new(),
         }
     }
 
@@ -1062,6 +1087,19 @@ impl Renderer {
 
         // Everything below draws what's installed from here on, with instances where they are
         // this frame.
+        for (page, offset, data) in std::mem::take(&mut self.rewrites) {
+            if !self.streamer.rewrite(gpu, &self.scene, page, offset, &data) {
+                log::warn!("page {page} could not be written over at {offset}: it is not installed, or is shorter");
+            }
+        }
+        for (index, material) in std::mem::take(&mut self.recoloured) {
+            if !self
+                .streamer
+                .set_material(gpu, &self.scene, index, material)
+            {
+                log::warn!("material {index} could not be changed: it has a texture, or there is none such");
+            }
+        }
         self.streamer.update(gpu, &self.scene, delta_seconds);
         let changes = self.scene.update_instances(gpu);
         let streamed = self.streamer.should_refresh_cached_views();

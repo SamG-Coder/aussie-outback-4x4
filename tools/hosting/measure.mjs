@@ -1,7 +1,7 @@
 // Drives the browser version in a headless Edge of its own (its own profile, no window) and
 // reports what a drive downloads: node measure.mjs BASE_URL SECONDS BLOCK_KB...
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -73,6 +73,11 @@ try {
       return { requests: f.requests, mb: f.bytesFetched / 1e6, used: f.bytesKept / 1e6, shared: (f.bytesShared || 0) / 1e6, pages: v.pages_installed(), total: v.pages_total(),
         reading: f.reading, frames: solstice.frames, speed: ui.getElementById('speed').textContent,
         strip: ui.getElementById('stream').hidden ? 'hidden' : ui.getElementById('stream-what').textContent + ' | ' + ui.getElementById('stream-much').textContent }; })()`);
+    // SHOT=FILE.png keeps a picture of the page as the drive ends, to see that it drew.
+    if (process.env.SHOT) {
+      const shot = await send("Page.captureScreenshot", { format: "png" });
+      if (shot.result?.data) writeFileSync(process.env.SHOT, Buffer.from(shot.result.data, "base64"));
+    }
     console.log(JSON.stringify({
       run: size, toStart: { requests: start.requests, MB: Math.round(start.mb) },
       afterDrive: { requests: end.requests, MB: Math.round(end.mb), usedMB: Math.round(end.used), alreadyHereMB: Math.round(end.shared), pages: `${end.pages} of ${end.total}`,

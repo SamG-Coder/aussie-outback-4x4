@@ -22,6 +22,14 @@ fn error_string(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
 
+/// Where the bytes of the file a game's maps share are numbered from, in the requests of a
+/// map joined with it: a request from here on is that far into the shared file.
+#[cfg(feature = "gameplay")]
+#[wasm_bindgen]
+pub fn shared_file_start() -> f64 {
+    crate::shared::WEB_AT as f64
+}
+
 /// Sets up logging and panic messages. Runs once when the module loads.
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -96,6 +104,11 @@ impl WebViewer {
     /// if the GPU had no block compression, to test that path. `default_limits` asks for no more
     /// than the WebGPU default limits, as many phones are given, to see their fallbacks on any
     /// GPU.
+    ///
+    /// `shared` is the unpacked manifest of the file a game's maps share, if the page has
+    /// one, and `shared_data_offset` where that file's data area begins. A map that is read
+    /// with it is joined with it here (`crate::shared`), and asks for the shared file's bytes
+    /// as ranges from [`shared_file_start`] on. A scene that is not takes no notice of it.
     #[allow(clippy::too_many_arguments)]
     pub async fn create(
         canvas: HtmlCanvasElement,
@@ -105,9 +118,33 @@ impl WebViewer {
         texture_budget: f64,
         unpack_textures: bool,
         default_limits: bool,
+        shared: Option<Vec<u8>>,
+        shared_data_offset: Option<f64>,
     ) -> Result<WebViewer, JsValue> {
-        let scene = file::decode_manifest(&manifest, data_offset as u64).map_err(error_string)?;
+        #[allow(unused_mut)]
+        let mut scene =
+            file::decode_manifest(&manifest, data_offset as u64).map_err(error_string)?;
         drop(manifest);
+        #[cfg(feature = "gameplay")]
+        if crate::shared::wanted(&scene.gameplay) {
+            let bytes = shared.ok_or_else(|| {
+                error_string(format!(
+                    "this map is read with {}, which could not be read",
+                    crate::shared::FILE
+                ))
+            })?;
+            let other = file::decode_manifest(&bytes, shared_data_offset.unwrap_or(0.0) as u64)
+                .map_err(error_string)?;
+            drop(bytes);
+            let files = other.gameplay.clone();
+            let joined = solstice_asset::join::join(&mut scene, other, crate::shared::WEB_AT)
+                .map_err(error_string)?;
+            crate::shared::adopt(&mut scene, &files, joined).map_err(error_string)?;
+            // And what nuggets are shown with, which are made as they are found.
+            crate::nugget::join_streamed(&mut scene).map_err(error_string)?;
+        }
+        #[cfg(not(feature = "gameplay"))]
+        let _ = (shared, shared_data_offset);
         let external_tables = scene
             .external
             .map(|tables| vec![tables.clusters as f64, tables.pinned_bytes as f64]);
@@ -413,7 +450,9 @@ impl WebViewer {
                 }
             };
             if let Some(shell) = &mut self.shell {
+                shell.see(play.things());
                 shell.after(play.play.hud());
+                play.set_detector(shell.detector());
                 if let Some(told) = shell.tell(play.play.hud(), delta_seconds) {
                     self.told = told;
                 }
@@ -421,6 +460,40 @@ impl WebViewer {
                     self.orders.push(match order {
                         // The desktop's: in a browser the page takes hold of the mouse itself.
                         Order::Look => continue,
+                        // A night slept through: it is the next morning.
+                        Order::Sleep => {
+                            self.clock.time.hours = crate::shell::MORNING;
+                            self.clock.time.day += 1.0;
+                            continue;
+                        }
+                        Order::Item(shown) => {
+                            play.show_item(&mut self.renderer, shown);
+                            continue;
+                        }
+                        Order::Thing(body) => {
+                            play.thing(body);
+                            continue;
+                        }
+                        Order::Carry(carried) => {
+                            play.set_carried(carried);
+                            continue;
+                        }
+                        Order::Sound(name) => {
+                            play.sound_once(name);
+                            continue;
+                        }
+                        Order::Swap => {
+                            if play.play.afoot() {
+                                play.play.get_in(crate::shell::GET_IN + 1.0);
+                            } else {
+                                play.play.get_out();
+                            }
+                            continue;
+                        }
+                        Order::Place { position, yaw } => {
+                            play.play.place_car(position, yaw);
+                            continue;
+                        }
                         Order::Quit => "quit".to_owned(),
                         Order::Load { map, scene, sky } => format!(
                             "load {map} {scene} {} {}",

@@ -280,6 +280,8 @@ struct Shift {
 #[derive(Clone, Debug)]
 pub struct Vehicle {
     spec: VehicleSpec,
+    /// What it weighs with nothing in it, in kilograms.
+    unladen: f32,
     curves: TyreCurves,
     gravity: f32,
     /// The load on a front wheel and on a rear one, standing still.
@@ -323,6 +325,7 @@ impl Vehicle {
             ..Wheel::default()
         };
         Self {
+            unladen: spec.mass,
             curves: spec.tyre.curves(),
             static_loads: spec.static_loads(gravity),
             engine_speed: spec.engine.idle * RPM_TO_RADIANS,
@@ -397,6 +400,17 @@ impl Vehicle {
 
     pub fn spec(&self) -> &VehicleSpec {
         &self.spec
+    }
+
+    /// Loads it: what is carried in it, in kilograms, is that much more for its engine to
+    /// move, its brakes to stop and its springs to hold up.
+    pub fn set_payload(&mut self, kilograms: f32) {
+        self.spec.mass = self.unladen + kilograms.max(0.0);
+    }
+
+    /// What it is carrying, in kilograms.
+    pub fn payload(&self) -> f32 {
+        self.spec.mass - self.unladen
     }
 
     pub fn telemetry(&self) -> &Telemetry {

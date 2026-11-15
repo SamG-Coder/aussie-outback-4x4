@@ -410,6 +410,23 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             let inv = 1.0 / sqrt(scale);
             normal = normalize(tangent * inv * tangent_xy.x + bitangent * inv * tangent_xy.y + normal * tangent_z);
         }
+    } else if (material.flags & MATERIAL_BLENDS) != 0u {
+        // A thing of three plain materials with no texture, this one and the two after it: a
+        // nugget's gold, the clay in its hollows and the rock in it (apps/viewer/src/nugget.rs).
+        // The mesh's texture coordinates hold how much of the second and third there is at
+        // each point. Between points each share is drawn to one side or the other, so that
+        // where two kinds meet there is an edge, which wanders across the triangles as the
+        // shares do, and not a smear a triangle wide.
+        let index = instance_material(instance);
+        let raw = uv / max(material.uv_scale, 1.0e-6);
+        let third = smoothstep(0.42, 0.58, raw.y);
+        let second = smoothstep(0.38, 0.62, raw.x) * (1.0 - third);
+        let first = 1.0 - second - third;
+        let m1 = materials[index + 1u];
+        let m2 = materials[index + 2u];
+        albedo = material.base_color.rgb * first + m1.base_color.rgb * second + m2.base_color.rgb * third;
+        roughness = material.roughness * first + m1.roughness * second + m2.roughness * third;
+        metallic = material.metallic * first + m1.metallic * second + m2.metallic * third;
     }
 
     // Water on the surface, where the sea has been (docs/wetness.md).

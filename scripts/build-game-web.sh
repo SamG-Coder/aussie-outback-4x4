@@ -64,8 +64,9 @@ bash scripts/build-home.sh
 if [ -z "$hosted" ]; then
   # Hard links keep the maps from taking disk space twice.
   mkdir -p dist/play/assets
-  for scene in assets/hub.solstice assets/outback.solstice assets/granite.solstice assets/blackwood.solstice; do
-    [ -e "$scene" ] || continue
+  # The maps, and first what they all share, which each is read with.
+  for scene in assets/shared.solstice assets/hub.solstice assets/town.solstice assets/outback.solstice assets/granite.solstice assets/blackwood.solstice; do
+    [ -e "$scene" ] || { echo "$scene is missing: bake it first (bake.bat)"; exit 1; }
     ln -f "$scene" "dist/play/assets/$(basename "$scene")" 2>/dev/null || cp "$scene" dist/play/assets/
     # And the list of its pieces, if it has been cut (tools/hosting/chunks.py).
     [ -e "$scene.chunks" ] && cp "$scene.chunks" dist/play/assets/

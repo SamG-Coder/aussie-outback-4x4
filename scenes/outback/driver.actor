@@ -1,0 +1,10 @@
+# Whoever drives the truck. They sit in it until they get out (hold E, or the bottom button on
+# a controller, in free roam): then they are an eye on legs, walking, and the truck stands on
+# its handbrake until they get back in the same way. There is no body to see yet.
+name driver
+script driver.star
+property walk_speed float 1.8   # metres a second
+property run_speed float 4.6
+property jump_speed float 4.7   # metres a second off the ground: a jump of about a metre
+camera 0 1.68 0
+character 0.3 1.78

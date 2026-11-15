@@ -4,10 +4,10 @@
 // The desktop's code names this crate as the programs built on it do.
 extern crate self as solstice_viewer;
 
-pub mod bob;
-pub mod camera_path;
 #[cfg(all(target_os = "android", feature = "gameplay"))]
 mod android;
+pub mod bob;
+pub mod camera_path;
 #[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
 pub mod desktop;
 // On a phone the parts of these two that are a console's, or a desktop's, go unused.
@@ -21,7 +21,10 @@ mod game;
 #[cfg(all(not(target_arch = "wasm32"), feature = "gameplay"))]
 #[cfg_attr(target_os = "android", path = "overlay_android.rs")]
 mod overlay;
-#[cfg(all(not(any(target_arch = "wasm32", target_os = "android")), feature = "gameplay"))]
+#[cfg(all(
+    not(any(target_arch = "wasm32", target_os = "android")),
+    feature = "gameplay"
+))]
 mod sony;
 // A phone has no controller of that kind plugged into it.
 #[cfg(all(target_os = "android", feature = "gameplay"))]
@@ -39,7 +42,13 @@ mod sony {
     }
 }
 #[cfg(feature = "gameplay")]
+pub mod gold;
+#[cfg(feature = "gameplay")]
+pub mod nugget;
+#[cfg(feature = "gameplay")]
 pub mod play;
+#[cfg(feature = "gameplay")]
+pub mod shared;
 #[cfg(feature = "gameplay")]
 pub mod shell;
 #[cfg(not(target_arch = "wasm32"))]

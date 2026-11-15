@@ -377,6 +377,8 @@ async function main() {
   [canvas.width, canvas.height] = canvasSize();
   const { viewer, streamer, file } = await openScene(wasm, canvas, {
     url: sceneUrl,
+    // A game's maps are read with the file of what they share, which is beside them.
+    sharedUrl: outback ? `${sceneBase}shared.solstice` : null,
     // ?split reads the manifest from NAME.web, and pages from NAME.solstice.
     tablesUrl: params.has("split") ? `${sceneBase}${sceneName}.web` : null,
     geometryBudget,

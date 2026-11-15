@@ -470,12 +470,7 @@ pub fn run(arguments: &[String]) -> i32 {
         println!("--fetch-maps expects the site the maps are on");
         return 2;
     }
-    i32::from(!fetch_maps(
-        &Curl,
-        &sites,
-        &folder,
-        &mut Console::default(),
-    ))
+    i32::from(!fetch_maps(&Curl, &sites, &folder, &mut Console::default()))
 }
 
 #[cfg(test)]
@@ -698,10 +693,7 @@ mod tests {
             &folder,
             &mut kept
         ));
-        assert_eq!(
-            kept.progress.first(),
-            Some(&("The Map".to_owned(), 0, 120))
-        );
+        assert_eq!(kept.progress.first(), Some(&("The Map".to_owned(), 0, 120)));
         assert_eq!(
             kept.progress.last(),
             Some(&("The Map".to_owned(), 120, 120))
@@ -719,7 +711,10 @@ mod tests {
             &folder,
             &mut kept
         ));
-        assert!(kept.lines.iter().any(|line| line.contains("did not answer")));
+        assert!(kept
+            .lines
+            .iter()
+            .any(|line| line.contains("did not answer")));
         let _ = std::fs::remove_dir_all(&folder);
     }
 

@@ -153,6 +153,8 @@ pub struct Country {
     /// Whether its track may cross itself. The first two maps' tracks were found before this
     /// was looked for, and are kept as they were found.
     pub crosses: bool,
+    /// Whether it is a town: a hub whose camp is a town's yard, with no shed.
+    pub town: bool,
 }
 
 impl Country {
@@ -170,6 +172,7 @@ impl Country {
         bogs: 9,
         rutted: 1.0,
         crosses: true,
+        town: false,
     };
     /// The Crossroads: the hub, with a graded road round it.
     pub const HUB: Self = Self {
@@ -208,11 +211,24 @@ impl Country {
         ..Self::TRACK
     };
 
-    /// The country a scene file names: `track`, `hub`, `rock` or `mud`.
+    /// The town: gentler country lower down the same road, with a town where it starts.
+    pub const TOWN: Self = Self {
+        name: "Ironbark Flat",
+        hub: true,
+        town: true,
+        shift: Vec3::new(-2380.0, 0.0, -4720.0),
+        turned: false,
+        relief: 0.55,
+        stone: -0.1,
+        ..Self::TRACK
+    };
+
+    /// The country a scene file names: `track`, `hub`, `town`, `rock` or `mud`.
     pub fn named(name: &str) -> Option<Self> {
         match name {
             "track" => Some(Self::TRACK),
             "hub" => Some(Self::HUB),
+            "town" => Some(Self::TOWN),
             "rock" => Some(Self::ROCK),
             "mud" => Some(Self::MUD),
             _ => None,
@@ -431,6 +447,8 @@ pub struct Cover {
     pub tread: f32,
     /// How much this is the bed of a rill or a washout: stones in wet silt.
     pub scour: f32,
+    /// Something is built here: a hub's shed, on its slab. Nothing grows.
+    pub built: bool,
 }
 
 /// The whole design.
@@ -456,10 +474,71 @@ pub struct Plan {
     pub camp_height: f32,
     /// The creek's line, from its mouth upstream.
     pub creek: Vec<Vec2>,
+    /// A hub's shed, beside the road at the camp; or, where the hub is a town, the town,
+    /// beside the middle of its street.
+    pub shed: Option<super::shed::Shed>,
+    pub town: Option<super::town::Town>,
+    street: Option<Street>,
 }
 
 /// How far round a level clearing the camp is.
 const CAMP: f32 = 16.0;
+/// A town's street: how long its straight is, before the buildings, and how far behind it
+/// the lane is that comes back round the block they stand on.
+const STREET: f32 = 150.0;
+const BLOCK: f32 = 46.0;
+
+/// A town's one road: a street along the front of its buildings, and a lane back round
+/// behind them. Where the middle of the street is, the way it runs, with the block on its
+/// left, and where a truck starts on it.
+#[derive(Clone, Copy, Debug)]
+struct Street {
+    middle: Vec2,
+    along: Vec2,
+    camp: Vec2,
+    /// How high it is: a street is level from end to end, and so is the yard beside it.
+    height: f32,
+}
+
+impl Street {
+    /// Whether a place is on the street itself, not the lane behind or the ends between.
+    fn on(&self, at: Vec2) -> bool {
+        let off = at - self.middle;
+        off.dot(self.along).abs() < STREET * 0.5 + 6.0
+            && off.dot(Vec2::new(self.along.y, -self.along.x)).abs() < 4.0
+    }
+
+    /// Its line, round the block: down the street, round the far end, back along the lane,
+    /// and round the near end, a point every couple of metres.
+    fn ring(&self) -> Vec<Vec2> {
+        let left = Vec2::new(self.along.y, -self.along.x);
+        let radius = BLOCK * 0.5;
+        let (from, to) = (
+            self.middle - self.along * STREET * 0.5,
+            self.middle + self.along * STREET * 0.5,
+        );
+        let mut line = Vec::new();
+        let straight = (STREET / 2.0) as usize;
+        let round = (std::f32::consts::PI * radius / 2.0) as usize;
+        for k in 0..straight {
+            line.push(from.lerp(to, k as f32 / straight as f32));
+        }
+        for k in 0..round {
+            let turn = k as f32 / round as f32 * std::f32::consts::PI;
+            line.push(to + left * radius + (self.along * turn.sin() - left * turn.cos()) * radius);
+        }
+        for k in 0..straight {
+            line.push((to + left * BLOCK).lerp(from + left * BLOCK, k as f32 / straight as f32));
+        }
+        for k in 0..round {
+            let turn = k as f32 / round as f32 * std::f32::consts::PI;
+            line.push(
+                from + left * radius + (-self.along * turn.sin() + left * turn.cos()) * radius,
+            );
+        }
+        line
+    }
+}
 /// Half the width of a hub's road: two trucks pass on it.
 pub const ROAD: f32 = 3.4;
 /// How far round a trailhead's ring is.
@@ -606,9 +685,44 @@ impl Plan {
             camp: Vec2::ZERO,
             camp_height: 0.0,
             creek,
+            shed: None,
+            town: None,
+            street: None,
         };
         println!("  finding the track...");
         plan.route();
+        // A hub has a shed at its camp, beside the road where a truck starts on it.
+        if hub {
+            let start = plan
+                .trail
+                .points
+                .iter()
+                .min_by(|a, b| {
+                    a.at.distance(plan.camp)
+                        .total_cmp(&b.at.distance(plan.camp))
+                })
+                .copied()
+                .unwrap_or_default();
+            if country.town {
+                // The town is beside the middle of its street, at the street's own height.
+                let (at, forward) = plan.street.map_or((start.at, start.forward), |street| {
+                    (street.middle, street.along)
+                });
+                let height = plan
+                    .trail
+                    .near(at.x, at.y)
+                    .map_or(plan.camp_height, |near| {
+                        plan.trail.points[near.index].height
+                    });
+                plan.town = Some(super::town::Town::beside(at, forward, height));
+            } else {
+                plan.shed = Some(super::shed::Shed::beside(
+                    start.at,
+                    start.forward,
+                    plan.camp_height,
+                ));
+            }
+        }
         plan
     }
 
@@ -673,8 +787,19 @@ impl Plan {
         (smoothstep(0.6 - shows, 0.78 - shows, stone * dry) + steep).min(1.0)
     }
 
-    /// The ground's height at a place, with the track worn into it.
+    /// The ground's height at a place, with the track worn into it, and level under a
+    /// hub's shed.
     pub fn height(&self, x: f32, z: f32) -> f32 {
+        let height = self.worn(x, z);
+        match (&self.shed, &self.town) {
+            (Some(shed), _) => height + (shed.height - height) * shed.held(x, z),
+            (_, Some(town)) => height + (town.height - height) * town.held(x, z),
+            _ => height,
+        }
+    }
+
+    /// The ground's height at a place, with the track worn into it.
+    fn worn(&self, x: f32, z: f32) -> f32 {
         let land = self.untracked(x, z);
         let lumps = detail(x, z);
         let Some(near) = self.trail.near(x, z) else {
@@ -846,6 +971,23 @@ impl Plan {
         cover.mud = cover.mud.max(damp * 0.85);
         cover.rock = self.outcrop(x, z) * (1.0 - cover.mud);
         cover.grass = self.open(x, z) * (1.0 - cover.rock) * (1.0 - cover.mud);
+        // Round a shed the ground is worn bare by coming and going, and on its slab nothing
+        // grows at all.
+        if let Some(shed) = &self.shed {
+            cover.built = shed.covers(x, z, 1.2);
+            cover.grass *= 1.0 - shed.held(x, z);
+        }
+        // A town's yard is bare clay, worn by a hundred years of coming and going, and nothing
+        // grows on it or close round it.
+        if let Some(town) = &self.town {
+            let held = town.held(x, z);
+            // Its street too, and a few paces beyond: nothing lies fallen across a town.
+            cover.built = town.covers(x, z, 9.0);
+            cover.grass *= 1.0 - held;
+            cover.rock *= 1.0 - held;
+            cover.mud *= 1.0 - held;
+            cover.clay = held * (1.0 - cover.rock - cover.mud).max(0.0);
+        }
         let Some(near) = self.trail.near(x, z) else {
             return cover;
         };
@@ -1014,12 +1156,76 @@ impl Plan {
             }
             -land.slope(x, z) * 100.0 - wet.at(x, z) * 30.0 - away * 0.02
         };
-        let camp = best(2.0, 30.0, &camp_score);
+        // A town is not driven round a valley. It has one road, a street along the front of
+        // its buildings and a lane back round behind them, on the most level, driest ground
+        // there is, clear of the creek; the street runs across the slope, so that it is
+        // level, with the buildings on its uphill side.
+        let street = self.country.town.then(|| {
+            let reach = STREET * 0.5 + BLOCK;
+            let level = |x: f32, z: f32| {
+                let mut slope = land.slope(x, z) * 2.0;
+                for (dx, dz) in [(-45.0, 0.0), (45.0, 0.0), (0.0, -45.0), (0.0, 45.0)] {
+                    slope += land.slope(x + dx, z + dz);
+                }
+                slope / 6.0
+            };
+            let mut found = (f32::MIN, Vec2::ZERO);
+            for index in (0..side.values.len()).step_by(3) {
+                let (x, z) = side.place(index);
+                if x.abs().max(z.abs()) > keep - reach {
+                    continue;
+                }
+                let p = Vec2::new(x, z);
+                let water = self
+                    .pools
+                    .iter()
+                    .map(|pool| pool.centre.distance(p) - pool.radii.x)
+                    .fold(f32::MAX, f32::min);
+                let value = -level(x, z) * 100.0
+                    - wet.at(x, z) * 40.0
+                    - smoothstep(reach + 30.0, reach, water) * 60.0;
+                if value > found.0 {
+                    found = (value, p);
+                }
+            }
+            let block = found.1;
+            let rise = Vec2::new(
+                land.at(block.x + 10.0, block.y) - land.at(block.x - 10.0, block.y),
+                land.at(block.x, block.y + 10.0) - land.at(block.x, block.y - 10.0),
+            );
+            let mut along = Vec2::new(-rise.y, rise.x)
+                .try_normalize()
+                .unwrap_or(Vec2::X);
+            // The block is on the street's left: uphill of it.
+            if Vec2::new(along.y, -along.x).dot(rise) < 0.0 {
+                along = -along;
+            }
+            let middle = block - Vec2::new(along.y, -along.x) * BLOCK * 0.5;
+            // As high as the land under it is, taken along its whole length.
+            let height = (0..=16)
+                .map(|k| {
+                    let at = middle + along * STREET * (k as f32 / 16.0 - 0.5);
+                    land.at(at.x, at.y)
+                })
+                .sum::<f32>()
+                / 17.0;
+            Street {
+                middle,
+                along,
+                camp: middle - along * (STREET * 0.5 - 14.0),
+                height,
+            }
+        });
+        let camp = match &street {
+            Some(street) => street.camp,
+            None => best(2.0, 30.0, &camp_score),
+        };
         let summit_a = best(1.0, 170.0, &high);
         let lookout_a = best(1.0, 230.0, &high);
         let bog_flat = best(2.0, 170.0, &flat_and_wet);
         let summit_b = best(2.0, 200.0, &high);
         self.camp = camp;
+        self.street = street;
         let sides = |which: f32| side.values.iter().filter(|&&v| v == which).count();
         println!(
             "    sides {} and {} of {}; fords {} and {}",
@@ -1034,7 +1240,7 @@ impl Plan {
         );
 
         // Level the camp.
-        let pad = land.at(camp.x, camp.y);
+        let pad = street.map_or(land.at(camp.x, camp.y), |street| street.height);
         self.camp_height = pad;
         let stride_land = self.land.stride();
         for row in 0..=self.land.cells {
@@ -1079,9 +1285,11 @@ impl Plan {
         // and more the steeper it climbs, the steeper the hillside it crosses, and the wetter
         // the ground. Where a leg has gone, the next keeps off, so the loop does not double
         // back along itself.
+        // A town's road is laid out, not found: it has no legs to find.
+        let legs = if street.is_some() { Vec::new() } else { legs };
         let mut used = vec![0.0_f32; side.values.len()];
         let pools = &self.pools;
-        let mut line: Vec<Vec2> = Vec::new();
+        let mut line: Vec<Vec2> = street.map_or_else(Vec::new, |street| street.ring());
         // The fords' own runs, down one bank and up the other, are track before any leg is
         // found, so that none is found across them.
         if !crossing {
@@ -1228,7 +1436,13 @@ impl Plan {
 
         // Its height: the land's along it, smoothed, so that it climbs evenly and does not
         // follow every hummock.
-        let raw: Vec<f32> = points.iter().map(|p| land.at(p.x, p.y)).collect();
+        let raw: Vec<f32> = points
+            .iter()
+            .map(|p| match &self.street {
+                Some(street) if street.on(*p) => street.height,
+                _ => land.at(p.x, p.y),
+            })
+            .collect();
         let mut height = raw.clone();
         // A road is graded: it keeps an even climb over more of the land's ups and downs.
         for _ in 0..if self.hub { 9 } else { 2 } {
@@ -1578,6 +1792,10 @@ impl Plan {
             }
         }
         trail.moguls = moguls;
+        // A town's street is kept: nothing is dug across it to turn the rain off.
+        if self.country.town {
+            trail.bars.clear();
+        }
         // The trailheads: spread evenly round the road from the camp, each at the most level
         // place within sixty metres of where it falls, clear of the fords and their ramps.
         let home = (0..n)

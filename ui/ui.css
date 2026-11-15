@@ -64,7 +64,16 @@ body[data-screen="drive"] #drive,
 body[data-screen="pause"] #pause,
 body[data-screen="offer"] #offer,
 body[data-screen="controls"] #controls,
+body[data-screen="shed"] #shed,
+body[data-screen="buyer"] #buyer,
+body[data-screen="map"] #map,
 body[data-screen="loading"] #loading { display: block; animation: arrive 0.28s ease-out both; }
+/* Asleep: dark comes down, the new day is named, and it lifts. */
+body[data-screen="sleep"] #sleep { display: grid; place-items: center; background: #050403; animation: night 3.4s ease-in-out both; }
+@keyframes night { 0% { opacity: 0; } 22% { opacity: 1; } 78% { opacity: 1; } 100% { opacity: 0; } }
+#sleep .night { text-align: center; animation: arrive 0.9s 0.7s ease-out both; }
+#sleep .heading { font-size: 7rem; margin-top: 0.6rem; }
+body.still #sleep { animation: none; }
 @keyframes arrive { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 /* For a picture of a screen: nothing fades in. */
@@ -150,6 +159,41 @@ body.touch:not(.pad) .hints span[data-hint] { display: none; }
 .where dd { font: 600 1.3rem/1.25 var(--sign); text-align: right; }
 .where dd.big { font-size: 2.3rem; font-weight: 700; }
 .where dd.off { color: var(--clay); }
+/* What is in the truck: a nugget, and how many. */
+.haul { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; padding-top: 0.7rem; border-top: 1px solid var(--line);
+  font: 600 0.85rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.haul i { width: 0.9rem; height: 0.9rem; border-radius: 30% 45% 35% 50%; background: #f0b93a; box-shadow: 0 0 0.7rem rgba(240, 185, 58, 0.8); }
+.haul b { font: 700 1.5rem/1 var(--sign); color: var(--bone); font-variant-numeric: tabular-nums; }
+.haul.new b { animation: found 0.7s ease-out; }
+@keyframes found { 0% { transform: scale(2.2); color: #f0b93a; } 100% { transform: none; } }
+.tiles button.none { opacity: 0.45; }
+.tiles.three { grid-template-columns: 1fr 1fr 1fr; }
+.tiles.three button span { font-size: 1.8rem; }
+/* On foot there is no dashboard: only what the button does, along the bottom. */
+body.afoot .dash, body.afoot .tilt { display: none; }
+.foot { position: absolute; left: 50%; bottom: 2.6rem; transform: translateX(-50%); display: flex; gap: 2.4rem; padding: 0.7rem 1.4rem;
+  background: var(--panel); border-bottom: 0.2rem solid var(--ochre);
+  font: 600 1rem/1 var(--sign); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dust); }
+.foot span { display: inline-flex; align-items: center; gap: 0.6rem; }
+/* The detector, over it: a bar that fills as the coil nears gold, and what is in the hand. */
+.detector { position: absolute; left: 50%; bottom: 6.6rem; transform: translateX(-50%); width: 24rem; padding: 0.7rem 1.1rem 0.9rem;
+  background: var(--panel); border-left: 0.3rem solid #f0b93a; }
+.detector p { display: flex; justify-content: space-between; align-items: baseline;
+  font: 600 0.85rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
+.detector b { color: #f0b93a; letter-spacing: 0.06em; }
+.detector .meter { height: 0.7rem; margin-top: 0.6rem; background: rgba(242, 234, 219, 0.12); }
+.detector .meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8a6a1c, #f0b93a 70%, #fff3c4);
+  transition: width 0.12s linear; }
+.detector.over .meter i { box-shadow: 0 0 0.9rem rgba(240, 185, 58, 0.9); }
+body.touch:not(.pad) .detector { bottom: auto; top: 2.4rem; width: 18rem; }
+.foot kbd { margin: 0; }
+body.touch:not(.pad) .foot { display: none; }
+/* Touched, on foot: the pad walks, the pedals and the truck's own buttons go, and the rest of
+   the screen looks round. */
+.thumbs .look { display: none; position: absolute; inset: 0; }
+body.afoot .thumbs .look { display: block; }
+body.afoot .thumbs .pedals, body.afoot .thumbs .taps.right,
+body.afoot .thumbs [data-key="KeyC"], body.afoot .thumbs [data-key="KeyR"] { display: none; }
 
 /* The way to the nearest trailhead: an arrow that turns to it, and how far. */
 .marker { top: 2.4rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 0.9rem;
@@ -171,6 +215,41 @@ body.pad .banner kbd { border-radius: 50%; padding: 0; }
 
 /* The inclinometer: the truck from the side and from behind, tipped as it is. */
 .tilt { left: 2.6rem; bottom: 2.4rem; display: flex; gap: 1.1rem; }
+/* The map, small: above the tilt dials, and where they are when the driver is on foot. */
+.minimap { position: absolute; left: 2.6rem; bottom: 13.4rem; width: 15.9rem; height: 15.9rem; overflow: hidden;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 0.5rem; }
+body.afoot .minimap { bottom: 2.4rem; }
+.minimap-chart { position: absolute; inset: 0; background-repeat: no-repeat; background-color: #ece3c7; opacity: 0.94; }
+.minimap-arrow { position: absolute; left: 50%; top: 50%; width: 1.7rem; height: 1.7rem; margin: -0.85rem 0 0 -0.85rem;
+  fill: #c2371f; stroke: #fff6e0; stroke-width: 1.4; stroke-linejoin: round; transition: transform 0.12s linear; }
+.minimap b { position: absolute; right: 0.5rem; top: 0.35rem; font: 700 0.85rem/1 var(--sign); color: #2a2018; }
+body.touch:not(.pad) .minimap { display: none; }
+/* The map, whole. */
+.card.chart-card { width: min(92vw, 78rem); display: grid; grid-template-columns: minmax(0, 1fr) 19rem; gap: 2.2rem; align-items: start;
+  padding: 1.8rem 2.2rem; }
+.chart { position: relative; aspect-ratio: 1; max-height: 78vh; justify-self: center; width: min(100%, 78vh); border: 1px solid var(--line);
+  background: #ece3c7; overflow: hidden; }
+.chart img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.chart-arrow { position: absolute; width: 2rem; height: 2rem; margin: -1rem 0 0 -1rem; fill: #c2371f; stroke: #fff6e0; stroke-width: 1.4;
+  stroke-linejoin: round; }
+#chart-labels span { position: absolute; transform: translate(-50%, -150%); padding: 0.18rem 0.5rem 0.22rem; white-space: nowrap;
+  font: 700 0.82rem/1 var(--sign); letter-spacing: 0.06em; text-transform: uppercase; color: #fff6e0; background: rgba(34, 26, 20, 0.86);
+  border-radius: 0.2rem; }
+.chart-side .heading { font-size: clamp(1.8rem, 2.4vw, 2.6rem); line-height: 1.02; }
+.legend { list-style: none; margin: 1.2rem 0 1.1rem; padding: 0; display: grid; gap: 0.55rem; font: 500 1rem/1.2 var(--text); color: var(--bone); }
+.legend li { display: flex; align-items: center; gap: 0.8rem; }
+.legend i { flex: none; width: 2.2rem; height: 0.7rem; border-radius: 0.1rem; }
+.key-you { background: #c2371f; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); height: 1.1rem !important; width: 1.1rem !important; margin: 0 0.55rem; }
+.key-road { background: #edb26b; border: 2px solid #4c3321; }
+.key-track { background: repeating-linear-gradient(90deg, #a83321 0 0.6rem, transparent 0.6rem 0.9rem); }
+.key-ring { border: 3px solid #db731a; border-radius: 50% !important; width: 1rem !important; height: 1rem !important; margin: 0 0.6rem; }
+.key-built { background: #292421; }
+.key-water { background: #8cb8d4; }
+.key-line { height: 2px !important; background: #8c6642; }
+@media (max-height: 760px), (max-width: 1100px) {
+  .card.chart-card { grid-template-columns: minmax(0, 1fr) 15rem; gap: 1.2rem; padding: 1rem 1.2rem; }
+  .legend { font-size: 0.9rem; gap: 0.35rem; }
+}
 .tilt figure { text-align: center; }
 .dial { position: relative; width: 7.4rem; height: 7.4rem; border-radius: 50%; background: var(--panel);
   border: 1px solid var(--line); overflow: hidden; }

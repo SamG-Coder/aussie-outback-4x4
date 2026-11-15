@@ -18,6 +18,9 @@ solstice-vehicle.workspace = true
 glam.workspace = true
 rayon.workspace = true
 rustc-hash.workspace = true
+bytemuck.workspace = true
+miniz_oxide.workspace = true
+sha2 = "0.10"
 
 [dev-dependencies]
 solstice-physics.workspace = true

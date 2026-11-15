@@ -1,0 +1,13 @@
+# Ironbark Flat: the town. A small map, four hundred metres of gentler country lower down the
+# main road, with what is left of a gold town in the middle of it: one street, and along it a
+# hotel, a general store, the gold buyer's, in whose yard a truck with gold in its tray stops
+# to sell it, and a hall. A lane comes back round behind them, and on it is a trailhead back
+# to the Crossroads.
+texture_size 1024
+camera -90 70 20 0.2 -0.1
+outback 400 town crossroads
+actor outback/raptor.actor -84.83 65.23 7.05 -105.8 shared
+# The driver, who sits in the truck until they get out of it, and what the keys do.
+actor outback/driver.actor -84.83 65.23 7.05 -105.8
+actor outback/detector.actor -84.83 65.23 7.05 -105.8 shared
+input outback/game.input

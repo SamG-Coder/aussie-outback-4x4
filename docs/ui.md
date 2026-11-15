@@ -39,7 +39,8 @@ Every map is a scene whose land, track and bush come from one line, `outback SIZ
 | `outback 1000` | Wombat Creek Track | Foothill forest; a washed-out fire trail with fords, bog holes and rock steps. |
 | `outback 1000 rock` | Granite Ridge | Higher, steeper and stonier; the track climbs harder and is mostly dry. |
 | `outback 1000 mud` | Blackwood Gully | Lower and wetter; sixteen bog holes, deep ruts, more washouts. |
-| `outback 1000 hub wombat granite blackwood` | The Crossroads | The hub: a dirt main road two trucks wide, with a trailhead for each map named, in the order the road comes to them. |
+| `outback 1000 hub wombat granite blackwood town` | The Crossroads | The hub: a dirt main road two trucks wide, with a trailhead for each map named, in the order the road comes to them. |
+| `outback 400 town crossroads` | Ironbark Flat | The town: a small map of gentler country. Its road is laid out, not found: one level street along the front of its buildings, the gold buyer's among them, and a lane back round behind, with a trailhead on it back to the Crossroads. |
 
 A kind of country is a handful of numbers: where in the hills it is, how high they stand, how
 much is bare rock, how wet it is, how steep a climb its track takes, how many bog holes it
@@ -57,6 +58,8 @@ is like, and what to drive it in and for:
 - **Time**: dawn, day, dusk or night.
 - **Weather**: clear, fair, overcast, or a storm, which starts with the ground already soaked.
 - **Free roam**, with no clock, or **Timed laps**, against the best lap kept for that map.
+  A map with no `length` in the world file has no track to time, a town or the road, and is
+  only driven to.
 
 Either reads the map's scene into the same window, behind a loading screen with the map's
 picture. From a map, the pause menu goes back to the hub, which is always as the game was
@@ -83,12 +86,201 @@ a material of their own, and the game tells the renderer to glow them red.
 
 ## The screens
 
-`title`, `drive`, `pause`, `offer` (a trailhead's card) and `loading`. Behind the title the
+`title`, `drive`, `pause`, `offer` (a trailhead's card), `shed`, `sleep`, `buyer` (the gold
+buyer's card) and `loading`. Behind the title the
 game runs with nobody at the controls and the view goes slowly round the truck; paused,
 offered a map or loading, the game is not stepped at all.
 
 Menus are worked with the mouse, with the arrows and Enter and Escape, or with a controller's
 d-pad or left stick and its bottom and right buttons. Escape, or Start, pauses.
+
+## The day: the shed, and gold
+
+The game has a day to it. It starts at the shed at the Crossroads' camp, goes out by a
+trailhead to a track, and comes back.
+
+- **Gold in the ground** (`apps/viewer/src/gold.rs`). When a map is entered, gold is put in
+  the ground of it: fourteen places beside its track, a little way off into the bush, and not
+  the places it was in the last time. Nothing shows where. Nothing is baked: a map's file
+  holds no gold.
+- **The detector.** Out of the truck the driver has a gold detector
+  (`scenes/outback/detector.actor`, its model made in Blender by
+  `tools/blender/detector/build.py`, its origin its grip). In their hands, its signal is
+  stronger the nearer its coil is to gold: the pages show it as a bar, and it is heard, a
+  tone that rises and grows louder over a hum. Standing over gold, the button digs, and the
+  nugget comes out of the ground onto it.
+  - It is held as it is used (`place_carried` in `apps/viewer/src/play.rs`): its grip in
+    the driver's right hand, its shaft tipped about the grip until the coil is just over
+    whatever ground is under it, uphill or down, and swept from side to side as they walk.
+  - It is a thing, as a nugget is (`Detector` in `gold.rs`). Hands hold one thing. **Q**
+    (a controller's square) slings it on the driver's back, leaving their hands empty, and
+    takes it in hand again; picking a nugget up slings it without being asked. **G** (the
+    circle) puts down whatever is held: the detector then lies where it was put, on the
+    ground or in the tray, a body like any other, kept with the game, until the button picks
+    it up again.
+- **A nugget is made when it is dug up**, by the game, and not before. No map and no file
+  has a nugget in it: there is no model of one and no picture of its skin. It has a number
+  of its own, and everything about it is worked out from that number when it is found, so
+  that it is that nugget every time it is seen (`apps/viewer/src/nugget.rs`):
+  - **What it weighs**: an ounce or two, often; half a kilogram, as often; now and then a
+    great deal more. It is drawn bigger than gold is, to be seen, but small where it is
+    light, and no two of a weight are of a size (`Nugget::size`).
+  - **What it is made of** (`nugget::Kind`), as they come out of Victorian ground: gold and
+    nothing else, most often, water-worn, with clay in its pits and creases; or gold with
+    quartz still in it; or gold in dark ironstone; or, seldom, a piece of the reef itself,
+    quartz with gold through it in veins. How much of it is rock, how wide the veins are
+    and how much clay it holds are its own.
+  - **Its colours** (`Lump::colours`): its gold anywhere from deep yellow to pale, or red
+    with copper; its clay from red to brown to nearly black; its quartz white, smoky or
+    stained with rust, its ironstone black to red-brown.
+  - **What shape it is** (`gold::Form`, `Lump::of`). Its skin is some five thousand
+    triangles, and each point of it is put where the nugget's own noise says: lobes, knobs
+    with creases between them, and pits. Then the whole is flattened and drawn out, from a
+    button to a finger of gold and from a leaf to all but a ball, and some are far along
+    one way or another: long slugs, thin flakes, teardrops thicker at one end, peanuts
+    pinched at the middle, beans, hooks and horseshoes bent round, saddles, and twisted
+    things. It falls and lies as a box of about its own length, thickness and width.
+
+  **What a scene has for them.** A scene's geometry is fixed when it is opened, so a map
+  that is to be played is given forty blank lumps as it is read (`nugget::join_loaded`,
+  `join_streamed`): balls built there and then by the builder a bake uses, with nothing
+  coarser made from them (`BuildOptions::flat`), so that all of each is in pages that are
+  always loaded, and with bounds as wide as any nugget. A gameplay file the game adds,
+  `nugget.slots`, says which instance and materials each is and where in which pages its
+  points are. When a nugget comes in sight it is made on a blank that shows nothing: its
+  points are written over the blank's (`Renderer::rewrite_page`) and its three colours
+  given to the blank's materials (`Renderer::set_material`), its gold, its clay and its
+  rock. Those have no texture: each point holds how much of what is seen there is clay
+  and how much rock, and the three are blended by those shares (`Material::BLENDS`), with
+  an edge where two kinds meet. If there are ever more nuggets in sight than blanks, the
+  nearest are shown.
+- **A nugget is a thing in the world.** Nothing counts nuggets or keeps them in places of
+  their own. One is in the driver's hand, or it is loose: a body that falls, rolls, lies
+  where it comes to rest and is pushed by what meets it (`Play::add_thing` in
+  `crates/solstice-game/src/play.rs`; a box, with rapier's continuous collision so that it
+  does not pass through a floor). One button, the one that uses things, does what there is
+  to do where the driver stands: dig, pick up the nearest nugget in reach, or let go of the
+  one in the hand onto whatever is in front of them. Beside the truck's tray that is the
+  tray; beside the chest, the chest; anywhere else, the ground. It is put down on what is
+  under it, not dropped from a height. Got back into the truck with one in the hand, it goes
+  in the tray.
+- **The tray is the truck's own.** The truck's body is not one box but its cab and what is
+  under and round its tray (`tray WIDTH DEPTH LENGTH at X Y Z` in a `.vehicle` file, measured
+  from the model; `crates/solstice-physics/src/car.rs`), so what is put in the tray lies on
+  its floor between its sides and its tailgate, rides there, slides when the truck brakes,
+  and can be thrown out by a hard enough landing. A nugget thrown out lies where it fell,
+  and the detector hears it as it hears gold in the ground.
+- **Its weight is real.** Nothing is added to what the truck weighs: the nuggets lie on it,
+  and what they weigh presses on its springs through where they touch it. A third of a
+  tonne in the tray sets it lower (`crates/solstice-game/tests/things.rs`).
+- **The chest stands open**, and is hollow to things as the tray is: a floor and four sides
+  (`shed.rs`; `chest X Y Z YAW` in `outback.items`). What is let go over it lies in it, to be
+  seen and taken out again.
+- **Where each is, is kept** (`Lies` in `gold.rs`): loose on a map, where it lay and turned
+  as it lay; or aboard the truck, where it lay in the truck's own space, so that it goes
+  where the truck goes, from map to map. Each frame the world says where the bodies are
+  (`Shell::see`), a nugget lying in the tray is aboard and one anywhere else is loose, and
+  the world is asked for the bodies there should be (`Order::Thing`). A truck put somewhere
+  all at once, where it was left or back on its track, takes what is aboard it along.
+- **Selling.** Ironbark Flat has a gold buyer's (`place buyer X Y Z RADIUS` in the town's
+  `.places`; `crates/solstice-bake/src/outback/town.rs`, its buildings made in Blender by
+  `tools/blender/town/build.py`). Stopped in the yard before it, holding the button opens
+  his card: what is lying in the tray is weighed, and **Sell the lot** pays for it by the
+  kilogram (`PRICE` in `shell.rs`) and takes it. What bounced out on the way is not there to
+  sell. The money is kept with the game; nothing is bought with it yet.
+- **The shed** (`crates/solstice-bake/src/outback/shed.rs`; its model is made in Blender by
+  `tools/blender/shed/build.py`). Its bay is a place like a trailhead's ring, `place shed X Y Z
+  RADIUS` in the hub's `.places`. Stopped in it, holding the button opens the shed's card:
+  **Sleep till morning** ends the day (the clock goes to half past six the next morning and
+  the day's number goes up), and **Get out** puts the driver on foot there, to carry the gold
+  from the tray to the chest by the room's wall.
+- **What is kept** (`save/profile.txt`, or the browser's own store): the best laps, the day,
+  the money, every nugget with its weight, its shape and where it is (`nugget 3 2.41 9120331
+  aboard 0.210 0.985 1.730 0.0000 0.3827 0.0000 0.9239`, `nugget 4 0.62 771 loose wombat
+  -151.200 70.180 -122.750 0.0000 0.7071 0.0000 0.7071`, `nugget 5 1.10 42 hand`; a game kept
+  before nuggets were things said `tray N`, `chest` or `ground MAP X Y Z YAW`, and still
+  reads), the map the game was left on,
+  and where the truck was last on every map and the way it faced (`map wombat`, `at wombat
+  -158.09 70.73 -160.11 177.1`). It is kept whenever the driving stops for a menu or a map,
+  every five seconds while it goes on, whenever gold is moved, and when the window is closed.
+  Roaming, a map come back to is come back to where the truck was left on it; a game started
+  again goes on from the track it was left on. Timed laps always start at the line.
+
+While there is gold in the tray, the marker at the top of the driving screen points the way
+to the shed and to the gold buyer's as well as to the trailheads.
+
+### On foot
+
+In free roam, with the truck at rest, holding **E** (or a controller's bottom button, the
+one that enters a trailhead's ring) gets the driver out: they are an eye on legs
+(`scenes/outback/driver.actor`), walking with the keys that drive and looking with the mouse
+or the right stick, and the truck stands on its handbrake with its engine switched off: it
+is heard to run down as they get out, and to start as they get back in. Beside the truck,
+holding the same button gets back in. In a ring or the shed's bay that button stops there
+instead, so the shed's card has **Get out** on it; on foot no place is entered, wherever the
+truck was left.
+
+They step up anything 60 cm high or less (`MAX_STEP` in `solstice-physics`) and jump about
+a metre with **Space** or a controller's triangle: a walk's `y` is the speed to leave the
+ground with (`Walk` in `solstice-world`), which the driver's script sets as the button is
+pressed.
+
+A tap of the same button uses what is near. The door of the shed's room is an actor of its
+own (`scenes/outback/shed_door.actor`, its model made with the shed's): used, it swings open
+into the room, and used again, shut, and it stops somebody while it is shut.
+
+The engine plays one actor at a time, and here there are two that can be played, the truck
+and its driver (`walker` in `crates/solstice-game/src/play.rs`). The one not being played is
+marked `Idle`: a script hears nothing, and a car is asked for nothing but its handbrake. What
+the keys do is in `scenes/outback/game.input`.
+
+While there is something in the truck, the marker at the top of the driving screen points
+the way to the shed as well as to the trailheads.
+
+## The map
+
+Every map has a map: a picture drawn from its design when it is baked
+(`crates/solstice-bake/src/outback/chart.rs`), `ui/maps/NAME.png`, named for the country.
+It is drawn as a map is, not as the ground looks from above: paper tinted by forest and
+grass, contour lines every five metres with a little shading from the north-west, water in
+blue, the road cased and filled or a track as a broken red line, buildings in black, a ring
+at each trailhead, a hundred-metre bar and an arrow to the north. The scene's `outback.chart`
+file says which picture it is and how much ground it covers (`chart FILE HALF`).
+
+The pause menu opens it whole, with the truck's arrow where the truck is and a label at each
+place. While driving, and on foot, it is in the corner at the lower left, small: north up,
+about 260 m across, the arrow in its middle turning as the truck does.
+
+## Trying it without playing it
+
+The game can play itself, to see that a thing works, where nobody sees or hears it:
+
+```bash
+cargo build --release -p viewer --target-dir target/harness   # a copy apart from one being played
+bash scripts/trial.sh                                         # the Crossroads, then the town
+```
+
+`--trial FOLDER` is what makes a run a trial (`apps/viewer/src/desktop.rs`). Its window is off
+the screen and is never the one typed into; it makes no sound and reads no controller; what
+it keeps (`profile.txt`) and the pictures it takes go in FOLDER, so a real game's are not
+touched; and once a second it says in its log what the pages were told (`told at SECONDS:
+{...}`), beside what the game says anyway (`screen:`, `menu:`, `gold:`, `driver:`). The first
+time the driver gets out, gold is buried three paces ahead of them, since a script cannot go
+looking for it.
+
+What it does is said with `--tap WHAT@SECONDS`, or `WHAT@FROM-TO` to hold something:
+
+| What | Does |
+| --- | --- |
+| `key:KeyE`, `key:Enter` | A key, by its `KeyboardEvent.code`. |
+| `south`, `west`, ... | A controller's button, by its name. |
+| `mouse:DX,DY` | The mouse moved that many pixels: right and down above zero. |
+| `place:X,Y,Z,YAW` | The truck put there, facing that way in degrees. |
+| `shot:NAME` | A picture of the next frame, `FOLDER/NAME.png`: the game, without its pages. |
+| `quit` | The game closed, as its window's cross does, keeping what it has. |
+
+A trial sees what is drawn and what the game says of itself. It does not hear the sounds,
+see the pages over the picture, or feel how the truck drives.
 
 ## What passes between the shell and the pages
 
@@ -111,6 +303,23 @@ or a menu is worked; while driving, about 24 times a second.
   "near": { "title": "Wombat Creek Track", "distance": 240, "bearing": 35, "inside": false, "hold": 0 } }
 ```
 
+With these, always: `day`, the day of the game it is; `money`, what gold has been sold for,
+in dollars; `tray` and `chest`, how many nuggets are lying in the truck's tray and in the
+chest and what they weigh in kilograms; `afoot`, whether the
+driver is out of the truck, and `by_truck`, whether they are near enough to it to get back in;
+and on foot, `signal`, what the detector hears from 0 to 1, `hand`, the weight of the nugget
+in the hand, and `use`, what the button would do: `dig`, `pick`, `tray`, `chest`, `untray`,
+`unchest`, `drop`, or `take`, picking the detector up from where it was put down; `holding`,
+what the driver's hands hold, `detector`, `nugget` or `nothing`, and `detector`, where the
+detector is, in `hand`, `slung` or `left` somewhere. With a map that has one: `chart`, its
+picture and half its width in metres (`file`, `half`); `places`, what is marked on it, each a
+`title`, a `kind` and where (`x`, `z`); and `at`, where the truck or the driver on foot is
+(`x`, `z`, `heading` in degrees round from north, `afoot`). `screen` is also `shed`, the shed's card, `sleep`, the night going by,
+and `buyer`, the gold buyer's card, which has `buyer` with it: `count` and `kilos`, what is in
+the tray; `pays`, what it would fetch, and `rate`, the price of a kilogram; and `sold`, the
+sale just made, if one was (`count`, `kilos`, `paid`). A map has `timed`, whether it has a
+track to time: one that has not is offered without laps.
+
 `nav` is how a menu was moved from the keys or a controller since the pages were last told:
 `up`, `down`, `left`, `right`, `accept`, `back`. `pad` says a controller was used last, so the
 pages name its buttons. `near` is the nearest trailhead: how far, which way from straight
@@ -124,11 +333,12 @@ ahead in degrees, whether the truck is in its ring, and how far through holding 
 | `key CODE 1` / `key CODE 0` | A key went down or up, by its `KeyboardEvent.code`. |
 | `mouse X Y` | The mouse moved, while the page had hold of it. |
 | `blur` | The page is no longer typed into: nothing is held. |
-| `do WHAT` | Chosen in a menu: `start`, `pause`, `resume`, `restart`, `hub`, `title`, `quit`, `enter`, `roam`, `laps`, `leave`. |
+| `do WHAT` | Chosen in a menu: `start`, `pause`, `resume`, `restart`, `hub`, `title`, `quit`, `enter`, `roam`, `laps`, `leave`, in the shed `sleep` and `walk`, and at the gold buyer's `sell` and `walk`. |
 | `set time N` / `set weather N` | Which time of day, and which weather, the next track is driven in. |
 | `log TEXT` | Something for the game's log: a mistake in the page. |
 | `grab` | On the desktop: pressed where there is nothing, while driving. Take hold of the mouse, to look round with. |
 | `touch X Y` | The controls drawn on a screen that is touched: steering, and the pedals, each from -1 to 1 (right, and braking, above zero). |
+| `look X Y` | On foot, a finger dragged across a touched screen by this much: looking round. |
 | `touched` | The screen was touched while a controller was in use: draw the controls on it again. |
 | `pad here` / `pad gone` | A controller was plugged in, or the last one taken out. |
 | `pad button NAME V` / `pad axis NAME V` | A controller, where the game cannot read one itself and the page's host reads it for it (a phone, docs/android.md). |

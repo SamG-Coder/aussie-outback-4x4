@@ -13,9 +13,12 @@
 //! the track's line, for timing a lap of it and for putting a car back on it; and walls at
 //! the square's edge. So what is drawn and what is driven on agree.
 
+mod chart;
 mod draw;
 mod flora;
+mod shed;
 pub mod terrain;
+mod town;
 
 use glam::{Mat4, Vec3};
 use rayon::prelude::*;
@@ -50,9 +53,17 @@ pub struct Built {
     /// The plants a car flattens, as a file's text: a line each, `X Y Z REACH INSTANCE`,
     /// the last being the first of the plant's two instances.
     pub plants: String,
+    /// What is kept in the map, as a `.items` file's text: a hub's chest, `chest X Y Z YAW`,
+    /// the middle of its floor, inside, and how it is turned, in radians. (Nuggets are in no
+    /// file: the game makes each as it is found.)
+    pub items: String,
     /// A hub's trailheads, as a `.places` file's text: a line each, `place MAP X Y Z RADIUS`.
     /// Empty for a track.
     pub places: String,
+    /// Where the map of it is, as a `.chart` file's text: `chart FILE HALF`, the picture
+    /// among the game's pages and how far from the middle of the map its edge is, in
+    /// metres. Empty if there were no pages to put a picture among.
+    pub chart: String,
 }
 
 /// A ground material over a texture layer, darkened as it is seen in the field.
@@ -67,6 +78,28 @@ fn ground(scene: &mut SceneAsset, layer: i32, tone: [f32; 3], blends: bool) {
         flags: if blends { Material::BLENDS } else { 0 },
         ..Default::default()
     });
+}
+
+/// The textures the ground is laid with, added to a scene: leaf litter, clay, mud, dry grass
+/// and granite, in that order. Returns the layer of the first.
+fn ground_textures(scene: &mut SceneAsset) -> i32 {
+    let first = scene.textures.len() as i32;
+    for name in ["gum_litter", "red_clay", "bush_mud", "tussock", "granite"] {
+        scene
+            .textures
+            .push(crate::textures::surface(name, scene.texture_size));
+    }
+    first
+}
+
+/// What every square of bush is made of that is the same in all of them, with none of it put
+/// anywhere: the ground's textures, and the plants, grasses, boulders and fallen timber with
+/// theirs. For the file a game's maps share (`lends outback` in a scene's text): a map baked
+/// beside that file leaves these out of its own (`crate::lend`).
+pub fn stock(scene: &mut SceneAsset) {
+    println!("outback: what every square of bush is made of");
+    ground_textures(scene);
+    flora::stock(scene);
 }
 
 /// What a tyre is on at a place.
@@ -121,6 +154,26 @@ fn boxed(mesh: &mut Mesh, centre: Vec3, half: Vec3) {
         mesh.indices
             .extend([0, 1, 2, 0, 2, 3].map(|corner| first + corner));
     }
+}
+
+/// What a map says of the things that are found and kept in it, as a `.items` file's text.
+///
+/// No nugget is in a map, or in any file. There is gold in the ground wherever the game says
+/// there is when a map is entered, and a nugget is made when it is dug up, by the game, from
+/// a number of its own (`apps/viewer/src/nugget.rs`). So all there is to say here is where a
+/// hub's chest is.
+fn items(plan: &Plan) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::from("# what is kept here: a hub's chest\n");
+    if let Some(shed) = &plan.shed {
+        let (chest, yaw) = shed.chest();
+        let _ = writeln!(
+            text,
+            "chest {:.3} {:.3} {:.3} {yaw:.4}",
+            chest.x, chest.y, chest.z
+        );
+    }
+    text
 }
 
 /// Marks the trailheads: at each a ring on the ground, glowing, to drive into, and round it
@@ -224,12 +277,14 @@ fn trailheads(scene: &mut SceneAsset, plan: &Plan, leads: &[String]) -> String {
 
 /// Builds the bush into the scene: the land `size` metres across, centred on the origin, of the
 /// country asked for. A hub has a road round it, and on the road a trailhead for each of the
-/// maps `leads` names, in the order they are come to.
+/// maps `leads` names, in the order they are come to, and a shed at its camp, whose model is
+/// found from `base`, the folder the scene's text is in.
 pub fn build(
     scene: &mut SceneAsset,
     size: f32,
     country: Country,
     leads: &[String],
+    base: &std::path::Path,
 ) -> Result<Built, String> {
     println!("outback: {size:.0} m of bush: {}", country.name);
     let plan = Plan::new(size, country, leads.len());
@@ -237,12 +292,7 @@ pub fn build(
     let drawn = half + BEYOND;
 
     println!("  textures...");
-    let first = scene.textures.len() as i32;
-    for name in ["gum_litter", "red_clay", "bush_mud", "tussock", "granite"] {
-        scene
-            .textures
-            .push(crate::textures::surface(name, scene.texture_size));
-    }
+    let first = ground_textures(scene);
     let (litter, clay, mud, grass, rock) = (first, first + 1, first + 2, first + 3, first + 4);
     // Three materials in a row for each of the ground's three meshes: the leaf litter under
     // all of them, then that mesh's own two.
@@ -292,11 +342,37 @@ pub fn build(
         );
     }
     println!("    {} of them a car can flatten", breakables.len());
-    let places = if leads.is_empty() {
+    let mut places = if leads.is_empty() {
         String::new()
     } else {
         trailheads(scene, &plan, leads)
     };
+    // A hub's shed: the model, what of it stops a truck, and its bay as a place to stop in.
+    if let Some(shed) = &plan.shed {
+        use std::fmt::Write as _;
+        shed.build(scene, base)?;
+        blockers.extend(shed.blockers());
+        let (bay, round) = shed.bay();
+        let _ = writeln!(
+            places,
+            "place shed {:.2} {:.2} {:.2} {round}",
+            bay.x, bay.y, bay.z
+        );
+    }
+    // A town: its buildings, what of them stops a truck, and the gold buyer's as a place to
+    // stop at.
+    if let Some(town) = &plan.town {
+        use std::fmt::Write as _;
+        town.build(scene, base)?;
+        blockers.extend(town.blockers());
+        let (buyer, round) = town.buyer();
+        let _ = writeln!(
+            places,
+            "place buyer {:.2} {:.2} {:.2} {round}",
+            buyer.x, buyer.y, buyer.z
+        );
+    }
+    let items = items(&plan);
 
     // For finding what a car has run into: `OUTBACK_NEAR=x,z` lists what stops one there.
     if let Some(near) = std::env::var("OUTBACK_NEAR").ok().and_then(|text| {
@@ -322,6 +398,26 @@ pub fn build(
             println!("    ground at {x:.1} {z:.1}: {:.2}", plan.height(x, z));
         }
     }
+    // A map of it, among the game's pages, which are beside the scenes' folder: named for
+    // the country it is.
+    let pages = base.join("../ui");
+    let chart = if pages.is_dir() {
+        println!("  its map...");
+        let drawn = chart::draw(&plan);
+        let name: String = country
+            .name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let folder = pages.join("maps");
+        std::fs::create_dir_all(&folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+        let file = folder.join(format!("{name}.png"));
+        std::fs::write(&file, &drawn.png).map_err(|e| format!("{}: {e}", file.display()))?;
+        format!("# FILE HALF: the map of it among the pages, and how far out its edge is\nchart maps/{name}.png {}\n", drawn.half)
+    } else {
+        String::new()
+    };
     println!("  the ground to drive on...");
     let cells = (2.0 * drawn / draw::SPACING).round() as u32;
     let heights: Vec<f32> = (0..(cells + 1) * (cells + 1))
@@ -412,7 +508,9 @@ pub fn build(
         start: plan.start(),
         ponds,
         plants,
+        items,
         places,
+        chart,
     })
 }
 

@@ -8,6 +8,8 @@ __pycache__/
 /save
 # Pictures of the maps for their loading screens: made by postcards.bat, with the truck in them.
 /ui/art
+# Pictures of the maps' land, for the map screen and the corner of the screen: made by a bake.
+/ui/maps
 # The upload Worker's password, made when it is deployed. Never kept in the repository.
 /tools/hosting/uploader/.key
 # Wrangler's own cache: which Cloudflare account and project this checkout deploys to.

@@ -25,7 +25,7 @@ required-features = ["gameplay"]
 # it, so a page that only looks at scenes downloads none of it (docs/gameplay.md, Viewers).
 [features]
 default = ["gameplay"]
-gameplay = ["dep:solstice-game", "dep:serde_json"]
+gameplay = ["dep:solstice-game", "dep:serde_json", "dep:solstice-builder", "dep:bytemuck"]
 # The editor's page (docs/editor.md): picking, moving instances and the map of what made them.
 # Only `editor.html` loads a build with it.
 editor = []
@@ -33,6 +33,9 @@ editor = []
 [dependencies]
 solstice-asset.workspace = true
 solstice-game = { workspace = true, optional = true }
+# Nuggets are made as the game is played, on blanks built as a map is read (`src/nugget.rs`).
+solstice-builder = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
 solstice-render.workspace = true
 # What the game tells its pages (`src/shell.rs`).
 serde_json = { workspace = true, optional = true }

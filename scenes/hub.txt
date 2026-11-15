@@ -4,5 +4,11 @@
 # `scenes/outback.world` gives them.
 texture_size 1024
 camera -417 62 150 0.2 -0.1
-outback 1000 hub wombat granite blackwood
-actor outback/raptor.actor -417.42 58.54 133.21 9.6
+outback 1000 hub wombat granite blackwood town
+actor outback/raptor.actor -417.42 58.54 133.21 9.6 shared
+# The driver, who sits in the truck until they get out of it, and what the keys do.
+actor outback/driver.actor -417.42 58.54 133.21 9.6
+actor outback/detector.actor -417.42 58.54 133.21 9.6 shared
+input outback/game.input
+# The door of the shed's room, on its hinge: where the bake says the shed's door hangs.
+actor outback/shed_door.actor -429.51 58.77 134.46 99.6

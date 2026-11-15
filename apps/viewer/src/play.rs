@@ -22,6 +22,18 @@ pub struct PlayMode {
     spray: Spray,
     /// The plants a car flattens, and which are down already.
     scrub: Scrub,
+    /// The scene's blanks, each to show a nugget with (`nugget.rs`), and
+    /// the number of the nugget that was last made on it.
+    nuggets: Vec<(crate::nugget::Slot, Option<u32>)>,
+    /// The nuggets that are bodies in the world: each its nugget's number, and its body.
+    things: Vec<(u32, solstice_game::Entity)>,
+    /// How the detector is shown, how far its shaft is tipped to keep its coil on the
+    /// ground, where the driver last was and how fast they are walking, and how long it
+    /// has been swept from side to side.
+    carried: crate::gold::Carried,
+    tipped: f32,
+    walked: (glam::Vec3, f32),
+    swept: f32,
     /// What is heard, once [`PlayMode::with_sound`] has opened an output for it, or, in a
     /// browser, once the page has said it will play what is asked of it.
     sound: Option<Soundscape>,
@@ -227,6 +239,12 @@ struct Soundscape {
     /// is heard as a rattle of itself.
     since: [f32; 3],
     random: u32,
+    /// The detector in the driver's hand, on foot: how strong its signal is, from 0 to 1.
+    detector: Option<f32>,
+    /// How much the engine is running, from 0, switched off, to 1.
+    running: f32,
+    /// Sounds to play once, as the game asked for them.
+    asked: Vec<&'static str>,
 }
 
 /// The loops a tyre can make, by name: rolling on each kind of ground, and spinning.
@@ -271,11 +289,16 @@ impl Soundscape {
         let mut once: Vec<(&str, f32, f32)> = Vec::new();
         if let Some(hud) = hud {
             let t = &hud.telemetry;
+            // The driver switches it off as they get out, and it runs down; back in, it is
+            // started, and comes up to its idle.
+            let wanted = if hud.afoot { 0.0 } else { 1.0 };
+            let rate = if hud.afoot { 2.2 } else { 1.6 };
+            self.running += (wanted - self.running).clamp(-rate * seconds, rate * seconds);
             engine = crate::sound::EngineNote {
-                rpm: t.rpm,
-                throttle: t.throttle,
+                rpm: t.rpm * (0.35 + 0.65 * self.running),
+                throttle: t.throttle * self.running,
                 limiter: t.limiter,
-                gain: 0.9,
+                gain: 0.9 * self.running.powf(1.5),
             };
             let speed = hud.velocity.length();
             for (index, wheel) in hud.wheels.iter().enumerate() {
@@ -335,6 +358,7 @@ impl Soundscape {
         } else {
             self.in_water = [false; 4];
         }
+        let (detector, asked) = (self.detector, std::mem::take(&mut self.asked));
         self.sounds.frame(|ask| {
             ask.engine(engine);
             for (name, (gain, pitch)) in TYRE_LOOPS.iter().zip(loops) {
@@ -347,6 +371,15 @@ impl Soundscape {
             ask.looping("rain_leaves", 0.55 * rain, 1.0);
             for (name, gain, pitch) in once {
                 ask.once(name, gain, pitch);
+            }
+            // The detector: its hum while it is carried, and its tone over a target, louder
+            // and higher the nearer the coil is.
+            if let Some(signal) = detector {
+                ask.looping("detector_hum", 0.34, 1.0);
+                ask.looping("detector_tone", 0.75 * signal.powf(1.5), 0.6 + 0.9 * signal);
+            }
+            for name in asked {
+                ask.once(name, 0.9, 1.0);
             }
         });
     }
@@ -476,6 +509,19 @@ impl PlayMode {
             head_lamps: Vec::new(),
             spray: Spray::default(),
             scrub: Scrub::read(files),
+            nuggets: {
+                let slots = crate::nugget::Slot::read(files);
+                for slot in &slots {
+                    renderer.set_instance_hidden(slot.instance, true);
+                }
+                slots.into_iter().map(|slot| (slot, None)).collect()
+            },
+            things: Vec::new(),
+            // With nothing to say otherwise, the driver has it in their hands on foot.
+            carried: crate::gold::Carried::Held,
+            tipped: 0.0,
+            walked: (glam::Vec3::ZERO, 0.0),
+            swept: 0.0,
             sound: None,
             frames: 0,
             trace: std::env::var_os("SOLSTICE_TRACE").is_some(),
@@ -491,7 +537,177 @@ impl PlayMode {
             in_water: [false; 4],
             since: [1.0; 3],
             random: 0x9E37_79B9,
+            detector: None,
+            running: 1.0,
+            asked: Vec::new(),
         });
+    }
+
+    /// Shows a nugget with one of the scene's blanks, where the game says it is; or puts the
+    /// blank away. A blank that is to show a nugget it was not showing before has that
+    /// nugget made on it, from the nugget's number: its points written over the blank's,
+    /// and its colours given to the blank's materials (`nugget::Lump`).
+    pub fn show_item(&mut self, renderer: &mut Renderer, shown: crate::gold::Shown) {
+        let Some((slot, made)) = self.nuggets.get_mut(shown.slot) else {
+            return;
+        };
+        let Some((at, turned, size)) = shown.at else {
+            renderer.set_instance_hidden(slot.instance, true);
+            return;
+        };
+        if *made != Some(shown.shape) {
+            let lump = crate::nugget::Lump::of(shown.shape);
+            for &(page, offset, first, count) in &slot.writes {
+                if let Some(bytes) = lump.bytes(first, count) {
+                    renderer.rewrite_page(page, offset, bytes);
+                }
+            }
+            for (index, material) in lump.materials.into_iter().enumerate() {
+                renderer.set_material(slot.material + index as u32, material);
+            }
+            *made = Some(shown.shape);
+        }
+        renderer.set_instance_movable(slot.instance, true);
+        renderer.set_instance_hidden(slot.instance, false);
+        renderer.move_instance(
+            slot.instance,
+            glam::Mat4::from_scale_rotation_translation(glam::Vec3::splat(size), turned, at),
+        );
+    }
+
+    /// Says how the detector is to be shown from now on.
+    pub fn set_carried(&mut self, carried: crate::gold::Carried) {
+        self.carried = carried;
+    }
+
+    /// Puts the detector where it is to be seen this frame. Its model's origin is its grip,
+    /// and its coil is ahead of that and below (`tools/blender/detector/build.py`).
+    ///
+    /// Held, the grip is in the driver's right hand and the shaft is tipped about it until
+    /// the coil is just over whatever ground is under it, uphill or down; walking, the coil
+    /// is swept from side to side. Lying, it is where its body is, flat along its shaft.
+    fn place_carried(&mut self, seconds: f32) {
+        use crate::gold::Carried;
+        use glam::{Quat, Vec3};
+        // The coil's middle from the grip, in the model: to the left a little, down, ahead.
+        const COIL: Vec3 = Vec3::new(-0.07, -0.91, -1.25);
+        // The grip, from the driver's feet, and how high over the ground the coil is held.
+        const GRIP: Vec3 = Vec3::new(0.27, 0.98, -0.30);
+        const CLEAR: f32 = 0.07;
+        let reach = COIL.y.hypot(COIL.z);
+        let rest = (-COIL.y).atan2(-COIL.z);
+        let pose = match self.carried {
+            Carried::Away => None,
+            Carried::Lying(at, turned) => {
+                // Its body is a box along the shaft, about the shaft's middle.
+                let flat = turned * Quat::from_rotation_x(rest);
+                Some((at - flat * (COIL * 0.5), flat))
+            }
+            Carried::Held => self
+                .play
+                .hud()
+                .filter(|hud| hud.afoot)
+                .map(|hud| (hud.walker, hud.walker_yaw))
+                .map(|(walker, yaw)| {
+                    let facing = Quat::from_rotation_y(yaw);
+                    // How fast the driver is walking: the coil is swept as they go.
+                    let pace = (walker - self.walked.0).length() / seconds.max(1.0e-3);
+                    self.walked = (
+                        walker,
+                        self.walked.1 + (pace.min(5.0) - self.walked.1) * (seconds * 6.0).min(1.0),
+                    );
+                    self.swept += seconds * (1.2 + self.walked.1 * 0.9);
+                    let sweep = 0.24 * (self.swept * 1.9).sin() * (self.walked.1 / 1.5).min(1.0);
+                    let swing = facing * Quat::from_rotation_y(sweep);
+                    let grip = walker + facing * GRIP;
+                    // The ground under where the coil is, if it is near the driver's own.
+                    let under = grip + swing * Vec3::new(COIL.x, 0.0, COIL.z);
+                    let ground = self
+                        .play
+                        .surface_below(Vec3::new(under.x, walker.y + 0.9, under.z))
+                        .filter(|ground| (ground - walker.y).abs() < 0.9)
+                        .unwrap_or(walker.y);
+                    let drop = grip.y - (ground + CLEAR);
+                    let wanted = (drop / reach).clamp(0.12, 0.98).asin();
+                    self.tipped += (wanted - self.tipped) * (seconds * 10.0).min(1.0);
+                    (grip, swing * Quat::from_rotation_x(-(self.tipped - rest)))
+                }),
+        };
+        self.play.carry(pose);
+    }
+
+    /// Puts a nugget's body in the world, or takes it out: a nugget is a thing, which falls,
+    /// lies where it comes to rest, and rides in what it lies in.
+    pub fn thing(&mut self, body: crate::gold::Body) {
+        use crate::gold::Body;
+        match body {
+            Body::Put {
+                id,
+                at,
+                turned,
+                size,
+                kilos,
+                settle,
+            } => {
+                // Let go, it lies on whatever is under it: found now, so that it is put
+                // down on it and not dropped from a height.
+                let at = match settle.then(|| self.play.surface_below(at)).flatten() {
+                    Some(top) if top > at.y - 4.0 => {
+                        glam::Vec3::new(at.x, top + size.y * 0.5 + 0.03, at.z)
+                    }
+                    _ => at,
+                };
+                match self.things.iter().find(|(thing, _)| *thing == id) {
+                    Some(&(_, entity)) => self.play.move_thing(entity, at, turned),
+                    None => {
+                        let entity = self.play.add_thing(at, turned, size, kilos);
+                        self.things.push((id, entity));
+                    }
+                }
+            }
+            Body::Take { id } => {
+                if let Some(index) = self.things.iter().position(|(thing, _)| *thing == id) {
+                    let (_, entity) = self.things.swap_remove(index);
+                    self.play.remove_thing(entity);
+                }
+            }
+        }
+    }
+
+    /// Where the nuggets' bodies are now: each its nugget's number, where it is and how it
+    /// is turned. One that has got under the land, as a small thing thrown hard at a seam
+    /// in it can, is put back on top of it: gold is not lost through the floor.
+    pub fn things(&mut self) -> Vec<(u32, glam::Vec3, glam::Quat)> {
+        let mut seen = Vec::with_capacity(self.things.len());
+        for &(id, entity) in &self.things {
+            let Some((mut at, turned)) = self.play.thing(entity) else {
+                continue;
+            };
+            let land = self
+                .play
+                .land_below(glam::Vec3::new(at.x, at.y + 60.0, at.z));
+            if let Some(land) = land.filter(|land| at.is_finite() && at.y < land - 0.6) {
+                at.y = land + 0.3;
+                self.play.move_thing(entity, at, turned);
+            }
+            seen.push((id, at, turned));
+        }
+        seen
+    }
+
+    /// Says how strong the signal of the detector in the driver's hand is, from 0 to 1, or
+    /// that it is not in their hand.
+    pub fn set_detector(&mut self, signal: Option<f32>) {
+        if let Some(sound) = &mut self.sound {
+            sound.detector = signal;
+        }
+    }
+
+    /// Plays one of the game's sounds, once.
+    pub fn sound_once(&mut self, name: &'static str) {
+        if let Some(sound) = &mut self.sound {
+            sound.asked.push(name);
+        }
     }
 
     /// Stops everything that is heard, until the next frame asks for it again: for when
@@ -512,6 +728,9 @@ impl PlayMode {
             in_water: [false; 4],
             since: [1.0; 3],
             random: 0x9E37_79B9,
+            detector: None,
+            running: 1.0,
+            asked: Vec::new(),
         });
     }
 
@@ -584,6 +803,7 @@ impl PlayMode {
         seconds: f32,
     ) -> Vec<Message> {
         self.play.set_viewer(camera.position);
+        self.place_carried(seconds);
         // The rain the renderer draws is the rain the tyres feel.
         let wetness = renderer.rain_state().wetness;
         self.play.set_wetness(wetness);

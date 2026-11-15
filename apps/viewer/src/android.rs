@@ -41,7 +41,12 @@ impl log::Log for Logcat {
         let quiet = ["wgpu_core", "wgpu_hal", "naga"]
             .iter()
             .any(|layer| metadata.target().starts_with(layer));
-        metadata.level() <= if quiet { log::Level::Warn } else { log::Level::Info }
+        metadata.level()
+            <= if quiet {
+                log::Level::Warn
+            } else {
+                log::Level::Info
+            }
     }
 
     fn log(&self, record: &log::Record) {

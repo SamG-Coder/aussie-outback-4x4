@@ -365,6 +365,52 @@ fn write_surfaces(folder: &Path, size: u32) -> Result<(), String> {
     Ok(())
 }
 
+/// The file of what a game's maps share, beside theirs (the viewer's `shared.rs`).
+const SHARED_FILE: &str = "shared.solstice";
+
+/// Whether a scene has actors whose models are in the shared file: it is read with it.
+fn reads_shared(scene: &solstice_asset::SceneAsset) -> bool {
+    scene
+        .gameplay
+        .iter()
+        .filter(|file| file.name == solstice_game::GAME_FILE)
+        .flat_map(|file| file.text.lines())
+        .any(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words.split_first() {
+                Some((&"actor", rest)) => {
+                    solstice_game::scene::ActorLine::parse(rest).is_ok_and(|actor| actor.shared)
+                }
+                _ => false,
+            }
+        })
+}
+
+/// What a baked scene lends, as the text of its list: nothing, if it has no list.
+fn lender(path: &Path) -> Result<String, String> {
+    use solstice_asset::file;
+    use std::io::{Read, Seek, SeekFrom};
+    let failed = |error: std::io::Error| error.to_string();
+    let mut scene = std::fs::File::open(path).map_err(failed)?;
+    let mut head = [0; file::HEADER_BYTES];
+    scene.read_exact(&mut head).map_err(failed)?;
+    let header = file::decode_header(&head).map_err(|error| error.to_string())?;
+    scene
+        .seek(SeekFrom::Start(header.manifest_offset))
+        .map_err(failed)?;
+    let mut packed = vec![0; header.manifest_bytes as usize];
+    scene.read_exact(&mut packed).map_err(failed)?;
+    let manifest = file::inflate(&packed).map_err(|error| error.to_string())?;
+    let scene = file::decode_manifest(&manifest, header.manifest_offset + header.manifest_bytes)
+        .map_err(|error| error.to_string())?;
+    Ok(scene
+        .gameplay
+        .into_iter()
+        .find(|file| file.name == solstice_asset::join::LENDS)
+        .map(|file| file.text)
+        .unwrap_or_default())
+}
+
 fn main() -> Result<(), String> {
     let mut options = parse_args()?;
     if options.scene_file.is_some() && options.project_scene.is_some() {
@@ -398,6 +444,30 @@ fn main() -> Result<(), String> {
     let mut scene = load_scene(&options)?;
     if options.show_collision {
         scene = collision_view::collision_scene(&scene)?;
+    }
+    // A scene read with the file of what its game's maps share leaves out of its own what
+    // that file lends: the file is beside where this one is written.
+    if std::env::var_os("SOLSTICE_WHOLE").is_none() && reads_shared(&scene) {
+        let beside = options.output.with_file_name(SHARED_FILE);
+        let lends = lender(&beside).map_err(|error| {
+            format!(
+                "{}: {error}: this scene is read with it, so bake it first (scenes/shared.txt)",
+                beside.display()
+            )
+        })?;
+        let left = solstice_bake::lend::borrow(&mut scene, &lends);
+        println!(
+            "left to {}: {} meshes, {} texture layers",
+            beside.display(),
+            left.meshes,
+            left.textures
+        );
+        if left.meshes + left.textures > 0 {
+            scene.gameplay.push(solstice_asset::GameFile {
+                name: solstice_asset::join::BORROWS.to_owned(),
+                text: left.text,
+            });
+        }
     }
     if !options.raw_textures {
         println!("compressing {} texture layers...", scene.textures.len());

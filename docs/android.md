@@ -75,7 +75,8 @@ adb shell input gamepad keyevent 96    # a controller's bottom button
 Give the emulated phone 6 GB of memory and 12 GB of storage. To skip the download, copy the
 maps into the app's folder after it has been opened once (so that the folder is the app's own):
 `adb push assets/hub.solstice /sdcard/Android/data/com.rust4x4.outback/files/assets/`, with its
-`.solstice.chunks` beside it.
+`.solstice.chunks` beside it, and `assets/shared.solstice`, the truck, which every map is read
+with, the same way.
 
 The pages can be looked at as a phone shows them with no phone at all: open `ui/index.html`
 with `?screen=drive&touch` in a browser window the shape of a phone on its side.

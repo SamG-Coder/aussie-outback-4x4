@@ -47,3 +47,10 @@ engine_low      loop 10 42 A big V8 pickup truck engine held at a steady low spe
 engine_mid      loop 10 45 A supercharged V8 engine held at a steady high 5000 rpm at full throttle. A constant loud hard roar with a supercharger whine over it, no change in pitch. Nothing else.
 engine_high     loop 10 48 A V8 racing engine held at very high revs at full throttle: a continuous high-pitched screaming howl with a supercharger whine over it, constant. The pitch does not rise or fall. Nothing else.
 engine_off      loop 10 46 A big V8 truck engine on the overrun with the throttle shut: engine braking, a steady deep burble with soft pops from the exhaust, constant. Nothing else.
+
+# ---- Gold detecting, on foot: the detector in the hand, and what it finds.
+detector_hum    loop 8  31 The faint steady electronic threshold hum of a metal detector held in the hand: a thin, continuous, quiet buzzing tone with no beeps and no changes. No voices, no wind, no footsteps.
+detector_tone   loop 6  32 A metal detector sounding a strong target: one steady, pure, loud electronic tone held without a break, like a single continuous beep. No voices, no background noise.
+dig             shot 3  33 A small pick and a shovel digging quickly into dry stony soil: a few sharp scrapes and the rattle of loose gravel.
+nugget          shot 2  34 A small heavy lump of metal dropped into a steel gold pan: one bright solid clink and a short ring.
+coins           shot 3  35 A handful of coins counted out onto a wooden counter, clinking and settling.

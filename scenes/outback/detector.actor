@@ -1,0 +1,6 @@
+# The gold detector the driver carries when they are out of the truck: at their feet, turned
+# as they are, its coil a stride ahead on the ground. It is put away while they drive. Its
+# model is made in Blender by tools/blender/detector/build.py.
+name detector
+mesh ../../target/outback/detector.glb 1
+carried

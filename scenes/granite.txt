@@ -3,4 +3,8 @@
 texture_size 1024
 camera 240 72 -255 0.4 -0.1
 outback 1000 rock
-actor outback/raptor.actor 235.95 66.76 -273.53 149.1
+actor outback/raptor.actor 235.95 66.76 -273.53 149.1 shared
+# The driver, who sits in the truck until they get out of it, and what the keys do.
+actor outback/driver.actor 235.95 66.76 -273.53 149.1
+actor outback/detector.actor 235.95 66.76 -273.53 149.1 shared
+input outback/game.input

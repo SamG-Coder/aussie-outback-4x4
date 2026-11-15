@@ -21,6 +21,8 @@
 //! track circuit/circuit.track          # a circuit: its centre line, and what lies beside it
 //! circuit 1900                         # the land, road and planting round that track, this wide
 //! outback 1000                         # a square of bush this wide, with a four-wheel-drive track
+//! actor outback/raptor.actor 0 0 0 0 shared  # an actor whose model is in the file read with this one
+//! lends outback                        # this scene lends all it has to those read with it (`lend.rs`)
 //! land 10 6                            # the terrain in bands: sand this far in, then dirt, then grass
 //! path 22 0 60 -30 3                   # a dirt path: from x z, to x z, width
 //! yard -21 -21 21 21                   # a dirt yard: opposite corners x z
@@ -134,6 +136,9 @@ pub(crate) enum Command {
     /// A square of bush this many metres across, of some country, and for a hub the names of
     /// the maps its trailheads lead to.
     Outback(f32, crate::outback::Country, Vec<String>),
+    /// This scene lends every mesh and texture it has to the scenes read with it
+    /// (`crate::lend`), and, if so, has in it as well what every square of bush is made of.
+    Lends(bool),
 }
 
 pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
@@ -351,26 +356,32 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
                 ));
             }
             // `outback SIZE` is Wombat Creek's country; `outback SIZE rock` and `mud` are
-            // others; `outback SIZE hub MAP...` is a road with a trailhead for each map.
+            // others; `outback SIZE hub MAP...` is a road with a trailhead for each map, and
+            // `outback SIZE town MAP...` such a road with a town on it.
             use crate::outback::Country;
             let (country, leads) = match &values[1..] {
                 [] => (Country::TRACK, Vec::new()),
-                [hub, maps @ ..] if *hub == "hub" && (1..=6).contains(&maps.len()) => (
-                    Country::HUB,
+                [hub, maps @ ..] if matches!(*hub, "hub" | "town") && (1..=6).contains(&maps.len()) => (
+                    Country::named(hub).expect("one of the two"),
                     maps.iter().map(|map| map.to_string()).collect(),
                 ),
-                [kind] if *kind != "hub" && Country::named(kind).is_some() => {
+                [kind] if !matches!(*kind, "hub" | "town") && Country::named(kind).is_some() => {
                     (Country::named(kind).expect("just seen"), Vec::new())
                 }
                 _ => {
                     return Err(
-                        "'outback' takes a size, then nothing, `rock`, `mud`, or `hub` and one to six maps' names"
+                        "'outback' takes a size, then nothing, `rock`, `mud`, or `hub` or `town` and one to six maps' names"
                             .to_owned(),
                     )
                 }
             };
             Command::Outback(size, country, leads)
         }
+        "lends" => match values[..] {
+            [] => Command::Lends(false),
+            ["outback"] => Command::Lends(true),
+            _ => return Err("'lends' takes nothing, or `outback`".to_owned()),
+        },
         "circuit" => {
             expect(1)?;
             let size = number(0)?;
@@ -656,7 +667,7 @@ struct Gameplay {
     /// For each actor with a mesh: which actor, which model, and which of its placements.
     meshes: Vec<(usize, PathBuf, Placed)>,
     /// Whether an actor has a camera already: only one can.
-    has_player: bool,
+    has_player: [bool; 2],
 }
 
 impl Gameplay {
@@ -689,13 +700,15 @@ impl Gameplay {
             return Err(format!("{} has no script, so no properties", line.file));
         }
         if actor.camera.is_some() {
-            if self.has_player {
+            // One actor is played; or two, a car and whoever drives it, who gets out.
+            let car = usize::from(actor.vehicle.is_some());
+            if self.has_player[car] {
                 return Err(format!(
-                    "{} has a camera, and another actor already does: only one can",
+                    "{} has a camera, and another actor already does: only one can, or a car and its driver",
                     line.file
                 ));
             }
-            self.has_player = true;
+            self.has_player[car] = true;
         }
         for (name, value) in &line.settings {
             let property = actor
@@ -731,7 +744,12 @@ impl Gameplay {
             solstice_game::VehicleSpec::parse(self.read(base, &name)?)
                 .map_err(|e| format!("{name}: {e}"))?;
         }
-        let mesh = actor.mesh.as_ref().map(|mesh| {
+        // Its model may be in the file every map shares, and not in this one. Baked whole,
+        // to be looked at on its own, it is in this one after all.
+        if std::env::var_os("SOLSTICE_WHOLE").is_some() {
+            line.shared = false;
+        }
+        let mesh = actor.mesh.as_ref().filter(|_| !line.shared).map(|mesh| {
             (
                 resolve(&line.file, &mesh.path),
                 mesh.scale,
@@ -915,6 +933,10 @@ const OUTBACK_SURFACES: &str = "outback.surfaces";
 const OUTBACK_PLANTS: &str = "outback.plants";
 /// A hub's trailheads: where each ring is, and the map it leads to.
 const OUTBACK_PLACES: &str = "outback.places";
+/// What is kept in a map: a hub's chest (`apps/viewer/src/gold.rs`).
+const OUTBACK_ITEMS: &str = "outback.items";
+/// Where the map of the land is, among the game's pages.
+const OUTBACK_CHART: &str = "outback.chart";
 
 /// Builds a scene from its commands, with files named relative to `base`. Returns it with any
 /// import warnings. Commands from a project are mapped to the instances they made.
@@ -934,6 +956,7 @@ pub(crate) fn build_commands(
     let mut water = None;
     let mut circuit = None;
     let mut outback = None;
+    let mut lends = None;
     // Whether there has been a circuit, and a line of land, to refuse the two together.
     let (mut has_land, mut has_circuit) = (false, false);
     // Grouped by file, keeping first-seen order, so that each model is imported only once.
@@ -1131,6 +1154,7 @@ pub(crate) fn build_commands(
             Some(Command::Track(track)) => gameplay.set_track(base, &track).map_err(at)?,
             Some(Command::Circuit(size)) => circuit = Some(size),
             Some(Command::Outback(size, country, leads)) => outback = Some((size, country, leads)),
+            Some(Command::Lends(stock)) => lends = Some(stock),
         }
     }
 
@@ -1273,7 +1297,7 @@ pub(crate) fn build_commands(
         }
         scene.collide.resize(scene.instances.len(), Collide::Auto);
         let first = scene.instances.len() as u32;
-        let built = crate::outback::build(&mut scene, size, country, &leads)?;
+        let built = crate::outback::build(&mut scene, size, country, &leads, base)?;
         scene.collide.resize(scene.instances.len(), Collide::None);
         if mapped {
             scene.sources.push(Source {
@@ -1288,7 +1312,9 @@ pub(crate) fn build_commands(
             (OUTBACK_TRACK, built.track),
             (OUTBACK_SURFACES, built.surfaces),
             (OUTBACK_PLANTS, built.plants),
+            (OUTBACK_ITEMS, built.items),
             (OUTBACK_PLACES, built.places),
+            (OUTBACK_CHART, built.chart),
         ] {
             // A track has no trailheads.
             if text.is_empty() {
@@ -1364,6 +1390,17 @@ pub(crate) fn build_commands(
         }
     }
     scene.sources.sort_by_key(|source| source.instances.start);
+    // A scene that lends says what it has, for those baked beside it to leave out: and has
+    // with it, if asked, what every square of bush is made of, placed nowhere.
+    if let Some(stock) = lends {
+        if stock {
+            crate::outback::stock(&mut scene);
+        }
+        scene.gameplay.push(GameFile {
+            name: solstice_asset::join::LENDS.to_owned(),
+            text: crate::lend::lends(&scene),
+        });
+    }
     Ok((scene, warnings))
 }
 

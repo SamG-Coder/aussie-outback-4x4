@@ -4429,9 +4429,12 @@ dependencies = [
 name = "solstice-bake"
 version = "0.2.0"
 dependencies = [
+ "bytemuck",
  "glam 0.33.12",
+ "miniz_oxide 0.8.9",
  "rayon",
  "rustc-hash 2.1.3",
+ "sha2",
  "solstice-anim",
  "solstice-asset",
  "solstice-builder",
@@ -5267,6 +5270,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 name = "viewer"
 version = "0.2.0"
 dependencies = [
+ "bytemuck",
  "console_error_panic_hook",
  "console_log",
  "cpal",
@@ -5282,6 +5286,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "solstice-asset",
+ "solstice-builder",
  "solstice-game",
  "solstice-render",
  "wasm-bindgen",

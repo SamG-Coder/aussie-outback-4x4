@@ -162,6 +162,9 @@ pub struct ActorFile {
     pub animation: Option<String>,
     /// Makes it a car: its `.vehicle` file, relative to the actor file.
     pub vehicle: Option<Vehicle>,
+    /// It is carried by a car's driver: with them, at their feet and turned as they are,
+    /// while they are out of the car, and put away while they are in it.
+    pub carried: bool,
 }
 
 /// A car's numbers, and who changes gear.
@@ -236,6 +239,7 @@ impl ActorFile {
             character: None,
             animation: None,
             vehicle: None,
+            carried: false,
         };
         for (line, words) in lines(text) {
             let error = |message: String| FileError { line, message };
@@ -342,6 +346,10 @@ impl ActorFile {
                 "collider" => {
                     once(actor.collider.is_some())?;
                     actor.collider = Some(parse_collider(values).map_err(error)?);
+                }
+                "carried" => {
+                    count(0..=0, "nothing after it")?;
+                    actor.carried = true;
                 }
                 "character" => {
                     count(2..=2, "RADIUS HEIGHT")?;

@@ -80,7 +80,7 @@ function holdButton(button) {
 function back() {
   if (opened) { opened = null; show(); return; }
   if (state.screen === "pause") say("do resume");
-  if (state.screen === "offer") say("do leave");
+  if (state.screen === "offer" || state.screen === "shed" || state.screen === "buyer") say("do leave");
 }
 // One of a row of choices, picked: the game is told, and the row shows it.
 function pick(button) {
@@ -158,6 +158,55 @@ function art(id, name) {
   image.src = wanted;
 }
 
+// ---- The map: whole, on its own screen, and small, in the corner while driving.
+// How much ground the small one shows across, in metres.
+const MINIMAP_ACROSS = 260;
+function chart() {
+  const drawn = state.chart, at = state.at;
+  const driving = state.screen === "drive" && !opened;
+  el("minimap").hidden = !(drawn && at && driving);
+  el("pause-chart").hidden = !drawn;
+  if (!drawn) return;
+  // Where a place on the ground is on the picture, from 0 to 1 across and down. North is up.
+  const where = (x, z) => [(x + drawn.half) / (2 * drawn.half), (z + drawn.half) / (2 * drawn.half)];
+  const image = el("chart-img");
+  if (image.dataset.wanted !== drawn.file) {
+    image.dataset.wanted = drawn.file;
+    image.src = drawn.file;
+    el("minimap-chart").style.backgroundImage = `url("${drawn.file}")`;
+  }
+  if (at && driving) {
+    const box = el("minimap").clientWidth, [u, v] = where(at.x, at.z);
+    const size = box * (2 * drawn.half) / MINIMAP_ACROSS;
+    const small = el("minimap-chart").style;
+    small.backgroundSize = `${size}px ${size}px`;
+    small.backgroundPosition = `${box / 2 - u * size}px ${box / 2 - v * size}px`;
+    el("minimap-arrow").style.transform = `rotate(${at.heading}deg)`;
+  }
+  if (screenShown() !== "map") return;
+  setText("chart-title", (state.map || {}).title || "");
+  const arrow = el("chart-arrow");
+  arrow.style.display = at ? "" : "none";
+  if (at) {
+    const [u, v] = where(at.x, at.z);
+    arrow.style.left = `${u * 100}%`;
+    arrow.style.top = `${v * 100}%`;
+    arrow.style.transform = `rotate(${at.heading}deg)`;
+  }
+  const labels = el("chart-labels"), places = state.places || [];
+  const wanted = JSON.stringify(places);
+  if (labels.dataset.wanted !== wanted) {
+    labels.dataset.wanted = wanted;
+    labels.replaceChildren(...places.map((place) => {
+      const label = document.createElement("span"), [u, v] = where(place.x, place.z);
+      label.textContent = place.title;
+      label.style.left = `${u * 100}%`;
+      label.style.top = `${v * 100}%`;
+      return label;
+    }));
+  }
+}
+
 // ---- Showing things.
 function lapTime(seconds) {
   if (seconds === null || seconds === undefined) return "-:--.---";
@@ -172,6 +221,26 @@ function show() {
   const screen = screenShown();
   body.dataset.screen = screen;
   body.classList.toggle("pad", !!state.pad);
+  // On foot, out of the truck: no dashboard, and what the button does instead.
+  const afoot = !!state.afoot && screen === "drive";
+  body.classList.toggle("afoot", afoot);
+  el("foot").hidden = !afoot;
+  el("foot-in").hidden = !state.by_truck;
+  setText("foot-key", state.pad ? "✕" : "E");
+  setText("foot-hold", state.pad ? "Hold ✕" : "Hold E");
+  setText("foot-swap-key", state.pad ? "□" : "Q");
+  setText("foot-drop-key", state.pad ? "○" : "G");
+  // What the driver's hands hold decides what the other two buttons do: the detector is
+  // slung or taken in hand again, and whatever is held is put down.
+  const holding = state.holding || "nothing";
+  el("foot-does").hidden = !state.use;
+  el("foot-swaps").hidden = holding === "nugget" || state.detector === "left";
+  setText("foot-swap", holding === "detector" ? "Empty hands" : "Detector");
+  el("foot-drops").hidden = holding === "nothing";
+  setText("foot-drop", holding === "detector" ? "Put the detector down" : "Put down");
+  chart();
+  setText("touch-use", !afoot ? "Get out" : state.by_truck ? "Get in" : "Use");
+  setText("touch-steer-words", afoot ? "Walk" : "Steer");
   for (const hint of document.querySelectorAll("[data-hint]")) {
     const accept = hint.dataset.hint === "accept";
     hint.dataset.key = state.pad ? (accept ? "✕" : "○") : (accept ? "Enter" : "Esc");
@@ -180,8 +249,48 @@ function show() {
   setText("where-title", map.title || "");
   setText("where-mode", state.hub ? "Free roam" : state.mode === "laps" ? "Timed laps" : "Free roam");
   el("laps").hidden = state.mode !== "laps" || !state.lap;
-  setText("pause-map", map.title || "");
-  el("pause-hub").hidden = !!state.hub;
+  // The gold: what is in the truck's tray and in the chest, and, on foot, the detector, what is
+  // in the hand, and what the button does where the driver stands.
+  const [inTray, trayKilos] = state.tray || [0, 0], [inChest, chestKilos] = state.chest || [0, 0];
+  const weighed = (count, kilos) => count === 0 ? "Nothing" : `${count} \u00b7 ${kilos.toFixed(1)} kg`;
+  el("haul").hidden = inTray === 0;
+  if (String(inTray) !== el("haul-count").textContent) {
+    setText("haul-count", String(inTray));
+    el("haul").classList.remove("new");
+    if (inTray > 0 && shown === "drive") { void el("haul").offsetWidth; el("haul").classList.add("new"); }
+  }
+  setText("haul-words", `${trayKilos.toFixed(1)} kg in the tray`);
+  for (const id of ["shed-day", "shed-day-2", "sleep-day"]) setText(id, String(state.day || 1));
+  setText("shed-tray", weighed(inTray, trayKilos));
+  setText("shed-chest", weighed(inChest, chestKilos));
+  // What gold has been sold for, and, at the buyer's, what is on the scales and what it fetches.
+  const dollars = (amount) => `$${Math.round(amount || 0).toLocaleString("en-AU")}`;
+  for (const id of ["shed-money", "buyer-money"]) setText(id, dollars(state.money));
+  setText("buyer-day", String(state.day || 1));
+  setText("buyer-town", (state.map || {}).title || "Town");
+  const buyer = state.buyer;
+  if (buyer) {
+    setText("buyer-tray", weighed(buyer.count, buyer.kilos));
+    setText("buyer-rate", `${dollars(buyer.rate)} a kilo`);
+    setText("buyer-pays", buyer.count ? dollars(buyer.pays) : "-");
+    const sold = buyer.sold;
+    setText("buyer-about", sold
+      ? `Sold: ${sold.count} ${sold.count === 1 ? "nugget" : "nuggets"}, ${sold.kilos.toFixed(1)} kg on the scales, ${dollars(sold.paid)} paid. The tray is empty: there is more where that came from.`
+      : "Gold bought by weight, for cash. What is lying in the tray of your truck is put on the scales: what bounced out on the way in is still out there on the track.");
+    el("buyer-sell").disabled = buyer.count === 0;
+    setText("buyer-sell-words", buyer.count
+      ? `${buyer.count} ${buyer.count === 1 ? "nugget" : "nuggets"}, ${buyer.kilos.toFixed(1)} kg, for ${dollars(buyer.pays)}.`
+      : sold ? "Nothing left to sell." : "There is no gold in the tray.");
+  }
+  const signal = state.signal ?? null;
+  el("detector").hidden = signal === null || screen !== "drive";
+  el("detector-bar").style.width = `${Math.round((signal || 0) * 100)}%`;
+  el("detector").classList.toggle("over", (signal || 0) > 0.88);
+  setText("detector-hand", state.hand ? `${state.hand.toFixed(1)} kg in hand` : (signal || 0) > 0.88 ? "Gold" : "");
+  const uses = { dig: "Dig", pick: "Pick up", tray: "Put in the tray", chest: "Put in the chest", untray: "Take from the tray",
+    unchest: "Take from the chest", drop: "Put down", take: "Pick up the detector" };
+  setText("foot-use", uses[state.use] || "Use");
+  if (state.afoot && screen === "drive") setText("touch-use", state.by_truck && !state.use ? "Get in" : uses[state.use] || "Use");
   if (state.offer) {
     const offer = state.offer;
     setText("offer-title", offer.title || "");
@@ -190,6 +299,8 @@ function show() {
     setText("offer-length", offer.length || "-");
     setText("offer-best", lapTime(offer.best));
     el("offer-built").hidden = !offer.built;
+    // Somewhere with no track to time, a town or the road, is only driven to.
+    document.querySelector('#offer [data-do="laps"]').hidden = offer.timed === false;
     el("offer-unbuilt").hidden = !!offer.built;
     art("offer-art", offer.built ? offer.name : "");
     if (screen === "offer" && shown !== "offer") {
@@ -384,9 +495,11 @@ const touched = new URLSearchParams(location.search).has("touch")
 if (touched) body.classList.add("touch");
 // With a controller in use the controls are not drawn: a touch anywhere asks for them back.
 addEventListener("touchstart", () => { if (touched && state.pad) say("touched"); }, { capture: true, passive: true });
-const stick = { x: 0, gas: 0, brake: 0, said: "touch 0.00 0.00" };
+const stick = { x: 0, y: 0, gas: 0, brake: 0, said: "touch 0.00 0.00" };
 function sayStick() {
-  const line = `touch ${stick.x.toFixed(2)} ${(stick.brake - stick.gas).toFixed(2)}`;
+  // In the truck the pad steers and the pedals are the rest; on foot the pad is all of it.
+  const y = state.afoot ? stick.y : stick.brake - stick.gas;
+  const line = `touch ${stick.x.toFixed(2)} ${y.toFixed(2)}`;
   if (line !== stick.said) { stick.said = line; say(line); }
 }
 // Hears a control: `down` when a finger lands on it, `slid` as that finger moves, `up` when
@@ -417,19 +530,27 @@ function touchable(control, down, slid, up) {
 }
 {
   const pad = el("touch-steer"), knob = pad.querySelector("i");
-  let from = 0;
+  let from = [0, 0];
   const steer = (touch) => {
     // Full lock is a third of the pad's width from where the thumb came down.
     const reach = pad.clientWidth / 3;
-    stick.x = Math.max(-1, Math.min(1, (touch.clientX - from) / reach));
-    knob.style.transform = `translateX(${stick.x * reach}px)`;
+    stick.x = Math.max(-1, Math.min(1, (touch.clientX - from[0]) / reach));
+    stick.y = state.afoot ? Math.max(-1, Math.min(1, (touch.clientY - from[1]) / (reach * 0.6))) : 0;
+    knob.style.transform = `translate(${stick.x * reach}px, ${stick.y * reach * 0.4}px)`;
     sayStick();
   };
-  touchable(pad, (touch) => { from = touch.clientX; steer(touch); }, steer, () => {
-    stick.x = 0;
+  touchable(pad, (touch) => { from = [touch.clientX, touch.clientY]; steer(touch); }, steer, () => {
+    stick.x = stick.y = 0;
     knob.style.transform = "";
     sayStick();
   });
+  // Looking round, on foot: by how far the finger has moved since it was last told.
+  let last = [0, 0];
+  const look = (touch) => {
+    say(`look ${(touch.clientX - last[0]).toFixed(1)} ${(touch.clientY - last[1]).toFixed(1)}`);
+    last = [touch.clientX, touch.clientY];
+  };
+  touchable(el("touch-look"), (touch) => { last = [touch.clientX, touch.clientY]; }, look, () => {});
   for (const pedal of document.querySelectorAll("#touch [data-pedal]")) {
     const press = (much) => { stick[pedal.dataset.pedal] = much; sayStick(); };
     touchable(pedal, () => press(1), null, () => press(0));
@@ -451,9 +572,12 @@ function pretend(line) {
     else if (way) navigate(way);
   }
   if (word !== "do") return;
-  const to = { start: "drive", resume: "drive", pause: "pause", title: "title", leave: "drive", enter: "offer", roam: "loading", laps: "loading", hub: "loading", restart: "loading" }[what];
+  const to = { start: "drive", resume: "drive", pause: "pause", title: "title", leave: "drive", enter: "offer", roam: "loading", laps: "loading", hub: "loading", restart: "loading",
+    sleep: "sleep", walk: "drive" }[what];
   if (!to) return;
   const next = { ...state, screen: to, nav: [] };
+  if (what === "walk") { next.afoot = true; next.by_truck = true; next.signal = 0.35; next.use = null; }
+  if (what === "sleep") { next.day = (state.day || 1) + 1; setTimeout(() => window.ui.receive({ ...next, screen: "drive" }), 3400); }
   if (what === "laps") next.mode = "laps";
   if (what === "roam" || what === "hub") next.mode = "roam";
   if (what === "laps" || what === "roam") { next.map = state.offer; next.hub = false; }
@@ -470,6 +594,14 @@ if (mock) {
   const wombat = { name: "wombat", title: "Wombat Creek Track", about: "A washed-out fire trail through stringybark and manna gum: two creek fords, bog holes, rock steps and ruts cut by a wet winter.", kind: "Fire trail", length: "3.5 km", best: 312.482, built: true };
   window.ui.receive({
     screen: wanted.get("screen") || "title", mode: wanted.get("mode") || "roam", pad: wanted.has("pad"), nav: [],
+    day: 3, tray: wanted.has("empty") ? [0, 0] : [4, 13.6], chest: [9, 41.2], afoot: wanted.has("afoot"), by_truck: false,
+    chart: { file: "maps/the-crossroads.png", half: 512 }, at: { x: -417, z: 133, heading: 40, afoot: wanted.has("afoot") },
+    places: [{ title: "Wombat Creek Track", kind: "trailhead", x: -252, z: -391 }, { title: "The Shed", kind: "shed", x: -430, z: 132 }],
+    holding: wanted.has("hand") ? "nugget" : "detector", detector: wanted.has("hand") ? "slung" : "hand",
+    money: 48250, buyer: wanted.has("sold")
+      ? { count: 0, kilos: 0, pays: 0, rate: 2400, sold: { count: 4, kilos: 13.6, paid: 32640 } }
+      : { count: wanted.has("empty") ? 0 : 4, kilos: wanted.has("empty") ? 0 : 13.6, pays: wanted.has("empty") ? 0 : 32640, rate: 2400, sold: null },
+    signal: wanted.has("afoot") ? 0.93 : null, use: wanted.has("afoot") ? "dig" : null, hand: wanted.has("hand") ? 2.4 : null,
     hub: !wanted.has("map"), map: wanted.has("map") ? wombat : { name: "crossroads", title: "The Crossroads" },
     offer: wanted.has("unbuilt") ? { name: "granite", title: "Granite Ridge", built: false } : wombat,
     times: ["Dawn", "Day", "Dusk", "Night"], weathers: ["Clear", "Fair", "Overcast", "Storm"], time: 1, weather: 1,

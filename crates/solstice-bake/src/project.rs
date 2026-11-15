@@ -469,6 +469,9 @@ fn to_entity(scene: &mut Scene, command: Command, id: String) -> Result<Option<E
         Command::Outback(..) => {
             return Err("a project has no `outback` yet: bake the scene's text instead".into());
         }
+        Command::Lends(..) => {
+            return Err("a project lends nothing yet: bake the scene's text instead".into());
+        }
         Command::Model {
             path,
             position,

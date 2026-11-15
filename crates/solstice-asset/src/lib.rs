@@ -8,6 +8,7 @@
 pub mod collision;
 pub mod file;
 pub mod gpu;
+pub mod join;
 pub mod paged;
 pub mod scene;
 pub mod skeleton;

@@ -217,23 +217,33 @@ struct Grown {
     leaves: u32,
 }
 
-/// Plants the square, and a way beyond it. `stone` is the material boulders are made of.
-/// Returns what a car is stopped by, each tree's trunk and each great boulder, and what it
-/// flattens instead: the scrub, the ferns and the thinnest saplings.
-pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, Vec<Breakable>) {
-    // The square's lowest and highest ground, for how high up its valley a place is.
-    let (mut low, mut high) = (f32::MAX, f32::MIN);
-    let mut probe = -plan.half;
-    while probe <= plan.half {
-        let mut across = -plan.half;
-        while across <= plan.half {
-            let height = plan.height(probe, across);
-            (low, high) = (low.min(height), high.max(height));
-            across += 25.0;
-        }
-        probe += 25.0;
-    }
+/// How many different patches of each grass are grown.
+const GRASS_COPIES: u32 = 3;
+/// Fallen timber: each its length and how thick it is at its butt.
+const LOG_SIZES: [(f32, f32); 4] = [(2.6, 0.085), (4.6, 0.15), (6.5, 0.21), (5.2, 0.3)];
+/// Boulders: each size is made at its size, so that its stone is at the right scale, and
+/// this many different ones of each.
+const BOULDER_SIZES: [f32; 4] = [0.28, 0.6, 1.2, 2.3];
+const BOULDER_EACH: u32 = 3;
 
+/// What every square of bush is planted with: the plants, grasses, boulders and fallen
+/// timber themselves, with their textures and materials, before any of them is put
+/// anywhere. None of it depends on the land, so it is the same in every map, and can be in
+/// the one file they all share (`scenes/shared.txt`, `lends outback`).
+pub struct Stock {
+    grown: Vec<Grown>,
+    /// Each grass: its first mesh and its material. And how wide a patch of either is.
+    grass: [(u32, u32); 2],
+    patch: f32,
+    /// The first of the boulders' meshes, and of the logs'.
+    boulders: u32,
+    logs: u32,
+    /// The bark fallen timber wears.
+    lying: Option<u32>,
+}
+
+/// Makes the stock into a scene: its meshes, textures and materials, and no instances.
+pub fn stock(scene: &mut SceneAsset) -> Stock {
     // Grow every species' copies, all at once.
     let species: Vec<Species> = KINDS
         .iter()
@@ -296,6 +306,113 @@ pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, 
         });
     }
 
+    // The grasses: tussock, then kangaroo grass.
+    let breeds = [("tussock", TUSSOCK), ("kangaroo grass", KANGAROO_GRASS)];
+    let mut grass = [(0_u32, 0_u32); 2];
+    let mut patch = 3.0;
+    for (which, (name, text)) in breeds.iter().enumerate() {
+        let meadow = Meadow::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
+        patch = meadow.size;
+        let first = scene.meshes.len() as u32;
+        let meshes: Vec<_> = (0..GRASS_COPIES)
+            .into_par_iter()
+            .map(|seed| {
+                // In drifts and clumps, with bare ground between, each patch its own: grass
+                // sown evenly is a paddock.
+                let mesh = Meadow {
+                    seed,
+                    ..meadow.clone()
+                }
+                .mesh_where(&|u, v| {
+                    let p = Vec3::new(u * 0.55, seed as f32 * 3.0 + which as f32 * 11.0, v * 0.55);
+                    smoothstep(-0.28, 0.2, fbm(p, 3, 783))
+                });
+                build_virtual_mesh(&mesh, &BuildOptions::default())
+            })
+            .collect();
+        scene.meshes.extend(meshes);
+        scene
+            .textures
+            .push(meadow.atlas(0).bake(scene.texture_size));
+        scene
+            .materials
+            .push(crate::foliage::blades(scene.textures.len() as i32 - 1));
+        grass[which] = (first, scene.materials.len() as u32 - 1);
+    }
+
+    // Stone.
+    let boulders = scene.meshes.len() as u32;
+    let jobs: Vec<(usize, u32)> = (0..BOULDER_SIZES.len())
+        .flat_map(|size| (0..BOULDER_EACH).map(move |seed| (size, seed)))
+        .collect();
+    let meshes: Vec<_> = jobs
+        .par_iter()
+        .map(|&(size, seed)| {
+            let radius = BOULDER_SIZES[size];
+            let mut mesh = crate::meshes::rock(
+                if radius > 1.0 { 5 } else { 4 },
+                60 + size as u32 * 7 + seed,
+            );
+            for vertex in &mut mesh.vertices {
+                vertex.position *= radius;
+                vertex.uv *= radius;
+            }
+            build_virtual_mesh(&mesh, &BuildOptions::default())
+        })
+        .collect();
+    scene.meshes.extend(meshes);
+
+    // Fallen timber, which wears the stringybark's bark, lying still.
+    let logs = scene.meshes.len() as u32;
+    let meshes: Vec<_> = LOG_SIZES
+        .par_iter()
+        .enumerate()
+        .map(|(seed, &(length, radius))| {
+            build_virtual_mesh(
+                &log_mesh(length, radius, seed as u32),
+                &BuildOptions::default(),
+            )
+        })
+        .collect();
+    scene.meshes.extend(meshes);
+    let lying = barks.get("stringybark").map(|&bark| {
+        let lying = Material {
+            flags: 0,
+            ..scene.materials[bark as usize]
+        };
+        scene.materials.push(lying);
+        scene.materials.len() as u32 - 1
+    });
+    Stock {
+        grown,
+        grass,
+        patch,
+        boulders,
+        logs,
+        lying,
+    }
+}
+
+/// Plants the square, and a way beyond it. `stone` is the material boulders are made of.
+/// Returns what a car is stopped by, each tree's trunk and each great boulder, and what it
+/// flattens instead: the scrub, the ferns and the thinnest saplings.
+pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, Vec<Breakable>) {
+    // The square's lowest and highest ground, for how high up its valley a place is.
+    let (mut low, mut high) = (f32::MAX, f32::MIN);
+    let mut probe = -plan.half;
+    while probe <= plan.half {
+        let mut across = -plan.half;
+        while across <= plan.half {
+            let height = plan.height(probe, across);
+            (low, high) = (low.min(height), high.max(height));
+            across += 25.0;
+        }
+        probe += 25.0;
+    }
+
+    let stock = stock(scene);
+    let grown = &stock.grown;
+
     let reach = plan.half + 170.0;
     let hectares = (2.0 * reach).powi(2) / 10_000.0;
     let mut blockers = Vec::new();
@@ -319,7 +436,11 @@ pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, 
                 continue;
             }
             let cover = plan.cover(x, z);
-            if cover.water || cover.rock > 0.5 || cover.tread > 0.0 || plan.slope(x, z) > 0.75 {
+            if (cover.water || cover.built)
+                || cover.rock > 0.5
+                || cover.tread > 0.0
+                || plan.slope(x, z) > 0.75
+            {
                 continue;
             }
             // Thinner beyond the square, where nobody walks among them; and in drifts, each
@@ -384,17 +505,10 @@ pub fn plant(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> (Vec<Blocker>, 
         println!("    {placed} {}", kind.name);
     }
 
-    grass(scene, plan, low, high);
-    blockers.extend(boulders(scene, plan, stone));
-    // Fallen timber wears the stringybark's bark, lying still.
-    if let Some(&bark) = barks.get("stringybark") {
-        let lying = Material {
-            flags: 0,
-            ..scene.materials[bark as usize]
-        };
-        scene.materials.push(lying);
-        let lying = scene.materials.len() as u32 - 1;
-        blockers.extend(logs(scene, plan, lying));
+    grass(scene, plan, low, high, &stock);
+    blockers.extend(boulders(scene, plan, stone, stock.boulders));
+    if let Some(lying) = stock.lying {
+        blockers.extend(logs(scene, plan, lying, stock.logs));
     }
     (blockers, breakables)
 }
@@ -471,24 +585,10 @@ fn log_mesh(length: f32, radius: f32, seed: u32) -> Mesh {
 /// Fallen timber: a eucalypt forest's floor is strewn with it. Limbs and whole trunks lie
 /// where they came down, through the bush and, here and there, across the track, where a car
 /// has to climb over them. Returns what a car meets: every log thick enough to matter.
-fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32) -> Vec<Blocker> {
-    // Each its length and how thick it is at its butt.
-    const SIZES: [(f32, f32); 4] = [(2.6, 0.085), (4.6, 0.15), (6.5, 0.21), (5.2, 0.3)];
-    let first = scene.meshes.len() as u32;
-    let meshes: Vec<_> = SIZES
-        .par_iter()
-        .enumerate()
-        .map(|(seed, &(length, radius))| {
-            build_virtual_mesh(
-                &log_mesh(length, radius, seed as u32),
-                &BuildOptions::default(),
-            )
-        })
-        .collect();
-    scene.meshes.extend(meshes);
+fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32, first: u32) -> Vec<Blocker> {
     let mut blockers = Vec::new();
     let mut lay = |scene: &mut SceneAsset, size: usize, x: f32, z: f32, yaw: f32, stops: bool| {
-        let (length, radius) = SIZES[size];
+        let (length, radius) = LOG_SIZES[size];
         // Lying on the slope it fell on: its two ends at the ground's height.
         let along = Vec2::new(yaw.cos(), -yaw.sin()) * (length * 0.5);
         let (a, b) = (
@@ -563,7 +663,7 @@ fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32) -> Vec<Blocker> {
         let (x, z) = (rng.range(-reach, reach), rng.range(-reach, reach));
         let (yaw, pick) = (rng.range(0.0, std::f32::consts::TAU), rng.unit());
         let cover = plan.cover(x, z);
-        if cover.water
+        if (cover.water || cover.built)
             || cover.rock > 0.4
             || plan.open(x, z) > 0.55
             || plan.slope(x, z) > 0.45
@@ -618,41 +718,11 @@ fn patch(plan: &Plan, x: f32, z: f32, size: f32, turn: f32) -> Mat4 {
 
 /// The grass: tussock thick in the clearings and thin along the creek, kangaroo grass in
 /// tufts under the open forest of the slopes and ridges.
-fn grass(scene: &mut SceneAsset, plan: &Plan, low: f32, high: f32) {
-    const COPIES: u32 = 3;
-    let breeds = [("tussock", TUSSOCK), ("kangaroo grass", KANGAROO_GRASS)];
-    let mut first = [0_u32; 2];
-    let mut materials = [0_u32; 2];
-    let mut size = 3.0;
-    for (which, (name, text)) in breeds.iter().enumerate() {
-        let meadow = Meadow::parse(text).unwrap_or_else(|e| panic!("{name}: {e}"));
-        size = meadow.size;
-        first[which] = scene.meshes.len() as u32;
-        let meshes: Vec<_> = (0..COPIES)
-            .into_par_iter()
-            .map(|seed| {
-                // In drifts and clumps, with bare ground between, each patch its own: grass
-                // sown evenly is a paddock.
-                let mesh = Meadow {
-                    seed,
-                    ..meadow.clone()
-                }
-                .mesh_where(&|u, v| {
-                    let p = Vec3::new(u * 0.55, seed as f32 * 3.0 + which as f32 * 11.0, v * 0.55);
-                    smoothstep(-0.28, 0.2, fbm(p, 3, 783))
-                });
-                build_virtual_mesh(&mesh, &BuildOptions::default())
-            })
-            .collect();
-        scene.meshes.extend(meshes);
-        scene
-            .textures
-            .push(meadow.atlas(0).bake(scene.texture_size));
-        scene
-            .materials
-            .push(crate::foliage::blades(scene.textures.len() as i32 - 1));
-        materials[which] = scene.materials.len() as u32 - 1;
-    }
+fn grass(scene: &mut SceneAsset, plan: &Plan, low: f32, high: f32, stock: &Stock) {
+    const COPIES: u32 = GRASS_COPIES;
+    let first = [stock.grass[0].0, stock.grass[1].0];
+    let materials = [stock.grass[0].1, stock.grass[1].1];
+    let size = stock.patch;
     let reach = plan.half + 90.0;
     let cells = (2.0 * reach / size) as i32;
     let mut rng = Rng::new(53, 3);
@@ -672,7 +742,11 @@ fn grass(scene: &mut SceneAsset, plan: &Plan, low: f32, high: f32) {
                 continue;
             }
             let cover = plan.cover(x, z);
-            if cover.water || cover.rock > 0.45 || cover.mud > 0.4 || plan.slope(x, z) > 0.6 {
+            if (cover.water || cover.built)
+                || cover.rock > 0.45
+                || cover.mud > 0.4
+                || plan.slope(x, z) > 0.6
+            {
                 continue;
             }
             let open = plan.open(x, z);
@@ -703,30 +777,9 @@ fn grass(scene: &mut SceneAsset, plan: &Plan, low: f32, high: f32) {
 
 /// Stone: boulders where the land breaks into outcrop, and along the creek. The great ones
 /// stop a car.
-fn boulders(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> Vec<Blocker> {
-    // Each size is made at its size, so that its stone is at the right scale.
-    const SIZES: [f32; 4] = [0.28, 0.6, 1.2, 2.3];
-    const EACH: u32 = 3;
-    let first = scene.meshes.len() as u32;
-    let jobs: Vec<(usize, u32)> = (0..SIZES.len())
-        .flat_map(|size| (0..EACH).map(move |seed| (size, seed)))
-        .collect();
-    let meshes: Vec<_> = jobs
-        .par_iter()
-        .map(|&(size, seed)| {
-            let radius = SIZES[size];
-            let mut mesh = crate::meshes::rock(
-                if radius > 1.0 { 5 } else { 4 },
-                60 + size as u32 * 7 + seed,
-            );
-            for vertex in &mut mesh.vertices {
-                vertex.position *= radius;
-                vertex.uv *= radius;
-            }
-            build_virtual_mesh(&mesh, &BuildOptions::default())
-        })
-        .collect();
-    scene.meshes.extend(meshes);
+fn boulders(scene: &mut SceneAsset, plan: &Plan, stone: u32, first: u32) -> Vec<Blocker> {
+    const SIZES: [f32; 4] = BOULDER_SIZES;
+    const EACH: u32 = BOULDER_EACH;
     let mut rng = Rng::new(67, 5);
     let reach = plan.half + 60.0;
     let mut blockers = Vec::new();
@@ -741,7 +794,7 @@ fn boulders(scene: &mut SceneAsset, plan: &Plan, stone: u32) -> Vec<Blocker> {
             rng.range(0.8, 1.25),
         );
         let cover = plan.cover(x, z);
-        if cover.water {
+        if cover.water || cover.built {
             continue;
         }
         let near = plan.trail.near(x, z).map(|near| near.offset.abs());

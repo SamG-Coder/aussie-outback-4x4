@@ -205,6 +205,10 @@ pub struct VehicleSpec {
     /// The box it hits walls and other cars with: its full size, and where its middle is.
     pub body_size: Vec3,
     pub body_at: Vec3,
+    /// A truck's tray, if it has one: an open box things are carried in. Its size inside,
+    /// across, deep and long, and where the middle of its floor is. The body is then that
+    /// box cut out of the back of it, so that what is put in the tray lies in it.
+    pub tray: Option<(Vec3, Vec3)>,
     pub front: Axle,
     pub rear: Axle,
     pub tyre: Tyre,
@@ -267,6 +271,7 @@ impl VehicleSpec {
             centre: Vec3::new(0.0, 0.4, 0.04),
             body_size: Vec3::new(1.9, 0.9, 4.5),
             body_at: Vec3::new(0.0, 0.65, 0.0),
+            tray: None,
             front: Axle {
                 at: 1.32,
                 track: 1.66,
@@ -458,6 +463,18 @@ impl VehicleSpec {
                     let read = |w: &str| number(w).map_err(&error);
                     spec.body_size = Vec3::new(read(sx)?, read(sy)?, read(sz)?);
                     spec.body_at = Vec3::new(read(x)?, read(y)?, read(z)?);
+                }
+                "tray" => {
+                    let form = "expected `tray WIDTH DEPTH LENGTH at X Y Z`";
+                    let [sx, sy, sz, "at", x, y, z] = values else {
+                        return Err(error(form.to_owned()));
+                    };
+                    let read = |w: &str| number(w).map_err(&error);
+                    let size = Vec3::new(read(sx)?, read(sy)?, read(sz)?);
+                    if !(size.min_element() > 0.05 && size.max_element() < 10.0) {
+                        return Err(error("a tray is from 5 cm to 10 m each way".to_owned()));
+                    }
+                    spec.tray = Some((size, Vec3::new(read(x)?, read(y)?, read(z)?)));
                 }
                 "front" | "rear" => {
                     let axle = if keyword == "front" {
@@ -831,6 +848,13 @@ impl VehicleSpec {
             "body {} {} {} at {} {} {}",
             s.x, s.y, s.z, a.x, a.y, a.z
         );
+        if let Some((s, a)) = self.tray {
+            let _ = writeln!(
+                text,
+                "tray {} {} {} at {} {} {}",
+                s.x, s.y, s.z, a.x, a.y, a.z
+            );
+        }
         for (name, axle) in [("front", &self.front), ("rear", &self.rear)] {
             let _ = writeln!(
                 text,

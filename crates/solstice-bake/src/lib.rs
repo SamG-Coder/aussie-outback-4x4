@@ -5,6 +5,7 @@
 pub mod circuit;
 pub mod foliage;
 pub mod land;
+pub mod lend;
 pub mod meshes;
 pub mod outback;
 pub mod project;

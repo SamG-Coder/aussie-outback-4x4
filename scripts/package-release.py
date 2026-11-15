@@ -26,9 +26,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "target" / "release-pack"
 NAME = "AussieOutback4x4"
-# Each map's file, and what it is called: the hub first, as the game cannot start without it.
+# Each map's file, and what it is called: what every map shares first, the truck and the
+# bush itself, and then the hub, as the game cannot start without them.
 MAPS = [
+    ("shared", "The bush and the truck"),
     ("hub", "The Crossroads"),
+    ("town", "Ironbark Flat"),
     ("outback", "Wombat Creek Track"),
     ("granite", "Granite Ridge"),
     ("blackwood", "Blackwood Gully"),
@@ -57,7 +60,7 @@ CREDITS = """Aussie Outback 4x4 (pre-alpha)
 https://rust4x4.com
 
 To play: open AussieOutback4x4.exe. The first time, it downloads the game's maps into the
-assets folder (about 1.3 GB to download, 1.9 GB on the disk), which needs the internet, and
+assets folder (about 1.2 GB, to download and on the disk), which needs the internet, and
 its loading screen says how far along that is; after that only the pieces of a map that have
 changed are fetched. Closed part of the way, it carries on where it stopped.
 Windows may ask before running a program it has not seen before: choose "More info", then

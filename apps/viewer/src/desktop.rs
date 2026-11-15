@@ -146,7 +146,15 @@ mod native {
                 let path = self.path.clone();
                 let sender = self.finished_sender.clone();
                 std::thread::spawn(move || {
-                    let data = read_range(&path, &request).ok();
+                    let data = read_range(&path, &request)
+                        .map_err(|error| {
+                            log::warn!(
+                                "bytes {} to {} of the scene could not be read: {error}",
+                                request.start,
+                                request.end
+                            );
+                        })
+                        .ok();
                     let _ = sender.send((request.id, data));
                 });
             }
@@ -162,7 +170,15 @@ mod native {
         request: &StreamRequest,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut file = std::fs::File::open(path)?;
-        file.seek(SeekFrom::Start(request.start))?;
+        // A map joined with what every map shares is two files, whose bytes are numbered
+        // straight on from one to the other: past the end of the map's is the shared one.
+        let length = file.metadata()?.len();
+        if request.start >= length {
+            file = std::fs::File::open(path.with_file_name(solstice_viewer::shared::FILE))?;
+            file.seek(SeekFrom::Start(request.start - length))?;
+        } else {
+            file.seek(SeekFrom::Start(request.start))?;
+        }
         let mut bytes = vec![0; (request.end - request.start) as usize];
         file.read_exact(&mut bytes)?;
         if request.deflated {
@@ -371,7 +387,17 @@ mod native {
         /// For trying the menus with no hand on anything: scripts to run in the pages, and
         /// controls to press (`key:Enter`, `gamepad:south`), each with the second to do it at.
         ui_runs: Vec<(String, f32)>,
-        taps: Vec<(String, f32)>,
+        /// What a trial does, and from when to when, in seconds: a key or a controller's
+        /// button held (`key:KeyE`, `south`), the mouse moved (`mouse:DX,DY`), the truck put
+        /// somewhere (`place:X,Y,Z,YAW`), a picture taken (`shot:NAME`), or the game closed
+        /// (`quit`).
+        taps: Vec<(String, f32, f32)>,
+        /// A trial: the game played by `--tap` alone, where nobody sees or hears it and it
+        /// touches nothing of a real game's. Its window is off the screen and is never the
+        /// one typed into, it makes no sound, no real controller is read, what it keeps and
+        /// the pictures it takes go in this folder, and it says what the pages are told
+        /// once a second.
+        trial: Option<PathBuf>,
         /// Actions to press in a capture, and the frame to press each in.
         presses: Vec<(String, u32)>,
         /// Keys to hold in a capture, by their `KeyboardEvent.code`, and from which frame to
@@ -379,6 +405,8 @@ mod native {
         holds: Vec<(String, u32, u32)>,
         /// The mouse moved in a capture, by pixels across, at a frame.
         mouse_moves: Vec<(f32, u32)>,
+        /// And down, the same way: `--mouse-down PIXELS@FRAME`.
+        mouse_downs: Vec<(f32, u32)>,
     }
 
     /// Starts the effects the options name.
@@ -631,9 +659,11 @@ mod native {
             scene_named: false,
             ui_runs: Vec::new(),
             taps: Vec::new(),
+            trial: None,
             presses: Vec::new(),
             holds: Vec::new(),
             mouse_moves: Vec::new(),
+            mouse_downs: Vec::new(),
         };
         // The time of day, built up from its options and made at the end.
         let (mut time, mut day_seconds, mut latitude) = (None, None, None);
@@ -803,16 +833,27 @@ mod native {
                 "--ui" => options.ui = Some(PathBuf::from(value()?)),
                 "--ui-run" | "--tap" => {
                     let text = value()?;
-                    let (what, at) = text
+                    // `WHAT@SECONDS`, or for a tap that is held, `WHAT@FROM-TO`.
+                    let (what, from, to) = text
                         .rsplit_once('@')
-                        .and_then(|(what, at)| Some((what.to_owned(), at.parse().ok()?)))
+                        .and_then(|(what, at)| {
+                            let (from, to) = match at.split_once('-') {
+                                Some((from, to)) => (from.parse().ok()?, to.parse().ok()?),
+                                None => {
+                                    let from: f32 = at.parse().ok()?;
+                                    (from, from + 0.15)
+                                }
+                            };
+                            Some((what.to_owned(), from, to))
+                        })
                         .ok_or(format!("{arg} expects WHAT@SECONDS"))?;
                     if arg == "--tap" {
-                        options.taps.push((what, at));
+                        options.taps.push((what, from, to));
                     } else {
-                        options.ui_runs.push((what, at));
+                        options.ui_runs.push((what, from));
                     }
                 }
+                "--trial" => options.trial = Some(PathBuf::from(value()?)),
                 "--night-eyes" => options.night_eyes = true,
                 "--world" => {
                     options.world = Some(PathBuf::from(value()?));
@@ -845,6 +886,15 @@ mod native {
                     options
                         .mouse_moves
                         .push(parsed.ok_or("--mouse expects PIXELS@FRAME")?);
+                }
+                "--mouse-down" => {
+                    let text = value()?;
+                    let parsed = text
+                        .split_once('@')
+                        .and_then(|(y, frame)| Some((y.parse().ok()?, frame.parse().ok()?)));
+                    options
+                        .mouse_downs
+                        .push(parsed.ok_or("--mouse-down expects PIXELS@FRAME")?);
                 }
                 "--geometry-budget-mb" => {
                     let megabytes: u64 = value()?
@@ -947,17 +997,56 @@ mod native {
     }
 
     /// Reads a scene: all of it, or what says where the rest of it is.
-    fn read_source(options: &Options, path: &PathBuf) -> Result<Source, Box<dyn std::error::Error>> {
+    /// Why a map that needs the file every map shares could not be read with it.
+    fn missing_shared(file: &Path, error: &dyn std::error::Error) -> String {
+        format!(
+            "{}, which the game's maps are read with, could not be read: {error}",
+            file.display()
+        )
+    }
+
+    fn read_source(
+        options: &Options,
+        path: &PathBuf,
+    ) -> Result<Source, Box<dyn std::error::Error>> {
         Ok(if options.stream {
-            Source::Streamed(read_manifest(path)?)
+            let mut scene = read_manifest(path)?;
+            if solstice_viewer::shared::wanted(&scene.gameplay) {
+                let beside = path.with_file_name(solstice_viewer::shared::FILE);
+                let shared =
+                    read_manifest(&beside).map_err(|error| missing_shared(&beside, &*error))?;
+                let files = shared.gameplay.clone();
+                // The shared file's bytes are numbered on from the end of the map's.
+                let after = std::fs::metadata(path)?.len();
+                let joined = solstice_asset::join::join(&mut scene, shared, after)?;
+                solstice_viewer::shared::adopt(&mut scene, &files, joined)?;
+                // And what nuggets are shown with, which are made as they are found.
+                solstice_viewer::nugget::join_streamed(&mut scene)?;
+            }
+            Source::Streamed(scene)
         } else {
-            Source::Loaded(load_scene(path)?)
+            let mut scene = load_scene(path)?;
+            // A game's maps share its truck, which is in a file of its own beside them: the
+            // two are read together, and are one scene.
+            if solstice_viewer::shared::wanted(&scene.scene.gameplay) {
+                let beside = path.with_file_name(solstice_viewer::shared::FILE);
+                let shared =
+                    load_scene(&beside).map_err(|error| missing_shared(&beside, &*error))?;
+                let files = shared.scene.gameplay.clone();
+                let joined = scene.join(shared)?;
+                solstice_viewer::shared::adopt(&mut scene.scene, &files, joined)?;
+                solstice_viewer::nugget::join_loaded(&mut scene)?;
+            }
+            Source::Loaded(scene)
         })
     }
 
     /// Does what the arguments say. `sites` are where a game's maps are fetched from before
     /// it is played, in its window: none, and they are taken to be here.
-    pub fn run(arguments: Vec<String>, sites: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn run(
+        arguments: Vec<String>,
+        sites: Vec<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut options = parse_args(arguments)?;
         let shell = match &options.world {
             None => None,
@@ -966,8 +1055,9 @@ mod native {
                     .map_err(|error| format!("{}: {error}", path.display()))?;
                 let world = solstice_viewer::shell::World::parse(&text)
                     .map_err(|error| format!("{}: {error}", path.display()))?;
-                let kept = std::fs::read_to_string(SAVE_FILE).unwrap_or_default();
+                let kept = std::fs::read_to_string(save_file(&options)).unwrap_or_default();
                 let mut shell = Shell::new(world, &kept);
+                shell.set_trial(options.trial.is_some());
                 // A game starts in its hub, unless a scene of it was asked for.
                 let named = shell
                     .world()
@@ -1142,7 +1232,13 @@ mod native {
                 play.lamps = dark;
                 for (action, at) in &options.presses {
                     if *at == frame {
-                        play.play.press(action);
+                        // `get_out` is not an action of the game's: it is what its shell
+                        // does when the button is held, said here for a picture on foot.
+                        if action == "get_out" {
+                            play.play.get_out();
+                        } else {
+                            play.play.press(action);
+                        }
                     }
                 }
                 for (key, from, to) in &options.holds {
@@ -1155,6 +1251,11 @@ mod native {
                 for (pixels, at) in &options.mouse_moves {
                     if *at == frame {
                         play.devices.mouse_motion(*pixels, 0.0);
+                    }
+                }
+                for (pixels, at) in &options.mouse_downs {
+                    if *at == frame {
+                        play.devices.mouse_motion(0.0, *pixels);
                     }
                 }
                 log_messages(play.frame(&mut renderer, &mut camera, 1.0 / 60.0));
@@ -1672,6 +1773,10 @@ mod native {
         frames_since_title: u32,
         /// Seconds since the window opened.
         age: f32,
+        /// A picture a trial has asked for, to be taken of the next frame; and when a trial
+        /// last said what the pages were told.
+        shot: Option<PathBuf>,
+        said: f32,
         /// Frames a second, as last measured, and how long since the dashboard was written.
         fps: f32,
         hud_timer: f32,
@@ -1683,6 +1788,14 @@ mod native {
 
     /// Where what a game keeps from one run to the next is written.
     const SAVE_FILE: &str = "save/profile.txt";
+
+    /// Where the game is kept: a trial keeps its own, in its own folder.
+    fn save_file(options: &Options) -> PathBuf {
+        match &options.trial {
+            Some(folder) => folder.join("profile.txt"),
+            None => PathBuf::from(SAVE_FILE),
+        }
+    }
 
     struct App {
         /// The game round the driving, if the scene is one map of a game.
@@ -1823,9 +1936,20 @@ mod native {
             event_loop: &ActiveEventLoop,
         ) -> Result<(Arc<Window>, Option<crate::overlay::Overlay>), Box<dyn std::error::Error>>
         {
-            let attributes = Window::default_attributes()
+            let mut attributes = Window::default_attributes()
                 .with_title("Solstice")
                 .with_inner_size(PhysicalSize::new(self.options.size.0, self.options.size.1));
+            // A trial's window is nowhere it can be seen, and is not the one typed into.
+            if self.options.trial.is_some() {
+                attributes = attributes
+                    .with_position(winit::dpi::PhysicalPosition::new(-30000, -30000))
+                    .with_active(false);
+                #[cfg(windows)]
+                {
+                    use winit::platform::windows::WindowAttributesExtWindows;
+                    attributes = attributes.with_skip_taskbar(true);
+                }
+            }
             // The menus are a window inside this one, and see-through: what is drawn here has
             // to be drawn under them too.
             #[cfg(windows)]
@@ -1886,11 +2010,19 @@ mod native {
                 lobby.told = false;
                 match said {
                     Fetched::Progress { title, done, of } => {
-                        let much = format!("{:.0} of {:.0} MB", done as f64 / 1.0e6, of as f64 / 1.0e6);
-                        let share = if of == 0 { 1.0 } else { done as f64 / of as f64 };
+                        let much =
+                            format!("{:.0} of {:.0} MB", done as f64 / 1.0e6, of as f64 / 1.0e6);
+                        let share = if of == 0 {
+                            1.0
+                        } else {
+                            done as f64 / of as f64
+                        };
                         // With no pages, the window's title is all there is to say it on.
-                        lobby.window.set_title(&format!("Downloading {title}: {much}"));
-                        lobby.stream = stream_told(&format!("Downloading {title}"), &much, share, true);
+                        lobby
+                            .window
+                            .set_title(&format!("Downloading {title}: {much}"));
+                        lobby.stream =
+                            stream_told(&format!("Downloading {title}"), &much, share, true);
                     }
                     Fetched::Done(whole) => {
                         if !whole {
@@ -2006,8 +2138,11 @@ mod native {
             let (mut renderer, reader) = scene.renderer(&gpu, config.format, &self.options);
             let bob = bobbing(&self.options, &mut renderer);
             let play = start_play(&self.options, scene, &mut renderer).map(|mut play| {
-                // A game in a window is heard: its sounds are beside the scenes.
-                play.with_sound(std::path::Path::new("assets/sounds"));
+                // A game in a window is heard: its sounds are beside the scenes. A trial
+                // is not.
+                if self.options.trial.is_none() {
+                    play.with_sound(std::path::Path::new("assets/sounds"));
+                }
                 let watch = ScriptWatch::new(&play, &self.options.scripts);
                 (play, watch)
             });
@@ -2031,6 +2166,8 @@ mod native {
                 title_timer: 0.0,
                 frames_since_title: 0,
                 age: 0.0,
+                shot: None,
+                said: 0.0,
                 fps: 0.0,
                 hud_timer: 0.0,
             })
@@ -2073,6 +2210,7 @@ mod native {
             state.play = start_play(&self.options, scene, &mut renderer).map(|mut play| {
                 match sound {
                     Some(sound) => play.give_sound(sound),
+                    None if self.options.trial.is_some() => {}
                     None => play.with_sound(Path::new("assets/sounds")),
                 }
                 let watch = ScriptWatch::new(&play, &self.options.scripts);
@@ -2103,6 +2241,7 @@ mod native {
             let fast = self.keys.contains(&KeyCode::ShiftLeft);
             let look = std::mem::take(&mut self.input);
             let night_eyes = self.options.night_eyes;
+            let kept_in = save_file(&self.options);
             let (fixed, clock) = (self.options.environment, &mut self.options.clock);
             let Some(state) = self.state.as_mut() else {
                 return;
@@ -2179,11 +2318,55 @@ mod native {
                     }
                 }
                 let mut tapping = false;
-                for (control, at) in &self.options.taps {
-                    let (down, up) = (*at, *at + 0.15);
+                for (control, down, up) in &self.options.taps {
+                    let (down, up) = (*down, *up);
+                    let begun = (before..now).contains(&down);
                     let Some((device, control)) = control.split_once(':') else {
+                        if control == "quit" && begun {
+                            self.quit = true;
+                        }
+                        // A controller's button, by its name alone.
+                        if control != "quit" {
+                            let held = (down..up).contains(&now);
+                            tapping |= held;
+                            if held || (before..now).contains(&up) {
+                                play.devices
+                                    .gamepad_button(control, f32::from(u8::from(held)));
+                            }
+                        }
                         continue;
                     };
+                    // What a trial does besides pressing things, each once, as it begins.
+                    let numbers: Vec<f32> = control
+                        .split(',')
+                        .filter_map(|n| n.trim().parse().ok())
+                        .collect();
+                    match (device, &numbers[..]) {
+                        ("mouse", [x, y]) => {
+                            if begun {
+                                play.devices.mouse_motion(*x, *y);
+                            }
+                            continue;
+                        }
+                        ("place", [x, y, z, yaw]) => {
+                            if begun {
+                                play.play.place_car(Vec3::new(*x, *y, *z), *yaw);
+                            }
+                            continue;
+                        }
+                        ("shot", _) => {
+                            if begun {
+                                let folder = self
+                                    .options
+                                    .trial
+                                    .clone()
+                                    .unwrap_or_else(|| PathBuf::from("save"));
+                                state.shot = Some(folder.join(format!("{control}.png")));
+                            }
+                            continue;
+                        }
+                        _ => {}
+                    }
                     let held = (down..up).contains(&now);
                     tapping |= held;
                     if held || (before..now).contains(&up) {
@@ -2195,7 +2378,7 @@ mod native {
                         }
                     }
                 }
-                if !tapping {
+                if !tapping && self.options.trial.is_none() {
                     if let Some(pads) = &mut self.pads {
                         read_pads(pads, &mut play.devices);
                     }
@@ -2220,23 +2403,65 @@ mod native {
                     Step::Held => play.frame_held(&state.renderer, delta),
                 }
                 if let Some(shell) = &mut self.shell {
+                    shell.see(play.things());
                     shell.after(play.play.hud());
-                    if let (Some(told), Some(overlay)) =
-                        (shell.tell(play.play.hud(), delta), &state.overlay)
-                    {
-                        overlay.show(&told);
+                    play.set_detector(shell.detector());
+                    if let Some(told) = shell.tell(play.play.hud(), delta) {
+                        if let Some(overlay) = &state.overlay {
+                            overlay.show(&told);
+                        }
+                        // A trial says what the pages are told, once a second, to be read.
+                        if self.options.trial.is_some() && state.age - state.said >= 1.0 {
+                            state.said = state.age;
+                            log::info!("told at {:.1}: {told}", state.age);
+                        }
                     }
                     if let Some(kept) = shell.to_keep() {
-                        let saved = std::fs::create_dir_all("save")
-                            .and_then(|()| std::fs::write(SAVE_FILE, kept));
+                        let file = kept_in;
+                        let saved =
+                            std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))
+                                .and_then(|()| std::fs::write(&file, kept));
                         if let Err(error) = saved {
-                            log::warn!("{SAVE_FILE}: {error}");
+                            log::warn!("{}: {error}", file.display());
                         }
                     }
                     for order in shell.take_orders() {
                         match order {
                             Order::Look => self.look = true,
                             Order::Quit => self.quit = true,
+                            // A night slept through: it is the next morning.
+                            Order::Sleep => {
+                                if let Some(clock) = clock.as_mut() {
+                                    clock.time.hours = solstice_viewer::shell::MORNING;
+                                    clock.time.day += 1.0;
+                                }
+                            }
+                            // The gold: a nugget shown or put away, its body put in the
+                            // world or taken out, and what is heard.
+                            Order::Item(shown) => play.show_item(&mut state.renderer, shown),
+                            Order::Thing(body) => play.thing(body),
+                            Order::Carry(carried) => play.set_carried(carried),
+                            Order::Sound(name) => play.sound_once(name),
+                            // Out of the truck, or, beside it, back in.
+                            Order::Swap => {
+                                let done = if play.play.afoot() {
+                                    play.play.get_in(solstice_viewer::shell::GET_IN + 1.0)
+                                } else {
+                                    play.play.get_out()
+                                };
+                                log::info!(
+                                    "driver: {}",
+                                    match (done, play.play.afoot()) {
+                                        (false, _) => "stays where they are",
+                                        (true, true) => "out of the truck",
+                                        (true, false) => "back in the truck",
+                                    }
+                                );
+                            }
+                            Order::Place { position, yaw } => {
+                                play.play.place_car(position, yaw);
+                                log::info!("the truck is where it was left: {position}");
+                            }
                             Order::Load { map, scene, sky } => {
                                 log::info!("going to {map}: {scene}");
                                 self.loading = Some((scene, sky, Instant::now()));
@@ -2278,6 +2503,58 @@ mod native {
                 state.frames_since_title = 0;
             }
 
+            // A picture a trial asked for: this frame is drawn to be kept, not to be shown.
+            if let Some(path) = state.shot.take() {
+                let size = (state.config.width, state.config.height);
+                let kept = state.gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("a trial's picture"),
+                    size: wgpu::Extent3d {
+                        width: size.0,
+                        height: size.1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: state.config.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                });
+                let view = kept.create_view(&Default::default());
+                state.renderer.render(
+                    &state.gpu,
+                    &state.camera.camera,
+                    &environment,
+                    &view,
+                    size,
+                    delta,
+                );
+                let swapped = matches!(
+                    state.config.format,
+                    wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+                );
+                let saved = read_pixels(&state.gpu, &kept, size).and_then(|mut pixels| {
+                    if swapped {
+                        for pixel in pixels.chunks_exact_mut(4) {
+                            pixel.swap(0, 2);
+                        }
+                    }
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let file = std::io::BufWriter::new(std::fs::File::create(&path)?);
+                    let mut encoder = png::Encoder::new(file, size.0, size.1);
+                    encoder.set_color(png::ColorType::Rgba);
+                    encoder.set_depth(png::BitDepth::Eight);
+                    encoder.write_header()?.write_image_data(&pixels)?;
+                    Ok(())
+                });
+                match saved {
+                    Ok(()) => log::info!("a picture: {}", path.display()),
+                    Err(error) => log::warn!("{}: {error}", path.display()),
+                }
+                return;
+            }
             let texture = match state.surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(texture)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
@@ -2367,7 +2644,19 @@ mod native {
 
         fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
             match event {
-                WindowEvent::CloseRequested => event_loop.exit(),
+                WindowEvent::CloseRequested => {
+                    // Closed with no warning: what there is of the game is kept first.
+                    if let Some(shell) = &mut self.shell {
+                        let file = save_file(&self.options);
+                        let saved =
+                            std::fs::create_dir_all(file.parent().unwrap_or(Path::new(".")))
+                                .and_then(|()| std::fs::write(&file, shell.keep_now()));
+                        if let Err(error) = saved {
+                            log::warn!("{}: {error}", file.display());
+                        }
+                    }
+                    event_loop.exit();
+                }
                 WindowEvent::Resized(size) => {
                     if let Some(lobby) = &self.lobby {
                         if let Some(overlay) = &lobby.overlay {

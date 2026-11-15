@@ -1,0 +1,85 @@
+# The game's actions: what the keys, a controller and a touched screen do, in the truck and on
+# foot. It is the engine's own set (crates/solstice-game/src/input.rs) with one change: on foot,
+# E and a controller's bottom button use what is near (a door), since those are what is held to
+# get out of the truck and into it; jumping is Space and the top button.
+
+# On foot. Moving: WASD or the arrows, the left stick, or a thumb on the left of the screen.
+forward key KeyW
+forward key ArrowUp
+forward key KeyS -1
+forward key ArrowDown -1
+forward gamepad left_y -1
+forward touch stick_y -1
+right key KeyD
+right key ArrowRight
+right key KeyA -1
+right key ArrowLeft -1
+right gamepad left_x
+right touch stick_x
+run key ShiftLeft
+run gamepad l3
+# Looking, in radians a second: the mouse, the right stick, or dragging on the right.
+turn mouse x -0.002
+turn gamepad right_x -4.4
+turn touch look_x -0.004
+look_up mouse y -0.002
+look_up gamepad right_y -3.2
+look_up touch look_y -0.004
+# Doing.
+jump key Space
+jump gamepad north
+interact key KeyE
+interact gamepad south
+interact touch tap
+
+# Driving: W and S or the arrows for the pedals, A and D to steer; the triggers and the left
+# stick; or a thumb on the left of the screen. E and Q, or the bumpers, change gear.
+throttle key KeyW
+throttle key ArrowUp
+throttle gamepad r2
+throttle touch stick_y -1
+brake key KeyS
+brake key ArrowDown
+brake gamepad l2
+brake touch stick_y
+steer key KeyD
+steer key ArrowRight
+steer key KeyA -1
+steer key ArrowLeft -1
+steer gamepad left_x
+steer touch stick_x
+handbrake key Space
+handbrake gamepad east
+shift_up key KeyE
+shift_up gamepad r1
+shift_down key KeyQ
+shift_down gamepad l1
+reset key KeyR
+reset gamepad north
+camera key KeyC
+camera gamepad select
+look_back key KeyB
+look_back gamepad r3
+# The right stick looks round the car, and tips the view up over it or down behind it; so do
+# J and L, and I and K.
+look_round gamepad right_x
+look_round key KeyL
+look_round key KeyJ -1
+look_over gamepad right_y
+look_over key KeyI
+look_over key KeyK -1
+# The mouse swings the view right round the car, and up over it.
+orbit mouse x -0.0032
+orbit_up mouse y 0.0026
+# P hands the car to a driver of its own, round the circuit, and takes it back.
+autopilot key KeyP
+autopilot gamepad start
+# A four-wheel drive: T moves its transfer case on, from two-wheel drive to four high to four
+# low; G locks its differentials, the rear, then both, then neither.
+drive_mode key KeyT
+drive_mode gamepad west
+diff_lock key KeyG
+diff_lock gamepad south
+# Y lets its tyres down for mud and sand, and pumps them up again for hard ground.
+tyres key KeyY
+tyres gamepad up

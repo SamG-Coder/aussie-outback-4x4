@@ -125,20 +125,78 @@ impl Physics {
             );
             // Rounded, so that it slides along a wall's joins rather than catching on them.
             const ROUNDING: f32 = 0.08;
-            let half = (spec.body_size * 0.5 - Vec3::splat(ROUNDING)).max(Vec3::splat(0.01));
-            let collider = self.colliders.insert_with_parent(
-                ColliderBuilder::round_cuboid(half.x, half.y, half.z, ROUNDING)
-                    .translation(to_vector(spec.body_at))
-                    .density(0.0)
-                    // Two tonnes and more of truck lands and stays; a racing car's shell
-                    // skips off what it touches.
-                    .friction(if spec.mass > 2000.0 { 0.55 } else { 0.35 })
-                    .restitution(if spec.mass > 2000.0 { 0.02 } else { 0.15 })
-                    .user_data(crate::entity_data(entity)),
-                handle,
-                &mut self.bodies,
+            // Its boxes: one, or, with a tray, the cab and what is under and round the tray.
+            // Each its middle, its half size, and whether it is rounded.
+            let (low, high) = (
+                spec.body_at - spec.body_size * 0.5,
+                spec.body_at + spec.body_size * 0.5,
             );
-            self.owners.insert(collider, (entity, false));
+            let boxed = |low: Vec3, high: Vec3, round: bool| {
+                ((low + high) * 0.5, (high - low) * 0.5, round)
+            };
+            let boxes = match spec.tray {
+                None => vec![boxed(low, high, true)],
+                Some((size, floor)) => {
+                    // The tray's inside: from, and to. Its sides are the body's own, its
+                    // front is the cab's back, and its tailgate is as thick as a hand.
+                    const GATE: f32 = 0.1;
+                    let inside_low = floor - Vec3::new(size.x, 0.0, size.z) * 0.5;
+                    let inside_high = floor + Vec3::new(size.x * 0.5, size.y, size.z * 0.5);
+                    let back = inside_high.z + GATE;
+                    let (left, right) = (
+                        low.x.min(inside_low.x - GATE),
+                        high.x.max(inside_high.x + GATE),
+                    );
+                    vec![
+                        boxed(low, Vec3::new(high.x, high.y, inside_low.z), true),
+                        // Under its floor.
+                        boxed(
+                            Vec3::new(low.x, low.y.min(floor.y - GATE), inside_low.z),
+                            Vec3::new(high.x, floor.y, back),
+                            false,
+                        ),
+                        // Its two sides, and its tailgate.
+                        boxed(
+                            Vec3::new(left, floor.y, inside_low.z),
+                            Vec3::new(inside_low.x, inside_high.y, back),
+                            false,
+                        ),
+                        boxed(
+                            Vec3::new(inside_high.x, floor.y, inside_low.z),
+                            Vec3::new(right, inside_high.y, back),
+                            false,
+                        ),
+                        boxed(
+                            Vec3::new(inside_low.x, floor.y, inside_high.z),
+                            Vec3::new(inside_high.x, inside_high.y, back),
+                            false,
+                        ),
+                    ]
+                }
+            };
+            let mut colliders = Vec::new();
+            for (middle, half, round) in boxes {
+                let shape = if round {
+                    let half = (half - Vec3::splat(ROUNDING)).max(Vec3::splat(0.01));
+                    ColliderBuilder::round_cuboid(half.x, half.y, half.z, ROUNDING)
+                } else {
+                    ColliderBuilder::cuboid(half.x, half.y, half.z)
+                };
+                let collider = self.colliders.insert_with_parent(
+                    shape
+                        .translation(to_vector(middle))
+                        .density(0.0)
+                        // Two tonnes and more of truck lands and stays; a racing car's shell
+                        // skips off what it touches.
+                        .friction(if spec.mass > 2000.0 { 0.55 } else { 0.35 })
+                        .restitution(if spec.mass > 2000.0 { 0.02 } else { 0.15 })
+                        .user_data(crate::entity_data(entity)),
+                    handle,
+                    &mut self.bodies,
+                );
+                self.owners.insert(collider, (entity, false));
+                colliders.push(collider);
+            }
             self.actors.insert(
                 entity,
                 crate::Body {
@@ -147,7 +205,7 @@ impl Physics {
                     character: None,
                     at: transform.translation,
                     rotation: transform.rotation,
-                    colliders: vec![collider],
+                    colliders,
                 },
             );
             self.cars.insert(entity, CarStep::default());

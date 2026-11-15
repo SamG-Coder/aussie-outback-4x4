@@ -223,6 +223,24 @@ pub fn put_back(world: &mut World, entity: Entity, track: &Track) {
     }
 }
 
+/// Puts a car somewhere, facing a way (a yaw in degrees: zero looks along -z), at rest: where
+/// it was when a game was last left.
+pub fn put_at(world: &mut World, entity: Entity, position: Vec3, yaw_degrees: f32) {
+    let Ok(mut transform) = world.entities.get::<&mut Transform>(entity) else {
+        return;
+    };
+    transform.rotation = Quat::from_rotation_y(yaw_degrees.to_radians());
+    transform.translation = position + Vec3::Y * 0.08;
+    drop(transform);
+    if let Ok(mut car) = world.entities.get::<&mut Car>(entity) {
+        car.vehicle.settle();
+        car.asked = Asked::default();
+    }
+    if let Ok(mut lap) = world.entities.get::<&mut Lap>(entity) {
+        lap.interrupt();
+    }
+}
+
 /// The views of a car the `camera` action steps through: from close behind it out to high
 /// above, then from on the car itself.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -430,6 +448,18 @@ impl Chase {
 /// The player's car's instruments, for a viewer to show.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hud {
+    /// Whether the driver has got out and is walking, and where they are: the car's
+    /// instruments are then as it was left.
+    pub afoot: bool,
+    pub walker: Vec3,
+    /// The way the driver faces, on foot: a yaw in radians (zero looks along -z).
+    pub walker_yaw: f32,
+    /// Where the car is and how it is turned: what is carried in it goes with it.
+    pub origin: Vec3,
+    pub rotation: Quat,
+    /// Its tray, if it has one, in its own space: its size inside, across, deep and long,
+    /// and the middle of its floor.
+    pub tray: Option<(Vec3, Vec3)>,
     pub telemetry: Telemetry,
     /// Where the engine's limiter is, in rpm.
     pub limit: f32,
