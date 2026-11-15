@@ -243,7 +243,13 @@ fn trailheads(scene: &mut SceneAsset, plan: &Plan, leads: &[String]) -> String {
                 .trail
                 .near(at.x, at.z)
                 .is_some_and(|near| near.offset.abs() < plan.tread + 1.6);
-            if on_road {
+            // A gate beside a shed is open on the shed's side, where it is driven into from.
+            let from_camp = plan.gate.is_some_and(|gate| {
+                let out = glam::Vec2::new(angle.cos(), angle.sin());
+                let home = plan.camp - gate;
+                gate.distance(*place) < 0.5 && out.dot(home.normalize_or_zero()) > 0.6
+            });
+            if on_road || from_camp {
                 continue;
             }
             let foot = plan.height(at.x, at.z);
@@ -287,7 +293,14 @@ pub fn build(
     base: &std::path::Path,
 ) -> Result<Built, String> {
     println!("outback: {size:.0} m of bush: {}", country.name);
-    let plan = Plan::new(size, country, leads.len());
+    // A hub's last map may be `+NAME`: its trailhead is a gate beside the shed, off the road.
+    let gate = leads.last().is_some_and(|last| last.starts_with('+'));
+    let leads: Vec<String> = leads
+        .iter()
+        .map(|lead| lead.trim_start_matches('+').to_owned())
+        .collect();
+    let leads = &leads[..];
+    let plan = Plan::new(size, country, leads.len() - usize::from(gate), gate);
     let half = size * 0.5;
     let drawn = half + BEYOND;
 
@@ -371,6 +384,14 @@ pub fn build(
             "place buyer {:.2} {:.2} {:.2} {round}",
             buyer.x, buyer.y, buyer.z
         );
+        // Its doors: each a place somebody walks up to, on foot.
+        for (what, at) in town.doors() {
+            let _ = writeln!(
+                places,
+                "place door:{what} {:.2} {:.2} {:.2} 1.7",
+                at.x, at.y, at.z
+            );
+        }
     }
     let items = items(&plan);
 
@@ -527,7 +548,18 @@ mod tests {
             .ok()
             .and_then(|name| super::Country::named(&name))
             .unwrap_or(super::Country::TRACK);
-        let plan = Plan::new(1000.0, country, if country.hub { 3 } else { 0 });
+        // `OUTBACK_SIZE=700` draws it that many metres across, as a town is.
+        let size = std::env::var("OUTBACK_SIZE")
+            .ok()
+            .and_then(|size| size.parse().ok())
+            .unwrap_or(1000.0);
+        let trailheads = match (country.hub, country.town) {
+            (_, true) => 1,
+            (true, false) => 3,
+            _ => 0,
+        };
+        let plan = Plan::new(size, country, trailheads, country.hub && !country.town);
+        println!("trailheads {:?}", plan.places);
         let (start, yaw) = plan.start();
         println!("start {start} yaw {yaw}");
         let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/outback");

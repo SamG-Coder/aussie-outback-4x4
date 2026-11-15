@@ -9,7 +9,7 @@ kind crossroads Main road
 length crossroads 3.0 km
 
 map town assets/town.solstice Ironbark Flat
-about town What is left of a gold town, down the main road: a hotel, a store, a hall, and a man who buys gold by weight. Park in his yard with the tray full.
+about town What is left of a gold town, at the end of the track from your shed: over the creek and down to a hotel, a motor spares store, a bank, and a man who buys gold by weight.
 kind town Township
 
 map wombat assets/outback.solstice Wombat Creek Track
@@ -26,3 +26,63 @@ map blackwood assets/blackwood.solstice Blackwood Gully
 about blackwood Low, wet forest along a creek. Sixteen bog holes, deep ruts and washouts between them: keep your momentum and air the tyres down.
 kind blackwood Mud run
 length blackwood 4.5 km
+
+# The showroom: where a truck is stood to be looked at, behind the pages on which trucks are
+# chosen, bought, sold and worked on. It is the Crossroads, by the shed, in the bush. Nothing
+# leads to it.
+map showroom assets/hub.solstice The Showroom
+kind showroom Showroom
+
+# The game's own trucks (tools/blender/truck/build.py): each its name, its grade, what it
+# costs, its year, and what it is called. Its pack is assets/trucks/NAME.truck, made by
+# `bake --kit scenes/trucks/NAME.actor`, and is put together as a map is read.
+truck bendoc 1 6000 1981 Bendoc
+truck dargo 1 6500 1984 Dargo
+truck omeo_tray 1 7000 1983 Omeo Tray
+truck dargo_tub 1 7500 1987 Dargo Styleside
+truck omeo 1 8000 1988 Omeo
+truck buckland 1 8500 1989 Buckland
+truck tambo 1 9000 1986 Tambo
+truck licola 1 9500 1976 Licola
+truck wonnangatta 1 10500 1978 Wonnangatta
+truck licola_top 1 11000 1979 Licola Hardtop
+truck mitta_short 2 14000 1993 Mitta Shorty
+truck delatite_tray 2 15000 1997 Delatite Tray
+truck mitta 2 16000 1995 Mitta
+truck delatite 2 17000 1998 Delatite
+truck howitt_short 2 18000 1990 Howitt Shorty
+truck howitt_ute 2 19000 1994 Howitt Ute
+truck howitt 2 22000 1992 Howitt
+truck feathertop 2 26000 1996 Feathertop
+truck jamieson 2 28000 1996 Jamieson
+truck jamieson_troop 2 30000 1999 Jamieson Troop
+truck tumut 3 34000 2019 Tumut
+truck ovens_tray 3 36000 2007 Ovens Tray
+truck walhalla 3 38000 2005 Walhalla
+truck ovens_extra 3 39000 2016 Ovens Extra
+truck buffalo_tray 3 40000 2017 Buffalo Tray
+truck ovens_cab 3 41000 2012 Ovens Cab-chassis
+truck ovens 3 42000 2014 Ovens
+truck buffalo 3 45000 2018 Buffalo
+truck kiewa 3 48000 2010 Kiewa
+truck hotham 3 58000 2009 Hotham
+truck tumut_built 4 52000 2021 Tumut Trail
+truck ovens_tourer 4 78000 2019 Ovens Tourer
+truck buffalo_chase 4 85000 2020 Buffalo Chase
+truck jamieson_v8_single 4 88000 2012 Jamieson V8 Single
+truck bogong 4 92000 2021 Bogong Sport
+truck jamieson_v8 4 95000 2016 Jamieson V8
+truck bogong_wagon 4 96000 2022 Bogong Wagon
+truck howitt_y 4 98000 2013 Howitt Y
+truck jamieson_troop_v8 4 99000 2020 Jamieson Troop V8
+truck feathertop_gx 4 105000 2015 Feathertop GX
+truck stirling_short 5 120000 2024 Stirling 90
+truck stirling 5 135000 2022 Stirling
+truck kestrel_xl 5 150000 2022 Kestrel XL
+truck feathertop_300 5 150000 2023 Feathertop Sahara
+truck kestrel_tray 5 158000 2023 Kestrel Tray
+truck kestrel 5 165000 2024 Kestrel
+truck wellington 5 185000 2024 Wellington
+truck kosciuszko 5 210000 2025 Kosciuszko
+truck cobbler 5 240000 2021 Cobbler
+truck cobbler_ute 5 255000 2023 Cobbler Ute

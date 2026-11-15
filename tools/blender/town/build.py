@@ -268,6 +268,8 @@ def build_hotel():
     box("brick", 0.6, 0.8, rise + 0.4, move(cx + 0.08, cy, wall_h + 1.2 + (rise + 0.4) / 2), tile=1.1)
     box("brick", 0.72, 0.92, 0.12, move(cx + 0.08, cy, wall_h + 1.2 + rise + 0.46), tile=1.1)
     sign("HOTEL", ((x0 + x1) / 2, FRONT - DECK - 0.36, top - 0.1), 4.6, 0.62)
+    # The publican deals in trucks: a board by the first door says so.
+    sign("USED TRUCKS  BOUGHT  &  SOLD", (x0 + 3.6, FRONT - 0.05, FLOOR + 2.42), 3.0, 0.3)
 
 
 # =============================================================== The store and the buyer's.
@@ -310,7 +312,9 @@ def false_front(building, paint, words, tall, doors, gold=False):
 
 
 def build_store():
-    false_front(STORE, "sage", "GENERAL STORE", 5.5, [0.0])
+    top = false_front(STORE, "sage", "MOTOR SPARES", 5.5, [0.0])
+    _, x0, x1, _ = STORE
+    sign("PARTS   PAINT   OIL", ((x0 + x1) / 2, FRONT - DECK - 0.36, top - 0.12), 4.4, 0.34)
 
 
 def build_buyer():
@@ -343,7 +347,7 @@ def build_hall():
     # A round vent high in the gable, and the hall's name under it.
     kit.turned("white", [(0.0, 0.0), (0.42, 0.0), (0.42, 0.05), (0.3, 0.05), (0.3, 0.02), (0.0, 0.02)],
                frame((middle, FRONT - 0.04, wall_h + rise * 0.52), (1, 0, 0), UP, (0, -1, 0)), around=20)
-    sign("HALL", (middle, FRONT - 0.07, wall_h + 0.2), 3.0, 0.6)
+    sign("BANK", (middle, FRONT - 0.07, wall_h + 0.2), 3.0, 0.6)
     # The porch: a little gable of its own on two posts, over a landing and its steps.
     px, py, ph = 1.7, FRONT - 1.9, 2.75
     box("board", 2 * px, 1.9, 0.05, move(middle, FRONT - 0.95, FLOOR - 0.025), grain="y")

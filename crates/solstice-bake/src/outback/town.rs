@@ -26,6 +26,10 @@ const EASE: f32 = 9.0;
 /// to, across the front, and how deep it is behind its front wall.
 const FRONT: f32 = 6.0;
 const DECK: f32 = 2.6;
+/// How high the floors are above the ground: a verandah's deck is stepped up onto.
+const FLOOR: f32 = 0.32;
+/// How many posts each verandah stands on, along its front edge: the hall has a porch.
+const POSTS: [usize; 4] = [7, 5, 4, 0];
 const BUILDINGS: [[f32; 3]; 4] = [
     // The hotel, the general store, the gold buyer's, the hall.
     [-27.0, -13.0, 9.0],
@@ -109,7 +113,27 @@ impl Town {
         (Vec3::new(at.x, self.height, at.y), BAY[1])
     }
 
-    /// Each building, with its verandah, as a truck meets it and as somebody on foot does.
+    /// The doors that are walked up to, each with what is behind it: the used trucks at the
+    /// hotel, the auto shop at the store, and the bank in the hall. Where somebody stands
+    /// before each, on the deck.
+    pub fn doors(&self) -> Vec<(&'static str, Vec3)> {
+        let middle = |index: usize| (BUILDINGS[index][0] + BUILDINGS[index][1]) * 0.5;
+        [
+            ("used", BUILDINGS[0][0] + 3.6),
+            ("shop", middle(1)),
+            ("bank", middle(3)),
+        ]
+        .into_iter()
+        .map(|(what, x)| {
+            let at = self.place(x, FRONT - 0.8);
+            (what, Vec3::new(at.x, self.height + FLOOR, at.y))
+        })
+        .collect()
+    }
+
+    /// Each building as a truck meets it and as somebody on foot does: its walls, which
+    /// stop both; its verandah's deck, which is low, and is stepped up onto to come to its
+    /// doors; and the posts along the deck's edge.
     pub fn blockers(&self) -> Vec<Blocker> {
         let mut blockers = Vec::new();
         let mut boxed = |from: [f32; 2], to: [f32; 2], high: f32| {
@@ -120,14 +144,28 @@ impl Town {
                 yaw_degrees: self.yaw().to_degrees(),
             });
         };
-        for [from, to, deep] in BUILDINGS {
+        for ([from, to, deep], posts) in BUILDINGS.into_iter().zip(POSTS) {
             boxed(
-                [from - 0.3, FRONT - DECK - 0.35],
+                [from - 0.3, FRONT - 0.06],
                 [to + 0.3, FRONT + deep + 0.3],
                 7.0,
             );
+            if posts == 0 {
+                continue;
+            }
+            boxed(
+                [from - 0.03, FRONT - DECK],
+                [to + 0.03, FRONT - 0.06],
+                FLOOR,
+            );
+            for post in 0..posts {
+                let x = from + 0.12 + (to - from - 0.24) * post as f32 / (posts - 1) as f32;
+                let y = FRONT - DECK + 0.1;
+                boxed([x - 0.09, y - 0.09], [x + 0.09, y + 0.09], 2.75);
+            }
         }
-        // The hotel's chimney, outside its end wall; and the hall's porch.
+        // The hotel's chimney, outside its end wall; and the hall's porch: a landing before
+        // its doors, and the two posts its little gable stands on.
         let [hotel, _, deep] = BUILDINGS[0];
         boxed(
             [hotel - 0.9, FRONT + deep * 0.55 - 0.7],
@@ -136,7 +174,15 @@ impl Town {
         );
         let [from, to, _] = BUILDINGS[3];
         let middle = (from + to) * 0.5;
-        boxed([middle - 1.8, FRONT - 2.3], [middle + 1.8, FRONT], 4.0);
+        boxed(
+            [middle - 1.7, FRONT - 1.9],
+            [middle + 1.7, FRONT - 0.06],
+            FLOOR,
+        );
+        for side in [-1.6, 1.6] {
+            let (x, y) = (middle + side, FRONT - 1.8);
+            boxed([x - 0.09, y - 0.09], [x + 0.09, y + 0.09], 2.75);
+        }
         blockers
     }
 
@@ -207,7 +253,22 @@ mod tests {
         // Every building is on the town's ground and stops a truck, and the buyer's place is
         // in the open yard before its verandah: in none of them.
         let blockers = town.blockers();
-        assert_eq!(blockers.len(), BUILDINGS.len() + 2);
+        // (Four buildings, three decks and their sixteen posts, a chimney, and a porch on two.)
+        assert_eq!(blockers.len(), 4 + 3 + 16 + 1 + 3);
+        // A verandah is walked onto: nothing taller than a step is between the yard and a
+        // building's front wall but its posts.
+        for [from, to, _] in &BUILDINGS[..3] {
+            let door = town.place((from + to) * 0.5 + 0.6, FRONT - 0.5);
+            let tall = blockers
+                .iter()
+                .filter(|blocker| blocker.size.y > 0.6)
+                .any(|blocker| {
+                    let off =
+                        town.plan(blocker.centre.x, blocker.centre.z) - town.plan(door.x, door.y);
+                    off.x.abs() < blocker.size.x * 0.5 && off.y.abs() < blocker.size.z * 0.5
+                });
+            assert!(!tall, "the way to a door is walled off");
+        }
         let (bay, round) = town.buyer();
         let bay_plan = town.plan(bay.x, bay.z);
         assert!(bay_plan.x > 3.0 && bay_plan.x < 11.0 && bay_plan.y < FRONT - DECK - round * 0.5);

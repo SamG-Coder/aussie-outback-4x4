@@ -693,6 +693,9 @@ fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32, first: u32) -> Vec<Block
 
 /// How far apart two places along the track are, the short way round, in metres.
 fn trail_apart(plan: &Plan, from: f32, to: f32) -> f32 {
+    if plan.trail.open {
+        return (to - from).abs();
+    }
     let d = (to - from).rem_euclid(plan.trail.length);
     d.min(plan.trail.length - d)
 }
