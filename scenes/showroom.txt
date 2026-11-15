@@ -1,0 +1,10 @@
+# The showroom: a studio to stand a truck in, to be looked at (tools/blender/showroom/build.py).
+# It is where the game's trucks are chosen, bought, sold and worked on: the truck that is
+# looked at stands in the middle of it, put together from its pack in place of the one here
+# (apps/viewer/src/kit.rs, `swap_truck`), and the view goes round it.
+texture_size 256
+camera 6 1.7 7 0.7 -0.12
+model ../target/outback/showroom.glb 0 0 0 0 1
+# It is open to the sky above its wall, and the day lights it: evenly, and from above.
+actor trucks/licola.actor 0 0.05 0 0
+input outback/game.input

@@ -1,0 +1,7 @@
+# Buckland (1989): An extra-cab ute with a long tub and room behind the seats for a swag.
+# Written by tools/blender/truck/build.py, with its model.
+name buckland
+mesh ../../target/outback/trucks/buckland.glb 1
+vehicle buckland.vehicle
+kit buckland.kit
+camera 0 1.36 0

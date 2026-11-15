@@ -1,0 +1,7 @@
+# Jamieson V8 (2016): The flat cab with a V8 diesel, two rows of seats and everything bolted on.
+# Written by tools/blender/truck/build.py, with its model.
+name jamieson_v8
+mesh ../../target/outback/trucks/jamieson_v8.glb 1
+vehicle jamieson_v8.vehicle
+kit jamieson_v8.kit
+camera 0 1.71 0

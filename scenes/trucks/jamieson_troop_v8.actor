@@ -1,0 +1,7 @@
+# Jamieson Troop V8 (2020): The tall wagon, built for the desert: rack, awning, two spares.
+# Written by tools/blender/truck/build.py, with its model.
+name jamieson_troop_v8
+mesh ../../target/outback/trucks/jamieson_troop_v8.glb 1
+vehicle jamieson_troop_v8.vehicle
+kit jamieson_troop_v8.kit
+camera 0 1.83 0

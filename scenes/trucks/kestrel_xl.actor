@@ -1,0 +1,7 @@
+# Kestrel XL (2022): The full-size truck with a long tub and a diesel: tows anything.
+# Written by tools/blender/truck/build.py, with its model.
+name kestrel_xl
+mesh ../../target/outback/trucks/kestrel_xl.glb 1
+vehicle kestrel_xl.vehicle
+kit kestrel_xl.kit
+camera 0 1.71 0

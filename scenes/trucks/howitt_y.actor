@@ -1,0 +1,7 @@
+# Howitt Y (2013): A big petrol V8 wagon: independent all round and very fast on sand.
+# Written by tools/blender/truck/build.py, with its model.
+name howitt_y
+mesh ../../target/outback/trucks/howitt_y.glb 1
+vehicle howitt_y.vehicle
+kit howitt_y.kit
+camera 0 1.62 0

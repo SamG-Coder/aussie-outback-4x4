@@ -1,0 +1,7 @@
+# Buffalo Tray (2017): The square-jawed one as a dual-cab with a tray.
+# Written by tools/blender/truck/build.py, with its model.
+name buffalo_tray
+mesh ../../target/outback/trucks/buffalo_tray.glb 1
+vehicle buffalo_tray.vehicle
+kit buffalo_tray.kit
+camera 0 1.48 0

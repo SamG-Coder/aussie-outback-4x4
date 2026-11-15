@@ -1,0 +1,7 @@
+# Ovens Tourer (2019): The dual-cab ute, built: lift, bar, rack, bigger tyres.
+# Written by tools/blender/truck/build.py, with its model.
+name ovens_tourer
+mesh ../../target/outback/trucks/ovens_tourer.glb 1
+vehicle ovens_tourer.vehicle
+kit ovens_tourer.kit
+camera 0 1.54 0

@@ -1,0 +1,43 @@
+# Licola Hardtop (1979): The short one with a steel roof to its tail.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1510
+inertia 1874 2047 607
+centre 0 0.76 -0.14
+body 1.74 1.28 3.89 at 0 1.20 0.01
+driver right
+hold 0.737 0.420 0.430 at -0.419 0.860 0.230
+hold 1.554 0.450 0.965 at 0.000 0.915 1.397
+
+front at=1.150 track=1.500 radius=0.3800 inertia=2.38 driven=yes
+front spring=35054 bump=3640 rebound=6876 bar=5932 travel=0.09,0.08 roll_centre=0.15
+front brake=2103 grip=1
+rear at=1.150 track=1.500 radius=0.3800 inertia=2.73 driven=yes
+rear spring=29661 bump=3168 rebound=6000 bar=1618 travel=0.11,0.09 roll_centre=0.35
+rear brake=1240 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=3775 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.27 friction=22,0.012
+torque 1000 100
+torque 1400 150
+torque 1800 167
+torque 2600 167
+torque 3400 142
+torque 4000 108
+torque 4400 67
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.3
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=809 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.09 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

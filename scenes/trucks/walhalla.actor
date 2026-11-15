@@ -1,0 +1,7 @@
+# Walhalla (2005): A soft wagon with all-wheel drive and not much clearance.
+# Written by tools/blender/truck/build.py, with its model.
+name walhalla
+mesh ../../target/outback/trucks/walhalla.glb 1
+vehicle walhalla.vehicle
+kit walhalla.kit
+camera 0 1.34 0

@@ -1,0 +1,7 @@
+# Stirling (2022): A new square wagon with soft corners: air springs, and clever with it.
+# Written by tools/blender/truck/build.py, with its model.
+name stirling
+mesh ../../target/outback/trucks/stirling.glb 1
+vehicle stirling.vehicle
+kit stirling.kit
+camera 0 1.66 0

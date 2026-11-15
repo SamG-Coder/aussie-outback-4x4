@@ -1,0 +1,7 @@
+# Bendoc (1981): A small round-cornered wagon on coil springs with full-time four-wheel drive.
+# Written by tools/blender/truck/build.py, with its model.
+name bendoc
+mesh ../../target/outback/trucks/bendoc.glb 1
+vehicle bendoc.vehicle
+kit bendoc.kit
+camera 0 1.34 0

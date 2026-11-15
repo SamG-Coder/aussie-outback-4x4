@@ -1,0 +1,7 @@
+# Ovens Tray (2007): The single cab with an alloy tray, as a tradesman buys it.
+# Written by tools/blender/truck/build.py, with its model.
+name ovens_tray
+mesh ../../target/outback/trucks/ovens_tray.glb 1
+vehicle ovens_tray.vehicle
+kit ovens_tray.kit
+camera 0 1.48 0

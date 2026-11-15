@@ -1,0 +1,44 @@
+# Kestrel XL (2022): The full-size truck with a long tub and a diesel: tows anything.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 3400
+inertia 11029 12045 2186
+centre 0 0.88 -0.24
+body 2.20 1.35 6.35 at 0 1.35 0.23
+tray 1.96 0.35 2.22 at 0 1.50 2.24
+driver right
+hold 0.923 0.420 0.430 at -0.551 0.980 -0.375
+hold 2.026 0.420 0.390 at 0.000 0.980 0.575
+
+front at=2.000 track=1.880 radius=0.4400 inertia=3.69 driven=yes
+front spring=63143 bump=6557 rebound=12386 bar=13357 travel=0.16,0.15 roll_centre=0.15
+front brake=4736 grip=1
+rear at=2.000 track=1.880 radius=0.4400 inertia=4.24 driven=yes
+rear spring=53429 bump=5707 rebound=10807 bar=3643 travel=0.18,0.16 roll_centre=0.35
+rear brake=2793 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=8500 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.54 friction=46,0.012
+torque 1000 456
+torque 2000 608
+torque 3000 699
+torque 4000 760
+torque 5000 722
+torque 5800 646
+torque 6200 532
+
+gears 4.696 2.985 2.146 1.769 1.52 1.275 1 0.854 0.689 0.636
+final 3.9
+reverse 4.2
+gearbox shift=0.18 efficiency=0.88 clutch=1821 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.64 front=0.5 lock=30000 locker=30000
+
+aero drag=1.52 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

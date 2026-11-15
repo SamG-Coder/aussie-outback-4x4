@@ -1,0 +1,7 @@
+# Licola Hardtop (1979): The short one with a steel roof to its tail.
+# Written by tools/blender/truck/build.py, with its model.
+name licola_top
+mesh ../../target/outback/trucks/licola_top.glb 1
+vehicle licola_top.vehicle
+kit licola_top.kit
+camera 0 1.52 0

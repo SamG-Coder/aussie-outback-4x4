@@ -1,0 +1,7 @@
+# Howitt (1992): A big diesel wagon on coils and live axles: the one every grey nomad wanted.
+# Written by tools/blender/truck/build.py, with its model.
+name howitt
+mesh ../../target/outback/trucks/howitt.glb 1
+vehicle howitt.vehicle
+kit howitt.kit
+camera 0 1.54 0

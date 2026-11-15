@@ -1,0 +1,7 @@
+# Ovens (2014): A dual-cab turbo-diesel ute with a tub: what half the country drives to work.
+# Written by tools/blender/truck/build.py, with its model.
+name ovens
+mesh ../../target/outback/trucks/ovens.glb 1
+vehicle ovens.vehicle
+kit ovens.kit
+camera 0 1.48 0

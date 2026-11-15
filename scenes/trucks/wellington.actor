@@ -1,0 +1,7 @@
+# Wellington (2024): A heavy-duty truck a size up again: a big diesel, and a step to climb into it.
+# Written by tools/blender/truck/build.py, with its model.
+name wellington
+mesh ../../target/outback/trucks/wellington.glb 1
+vehicle wellington.vehicle
+kit wellington.kit
+camera 0 1.82 0

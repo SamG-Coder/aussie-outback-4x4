@@ -1,0 +1,7 @@
+# Delatite Tray (1997): The single cab, with a tray.
+# Written by tools/blender/truck/build.py, with its model.
+name delatite_tray
+mesh ../../target/outback/trucks/delatite_tray.glb 1
+vehicle delatite_tray.vehicle
+kit delatite_tray.kit
+camera 0 1.42 0

@@ -1,0 +1,7 @@
+# Hotham (2009): A tall mid-sized wagon: the school run and the long weekend alike.
+# Written by tools/blender/truck/build.py, with its model.
+name hotham
+mesh ../../target/outback/trucks/hotham.glb 1
+vehicle hotham.vehicle
+kit hotham.kit
+camera 0 1.58 0

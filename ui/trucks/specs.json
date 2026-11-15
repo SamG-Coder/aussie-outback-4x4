@@ -1,0 +1,502 @@
+{
+"dargo": {
+"about": "A single-cab tray-back diesel on leaf springs. Slow, and will not die.",
+"body": "single cab, tray",
+"kw": 49,
+"kg": 1450,
+"engine": "diesel",
+"long": 4.7,
+"wide": 1.66,
+"tyres": 28
+},
+"dargo_tub": {
+"about": "The same cab with a steel tub and square lamps.",
+"body": "single cab, tub",
+"kw": 51,
+"kg": 1550,
+"engine": "diesel",
+"long": 4.7,
+"wide": 1.66,
+"tyres": 28
+},
+"omeo": {
+"about": "A tiny petrol wagon: floats over mud the big ones sink in, and runs out of breath on a hill.",
+"body": "2-door wagon",
+"kw": 41,
+"kg": 930,
+"engine": "petrol",
+"long": 3.35,
+"wide": 1.42,
+"tyres": 26
+},
+"omeo_tray": {
+"about": "The tiny one with its back cut off and a tray on.",
+"body": "single cab, tray",
+"kw": 41,
+"kg": 940,
+"engine": "petrol",
+"long": 3.58,
+"wide": 1.42,
+"tyres": 26
+},
+"licola": {
+"about": "A short flat-panelled tray-back from the seventies: nothing on it that a hammer cannot fix.",
+"body": "single cab, tray",
+"kw": 49,
+"kg": 1450,
+"engine": "diesel",
+"long": 4.09,
+"wide": 1.74,
+"tyres": 30
+},
+"licola_top": {
+"about": "The short one with a steel roof to its tail.",
+"body": "2-door wagon",
+"kw": 51,
+"kg": 1510,
+"engine": "diesel",
+"long": 3.99,
+"wide": 1.74,
+"tyres": 30
+},
+"tambo": {
+"about": "A boxy eighties family wagon: four doors, vinyl seats, a carburettor.",
+"body": "4-door wagon",
+"kw": 52,
+"kg": 1620,
+"engine": "diesel",
+"long": 4.65,
+"wide": 1.68,
+"tyres": 29
+},
+"buckland": {
+"about": "An extra-cab ute with a long tub and room behind the seats for a swag.",
+"body": "single cab, tub",
+"kw": 52,
+"kg": 1610,
+"engine": "diesel",
+"long": 4.9,
+"wide": 1.66,
+"tyres": 28
+},
+"bendoc": {
+"about": "A small round-cornered wagon on coil springs with full-time four-wheel drive.",
+"body": "2-door wagon",
+"kw": 44,
+"kg": 1090,
+"engine": "petrol",
+"long": 3.48,
+"wide": 1.6,
+"tyres": 26
+},
+"wonnangatta": {
+"about": "A one-tonner: long wheelbase, heavy springs, a tray you could camp on.",
+"body": "single cab, tray",
+"kw": 53,
+"kg": 1680,
+"engine": "diesel",
+"long": 5.3,
+"wide": 1.66,
+"tyres": 30
+},
+"howitt": {
+"about": "A big diesel wagon on coils and live axles: the one every grey nomad wanted.",
+"body": "4-door wagon",
+"kw": 95,
+"kg": 2010,
+"engine": "diesel",
+"long": 4.97,
+"wide": 1.84,
+"tyres": 31
+},
+"howitt_ute": {
+"about": "The big wagon's nose on a cab-chassis with a tray.",
+"body": "single cab, tray",
+"kw": 95,
+"kg": 1990,
+"engine": "diesel",
+"long": 5.25,
+"wide": 1.84,
+"tyres": 31
+},
+"howitt_short": {
+"about": "Two doors and half a metre shorter: turns inside the long one.",
+"body": "2-door wagon",
+"kw": 87,
+"kg": 1690,
+"engine": "diesel",
+"long": 4.18,
+"wide": 1.84,
+"tyres": 31
+},
+"jamieson": {
+"about": "A flat-panelled cab-chassis with a steel tray. Farms run on them.",
+"body": "single cab, tray",
+"kw": 93,
+"kg": 1930,
+"engine": "diesel",
+"long": 5.22,
+"wide": 1.74,
+"tyres": 31
+},
+"jamieson_troop": {
+"about": "The flat cab with a tall wagon body and seats down each side.",
+"body": "2-door wagon",
+"kw": 98,
+"kg": 2140,
+"engine": "diesel",
+"long": 5.07,
+"wide": 1.74,
+"tyres": 31
+},
+"mitta": {
+"about": "A mid-sized nineties wagon with independent front suspension and a soft ride.",
+"body": "4-door wagon",
+"kw": 91,
+"kg": 1820,
+"engine": "diesel",
+"long": 4.75,
+"wide": 1.78,
+"tyres": 30
+},
+"mitta_short": {
+"about": "The same with two doors.",
+"body": "2-door wagon",
+"kw": 85,
+"kg": 1610,
+"engine": "diesel",
+"long": 4.2,
+"wide": 1.78,
+"tyres": 30
+},
+"delatite": {
+"about": "A nineties dual-cab ute with a tub: the first of the family utes.",
+"body": "dual cab, tub",
+"kw": 90,
+"kg": 1810,
+"engine": "diesel",
+"long": 5.13,
+"wide": 1.72,
+"tyres": 30
+},
+"delatite_tray": {
+"about": "The single cab, with a tray.",
+"body": "single cab, tray",
+"kw": 87,
+"kg": 1690,
+"engine": "diesel",
+"long": 5.08,
+"wide": 1.72,
+"tyres": 30
+},
+"feathertop": {
+"about": "A big rounded wagon with a straight six: quiet, heavy and unstoppable.",
+"body": "4-door wagon",
+"kw": 96,
+"kg": 2050,
+"engine": "diesel",
+"long": 4.85,
+"wide": 1.93,
+"tyres": 31
+},
+"ovens": {
+"about": "A dual-cab turbo-diesel ute with a tub: what half the country drives to work.",
+"body": "dual cab, tub",
+"kw": 143,
+"kg": 2090,
+"engine": "diesel",
+"long": 5.31,
+"wide": 1.85,
+"tyres": 30
+},
+"ovens_tray": {
+"about": "The single cab with an alloy tray, as a tradesman buys it.",
+"body": "single cab, tray",
+"kw": 139,
+"kg": 1960,
+"engine": "diesel",
+"long": 5.31,
+"wide": 1.85,
+"tyres": 30
+},
+"ovens_extra": {
+"about": "An extra cab: two doors, a long tub.",
+"body": "single cab, tub",
+"kw": 143,
+"kg": 2090,
+"engine": "diesel",
+"long": 5.31,
+"wide": 1.85,
+"tyres": 30
+},
+"kiewa": {
+"about": "A seven-seat wagon on the ute's chassis.",
+"body": "4-door wagon",
+"kw": 140,
+"kg": 1990,
+"engine": "diesel",
+"long": 4.86,
+"wide": 1.88,
+"tyres": 30
+},
+"buffalo": {
+"about": "Another maker's dual-cab: a square jaw, a steel bar, a bigger engine.",
+"body": "dual cab, tub",
+"kw": 145,
+"kg": 2130,
+"engine": "diesel",
+"long": 5.43,
+"wide": 1.85,
+"tyres": 30
+},
+"buffalo_tray": {
+"about": "The square-jawed one as a dual-cab with a tray.",
+"body": "dual cab, tray",
+"kw": 140,
+"kg": 2010,
+"engine": "diesel",
+"long": 5.43,
+"wide": 1.85,
+"tyres": 30
+},
+"hotham": {
+"about": "A tall mid-sized wagon: the school run and the long weekend alike.",
+"body": "4-door wagon",
+"kw": 142,
+"kg": 2050,
+"engine": "diesel",
+"long": 4.84,
+"wide": 1.89,
+"tyres": 30
+},
+"tumut": {
+"about": "The tiny one, built new: square, light, and good at everything small.",
+"body": "2-door wagon",
+"kw": 112,
+"kg": 1190,
+"engine": "petrol",
+"long": 3.57,
+"wide": 1.64,
+"tyres": 28
+},
+"walhalla": {
+"about": "A soft wagon with all-wheel drive and not much clearance.",
+"body": "4-door wagon",
+"kw": 129,
+"kg": 1690,
+"engine": "diesel",
+"long": 4.65,
+"wide": 1.85,
+"tyres": 28
+},
+"ovens_cab": {
+"about": "The dual cab with a tray and a ladder rack.",
+"body": "dual cab, tray",
+"kw": 139,
+"kg": 1960,
+"engine": "diesel",
+"long": 5.31,
+"wide": 1.85,
+"tyres": 30
+},
+"jamieson_v8": {
+"about": "The flat cab with a V8 diesel, two rows of seats and everything bolted on.",
+"body": "dual cab, tray",
+"kw": 167,
+"kg": 2050,
+"engine": "diesel",
+"long": 5.22,
+"wide": 1.74,
+"tyres": 34
+},
+"jamieson_v8_single": {
+"about": "The V8 single cab: a long tray, a long-range tank, a winch.",
+"body": "single cab, tray",
+"kw": 167,
+"kg": 2050,
+"engine": "diesel",
+"long": 5.22,
+"wide": 1.74,
+"tyres": 34
+},
+"jamieson_troop_v8": {
+"about": "The tall wagon, built for the desert: rack, awning, two spares.",
+"body": "2-door wagon",
+"kw": 174,
+"kg": 2240,
+"engine": "diesel",
+"long": 5.07,
+"wide": 1.74,
+"tyres": 34
+},
+"bogong": {
+"about": "A wide-bodied ute on long-travel suspension: fast over corrugations, flared and loud.",
+"body": "dual cab, tub",
+"kw": 182,
+"kg": 2440,
+"engine": "diesel",
+"long": 5.5,
+"wide": 2.02,
+"tyres": 33
+},
+"bogong_wagon": {
+"about": "The wide one with a roof to its tail.",
+"body": "4-door wagon",
+"kw": 176,
+"kg": 2280,
+"engine": "diesel",
+"long": 5.03,
+"wide": 2.02,
+"tyres": 33
+},
+"ovens_tourer": {
+"about": "The dual-cab ute, built: lift, bar, rack, bigger tyres.",
+"body": "dual cab, tub",
+"kw": 172,
+"kg": 2160,
+"engine": "diesel",
+"long": 5.31,
+"wide": 1.85,
+"tyres": 33
+},
+"feathertop_gx": {
+"about": "The big wagon's grandchild: a twin-turbo V8 and eight seats.",
+"body": "4-door wagon",
+"kw": 176,
+"kg": 2270,
+"engine": "diesel",
+"long": 5.0,
+"wide": 1.98,
+"tyres": 33
+},
+"howitt_y": {
+"about": "A big petrol V8 wagon: independent all round and very fast on sand.",
+"body": "4-door wagon",
+"kw": 181,
+"kg": 2390,
+"engine": "diesel",
+"long": 5.22,
+"wide": 2.0,
+"tyres": 33
+},
+"buffalo_chase": {
+"about": "The square-jawed dual-cab with a tray, a canopy frame and a lift.",
+"body": "dual cab, tray",
+"kw": 168,
+"kg": 2070,
+"engine": "diesel",
+"long": 5.43,
+"wide": 1.85,
+"tyres": 33
+},
+"tumut_built": {
+"about": "The tiny one on big tyres with a rack: goes where the big ones cannot fit.",
+"body": "2-door wagon",
+"kw": 134,
+"kg": 1220,
+"engine": "petrol",
+"long": 3.57,
+"wide": 1.64,
+"tyres": 31
+},
+"kestrel": {
+"about": "A full-size desert truck: over two metres wide, a bonnet like a billiard table, a supercharged V8.",
+"body": "dual cab, tub",
+"kw": 378,
+"kg": 3160,
+"engine": "petrol",
+"long": 5.99,
+"wide": 2.2,
+"tyres": 37
+},
+"kestrel_xl": {
+"about": "The full-size truck with a long tub and a diesel: tows anything.",
+"body": "dual cab, tub",
+"kw": 392,
+"kg": 3400,
+"engine": "petrol",
+"long": 6.45,
+"wide": 2.2,
+"tyres": 35
+},
+"kestrel_tray": {
+"about": "The full-size cab on a tray: a mine-site chase truck.",
+"body": "dual cab, tray",
+"kw": 367,
+"kg": 2970,
+"engine": "petrol",
+"long": 5.99,
+"wide": 2.2,
+"tyres": 37
+},
+"cobbler": {
+"about": "A tall, square, very expensive wagon with three locking diffs and a spare on its back door.",
+"body": "4-door wagon",
+"kw": 299,
+"kg": 2120,
+"engine": "diesel",
+"long": 4.71,
+"wide": 1.93,
+"tyres": 34
+},
+"cobbler_ute": {
+"about": "The square one as a dual-cab with a tub.",
+"body": "dual cab, tub",
+"kw": 320,
+"kg": 2440,
+"engine": "diesel",
+"long": 5.42,
+"wide": 1.93,
+"tyres": 34
+},
+"stirling": {
+"about": "A new square wagon with soft corners: air springs, and clever with it.",
+"body": "4-door wagon",
+"kw": 303,
+"kg": 2180,
+"engine": "diesel",
+"long": 4.84,
+"wide": 1.93,
+"tyres": 34
+},
+"stirling_short": {
+"about": "The same with two doors and a short tail.",
+"body": "2-door wagon",
+"kw": 286,
+"kg": 1940,
+"engine": "diesel",
+"long": 4.31,
+"wide": 1.93,
+"tyres": 34
+},
+"feathertop_300": {
+"about": "The flagship wagon: everything the big one ever was, with leather.",
+"body": "4-door wagon",
+"kw": 312,
+"kg": 2310,
+"engine": "diesel",
+"long": 5.02,
+"wide": 1.99,
+"tyres": 34
+},
+"wellington": {
+"about": "A heavy-duty truck a size up again: a big diesel, and a step to climb into it.",
+"body": "dual cab, tub",
+"kw": 388,
+"kg": 3330,
+"engine": "petrol",
+"long": 5.99,
+"wide": 2.2,
+"tyres": 38
+},
+"kosciuszko": {
+"about": "The biggest wagon there is: three rows, a V8, and room for a week's water.",
+"body": "4-door wagon",
+"kw": 370,
+"kg": 3030,
+"engine": "petrol",
+"long": 5.75,
+"wide": 2.2,
+"tyres": 37
+}
+}
