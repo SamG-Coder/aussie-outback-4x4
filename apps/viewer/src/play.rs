@@ -37,6 +37,9 @@ pub struct PlayMode {
     displayed: usize,
     /// Which side of a truck in the showroom the camera is on: the more open one.
     show_side: Option<f32>,
+    /// Where the trucks that stand to be looked at are, and how they are turned, if they
+    /// are not where the map's own truck is.
+    stand: Option<(glam::Vec3, glam::Quat)>,
     /// Whether the player's truck is not drawn: behind the main menu no game is being
     /// played, and the bush is all that is looked at.
     unseen: bool,
@@ -703,6 +706,7 @@ impl PlayMode {
             display,
             displayed: 0,
             show_side: None,
+            stand: crate::shared::stand(files),
             unseen: false,
             nuggets: {
                 let slots = crate::nugget::Slot::read(files);
@@ -1024,6 +1028,12 @@ impl PlayMode {
             (-look.x).atan2(-look.z),
             look.y.atan2(look.x.hypot(look.z)),
         )
+    }
+
+    /// Where what is looked at in a showroom stands, and how it is turned: the trucks stood
+    /// there, or the map's own truck.
+    pub fn stand(&self) -> Option<(glam::Vec3, glam::Quat)> {
+        self.stand.or_else(|| self.play.car_pose())
     }
 
     /// Behind the main menu: the player's truck is not drawn, and is not heard; or, when a

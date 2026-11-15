@@ -483,7 +483,10 @@ impl Records {
 pub struct Outcome {
     pub class: usize,
     pub seconds: f64,
-    /// Whether it counted: a truck put back on the track has no time.
+    /// How many times the truck was put back on the track, and what of `seconds` that is.
+    pub resets: u32,
+    pub penalty: f64,
+    /// Whether it counted.
     pub valid: bool,
     pub won: Option<Medal>,
     /// What there was before it.
@@ -502,6 +505,8 @@ impl Outcome {
         json!({
             "class": self.class,
             "time": self.seconds,
+            "resets": self.resets,
+            "penalty": self.penalty,
             "valid": self.valid,
             "medal": self.won.map(Medal::name),
             "held": self.before.medal.map(Medal::name),

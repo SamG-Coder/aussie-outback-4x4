@@ -617,7 +617,8 @@ fn logs(scene: &mut SceneAsset, plan: &Plan, bark: u32, first: u32) -> Vec<Block
     let trail = &plan.trail;
     let mut rng = Rng::new(71, 9);
     let (mut across, mut last) = (0, -1.0e9_f32);
-    for point in &trail.points {
+    // (Not across a road: a road is kept clear, to be driven fast.)
+    for point in trail.main_points().iter().filter(|_| !plan.hub) {
         let clear = trail
             .holes
             .iter()

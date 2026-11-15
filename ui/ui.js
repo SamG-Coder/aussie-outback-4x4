@@ -80,6 +80,8 @@ function holdButton(button) {
 }
 function back() {
   if (opened) { opened = null; saveSure = ""; show(); return; }
+  // (Out of a section of the auto shop is back to its sections, not out of the shop.)
+  if (state.screen === "yard" && shopOpen) return shopLeave();
   if (state.screen === "pause") say("do resume");
   if (state.screen === "offer" || state.screen === "shed" || state.screen === "buyer" || state.screen === "yard") say("do leave");
 }
@@ -244,7 +246,7 @@ function timed() {
     setText("lineup-title", map.title || "");
     setText("lineup-sky", [run.hour, run.weather, counts && run.bonus ? `purses +${run.bonus}%` : null].filter(Boolean).join("  ·  "));
     setText("lineup-about", counts
-      ? "One lap from a rolling start: the clock starts as you cross the line. Beat a time for its medal and its purse, paid in gold into your tray. Being put back on the track costs the run its medal."
+      ? "One lap from a rolling start: the clock starts as you cross the line. Beat a time for its medal and its purse, paid in gold into your tray. The track is driven through its gates in turn; being put back on it puts you at the start of the section you are in, and adds 10 seconds."
       : "Against the clock, lap after lap, with the medal times to measure yourself by. Nothing is paid, and nothing is lost.");
     setText("lineup-go", counts ? "One lap. It counts." : "Lap after lap. Nothing at stake.");
     for (const row of el("lineup").querySelectorAll(".rivals button")) {
@@ -274,7 +276,8 @@ function timed() {
     el("result-outcome").className = `outcome ${result.medal || ""}`;
     setText("result-time", lapTime(result.time));
     setText("result-words", !result.valid ? "No time  ·  the truck was put back on the track"
-      : [result.medal ? MEDAL_NAMES[result.medal] : "No medal", result.record ? "your best yet" : null].filter(Boolean).join("  ·  "));
+      : [result.medal ? MEDAL_NAMES[result.medal] : "No medal", result.record ? "your best yet" : null,
+        result.resets ? `put back ${result.resets === 1 ? "once" : `${result.resets} times`}: +${Math.round(result.penalty)} s` : null].filter(Boolean).join("  ·  "));
     for (const box of el("result-medals").querySelectorAll("[data-medal]")) {
       const index = rank(box.dataset.medal), gap = result.time - result.medals[index];
       box.querySelector("dd").textContent = medalTime(result.medals[index]);
@@ -366,10 +369,28 @@ function chart() {
     arrow.style.top = `${v * 100}%`;
     arrow.style.transform = `rotate(${at.heading}deg)`;
   }
+  // Where the driver has said they are going: a flag there, and the place of that name lit.
+  const going = state.waypoint, flag = el("chart-flag");
+  flag.hidden = !going;
+  if (going) {
+    const [u, v] = where(going.x, going.z);
+    flag.style.left = `${u * 100}%`;
+    flag.style.top = `${v * 100}%`;
+  }
+  setText("chart-going", going ? `Going to: ${going.title}` : "Choose where to go: a place in the list, or anywhere on the map.");
   const labels = el("chart-labels"), places = state.places || [];
-  const wanted = JSON.stringify(places);
+  const wanted = JSON.stringify(places) + JSON.stringify(going || null);
   if (labels.dataset.wanted !== wanted) {
     labels.dataset.wanted = wanted;
+    // The places there are to go, as a list to choose from: so a controller can.
+    const list = el("chart-places"), was = held.slice();
+    list.replaceChildren(...places.map((place) => {
+      const is = going && Math.hypot(going.x - place.x, going.z - place.z) < 6;
+      const made = button(`<span>${place.title}</span>`, null, is ? "going" : "");
+      made.ask = () => say(`set waypoint ${place.x.toFixed(1)} ${place.z.toFixed(1)}`);
+      return made;
+    }));
+    if (screenShown() === "map") hold(was[0], was[1]);
     labels.replaceChildren(...places.map((place) => {
       const label = document.createElement("span"), [u, v] = where(place.x, place.z);
       label.textContent = place.title;
@@ -379,6 +400,15 @@ function chart() {
     }));
   }
 }
+
+// Clicked, the map says where to go: there.
+el("chart").addEventListener("click", (event) => {
+  const drawn = state.chart, box = el("chart-img").getBoundingClientRect();
+  if (!drawn || !box.width) return;
+  const u = (event.clientX - box.left) / box.width, v = (event.clientY - box.top) / box.height;
+  if (u < 0 || u > 1 || v < 0 || v > 1) return;
+  say(`set waypoint ${(u * 2 * drawn.half - drawn.half).toFixed(1)} ${(v * 2 * drawn.half - drawn.half).toFixed(1)}`);
+});
 
 // ---- Showing things.
 function lapTime(seconds) {
@@ -408,12 +438,6 @@ const KINDS = { tube: "Tube bar", plate: "Winch bar", nudge: "Nudge bar", high: 
 const ALWAYS = ["arches", "suspension", "tyres", "rims"];
 const ROLLS = ["Rough", "Tired", "Fair", "Good", "Very good", "As new"];
 const condition = (roll) => ROLLS[Math.min(ROLLS.length - 1, Math.floor((roll || 0) * ROLLS.length))];
-const ICONS = {
-  garage: '<svg viewBox="0 0 32 32"><path d="M3 14 16 5l13 9v13H3z"/><path d="M8 27V17h16v10M8 20.5h16M8 24h16"/></svg>',
-  shop: '<svg viewBox="0 0 32 32"><path d="M20 4a6 6 0 0 0-5.6 8.2L4 22.6V28h5.4l10.4-10.4A6 6 0 0 0 28 12l-4 4-4-1-1-4 4-4a6 6 0 0 0-3-.9z"/></svg>',
-  used: '<svg viewBox="0 0 32 32"><path d="M3 21v-5l4-1 3-6h10l4 6 5 1v5h-3"/><path d="M10 21h11"/><circle cx="7.5" cy="21.5" r="2.5"/><circle cx="23.5" cy="21.5" r="2.5"/><path d="M11 15h11"/></svg>',
-  bank: '<svg viewBox="0 0 32 32"><path d="M3 12 16 4l13 8H3zM6 12v12M12 12v12M20 12v12M26 12v12M3 27h26M4 24h24"/></svg>',
-};
 // What each truck is, beyond what the game says of it: its body, its engine, its weight.
 let SPECS = {};
 fetch("trucks/specs.json").then((got) => got.json()).then((specs) => { SPECS = specs; yardKey = ""; if (state.screen === "yard") show(); }).catch(() => {});
@@ -437,9 +461,8 @@ function yardActs() {
   if (!yard) return;
   const acts = el("yard-acts"), cards = yardCards();
   const own = (yard.trucks || []).find((truck) => truck.driving);
-  const card = cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
+  const card = yard.page === "colour" ? yard.chosen : cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
   acts.replaceChildren();
-  acts.className = yard.page === "home" ? "show-acts home" : "show-acts";
   let detail = "";
   const spec = (card && SPECS[card.name]) || {};
   const lines = [];
@@ -451,7 +474,7 @@ function yardActs() {
     if (card.km !== undefined) lines.push(`<dt>Driven</dt><dd>${far(card.km)}</dd>`, `<dt>Condition</dt><dd>${condition(card.roll)}</dd>`);
     if (card.oil !== undefined) lines.push(`<dt>Oil</dt><dd>${card.oil > 0 ? `${far(card.oil)} overdue` : `due in ${far(-card.oil)}`}</dd>`);
   }
-  if (card && yard.page === "start") {
+  if (card && (yard.page === "start" || yard.page === "colour")) {
     detail = `${card.year}  ·  ${cash(card.price)} on finance: ${cash(yard.block + card.price)} owed in all`;
     lines.push(`<dt>Price</dt><dd class="big">${cash(card.price)}</dd>`);
 
@@ -469,14 +492,19 @@ function yardActs() {
   } else if (card) {
     detail = `${card.year}  ·  ${far(card.km)}  ·  the one you drive`;
   }
-  if (yard.page === "home") {
-    for (const [page, name, about] of [["garage", "Garage", "Your trucks: take one out, or sell one"], ["shop", "Auto shop", "Parts, a respray, an oil change"],
-      ["used", "Used trucks", "What is on the lot today"], ["bank", "Bank", "Borrow, or pay off what you owe"]]) {
-      acts.append(button(`${ICONS[page]}<span>${name}</span><small>${about}</small>`, `page:${page}`));
-    }
-  }
   el("yard-spec").innerHTML = lines.join("");
-  setText("yard-name", card ? card.title : "");
+  // (Its colour being chosen, the colour in hand is named with it.)
+  const tint = yard.page === "colour" ? (yard.colours || [])[yardPick] : null;
+  setText("yard-name", card ? `${card.title}${tint ? `  ·  ${tint.name}` : ""}` : "");
+  // (In the shop and at the bank, what is in hand in the strip is what is named.)
+  const inHand = el("yard-lot").children[yardPick];
+  if ((yard.page === "shop" || yard.page === "bank") && inHand) {
+    const words = [...inHand.querySelectorAll("b, small")].map((part) => part.textContent).filter(Boolean);
+    const section = yard.page === "bank" ? "Bank" : !shopOpen ? "Motor Spares" : shopOpen === "paint" ? `Respray  ·  ${cash(yard.respray)}` : PARTS[shopOpen] || shopOpen;
+    setText("yard-name", section);
+    detail = words.join("  ·  ");
+    setText("yard-detail", detail);
+  }
   setText("yard-detail", detail);
   const picture = el("yard-car");
   if (card && !yard.showroom) picture.src = `trucks/${card.name}.jpg`;
@@ -501,8 +529,27 @@ function yardHeld(held) {
   if (pick !== yardPick) { yardPick = pick; yardActs(); }
   if (pick !== yardShown) {
     clearTimeout(yardTimer);
-    yardTimer = setTimeout(() => { yardShown = pick; say(`do show:${pick}`); }, 260);
+    // A truck in hand is stood in the showroom; a colour or a part in hand is put on the
+    // one there, to be seen; a section, or something at the bank's counter, is only held.
+    const data = held.dataset;
+    const tell = data.colour ? `do paint:${data.colour}` : data.tint ? `do tint:${data.tint}` : data.try ? `do try:${data.try}`
+      : data.only !== undefined ? null : `do show:${pick}`;
+    yardTimer = setTimeout(() => { yardShown = pick; if (tell) say(tell); }, tell && tell.startsWith("do show") ? 260 : 120);
   }
+}
+// The auto shop: which of its sections is open (a group of parts, or `paint`), if one is.
+let shopOpen = null;
+function shopLeave() {
+  shopOpen = null;
+  yardKey = "";
+  say("do untry");
+  show();
+  hold(0, yardBack);
+}
+let yardBack = 0;
+// A tile of the strip that is words, not a picture: what it is, and a line under it.
+function tile(name, note, act, classes) {
+  return button(`<b>${name}</b><small>${note || ""}</small>`, act, `tile ${classes || ""}`);
 }
 function yard() {
   const yard = state.yard;
@@ -512,28 +559,83 @@ function yard() {
   yardKey = key;
   const fresh = yard.page !== yardPage;
   yardPage = yard.page;
-  if (fresh) { yardPick = 0; yardShown = 0; }
+  // (On a new page the first thing is in hand and is what is shown; a first colour is not
+  // on the truck yet, and is put on it.)
+  if (fresh) { yardPick = 0; yardShown = yard.page === "colour" ? -1 : 0; shopOpen = null; }
+  const driven = (yard.trucks || []).find((truck) => truck.driving);
   el("yard").classList.toggle("flat", !yard.showroom);
   const words = {
-    home: ["Your story", "The yard", ""],
     free: ["Free drive", "Choose a truck", "Any of the game's trucks, as it is sold. Nothing is owed, and nothing is kept."],
+    colour: ["Day one", "Choose its colour", "Any of these, at no cost. A respray later is paid for at Motor Spares."],
     start: ["Day one", "Choose your first truck", `You have bought a block in the high country with a shed on it, and you owe the bank ${cash(yard.block)} for it. You need a truck to work it. These three you can get on finance.`],
     garage: ["Your shed", "Garage", "The trucks you own. One is the one you drive."],
     shop: ["Ironbark Flat  ·  Motor Spares", "Auto shop", "A part you have bought is yours: taking it off and putting it back costs nothing."],
     used: ["Ironbark Flat  ·  The Hotel", "Used trucks", "What the publican has to sell today. It is different every day, and now and then there is a good one going cheap."],
-    bank: ["Ironbark Flat  ·  The Bank", "Bank", `Every Friday ${cash(yard.repayment)} comes out. Pay it and your credit goes up; miss it and it goes down.`],
+    bank: ["Ironbark Flat  ·  The Bank", "Bank", `You can owe up to ${cash(yard.limit)}. Every Friday ${cash(yard.repayment)} comes out. Pay it and your credit goes up; miss it and it goes down.`],
   }[yard.page] || ["", "", ""];
   setText("yard-kicker", words[0]); setText("yard-title", words[1]); setText("yard-about", words[2]);
-  el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" ? yard.block : yard.debt)}</dd></div>`
-    + (yard.page === "start" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div>`);
+  el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" || yard.page === "colour" ? yard.block : yard.debt)}</dd></div>`
+    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div>`);
   // The strip of trucks.
   const lot = el("yard-lot");
   lot.replaceChildren();
+  // The second step of a first truck: the colours, in the strip the trucks were in.
+  if (yard.page === "colour") {
+    for (const [index, colour] of (yard.colours || []).entries()) {
+      const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}</b>`, `take:${colour.hex}`, "colour");
+      made.dataset.colour = colour.hex;
+      made.dataset.pick = String(index);
+      lot.append(made);
+    }
+  }
+  // The auto shop: its sections, each a group of parts, the respray and the oil; or, a
+  // section opened, what is in it. What is in hand is seen on the truck before it is bought.
+  if (yard.page === "shop") {
+    const groups = (yard.shop && yard.shop.groups) || [];
+    const open = groups.find((group) => group.group === shopOpen);
+    const add = (made, index, only) => { made.dataset.pick = String(index); if (only) made.dataset.only = ""; lot.append(made); };
+    const opens = (made, what, index) => { made.ask = () => { shopOpen = what; yardBack = index; yardKey = ""; yardPick = 0; yardShown = -1; show(); }; return made; };
+    if (open) {
+      const choices = ALWAYS.includes(open.group) ? [] : [{ choice: "none", fitted: open.bare, note: open.bare ? "As it is" : "Take it off" }];
+      choices.push(...open.choices);
+      for (const [index, choice] of choices.entries()) {
+        const note = choice.note || (choice.fitted ? "Fitted" : choice.owned ? "Yours: fit it" : cash(choice.price));
+        const made = tile(choice.choice === "none" ? "None" : KINDS[choice.choice] || choice.choice, note, `fit:${open.group}:${choice.choice}`, choice.fitted ? "fitted" : "");
+        made.dataset.try = `${open.group}:${choice.choice}`;
+        add(made, index);
+      }
+    } else if (shopOpen === "paint") {
+      for (const [index, colour] of (yard.colours || []).entries()) {
+        const worn = driven && driven.paint && driven.paint.toLowerCase() === `#${colour.hex}`;
+        const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}</b>`, `paint:${colour.hex}`, worn ? "colour fitted" : "colour");
+        made.dataset.tint = colour.hex;
+        add(made, index);
+      }
+    } else {
+      shopOpen = null;
+      let index = 0;
+      for (const group of groups) {
+        const fitted = group.choices.find((choice) => choice.fitted);
+        add(opens(tile(PARTS[group.group] || group.group, fitted ? KINDS[fitted.choice] || fitted.choice : "None"), group.group, index), index, true);
+        index += 1;
+      }
+      add(opens(tile("Respray", cash(yard.respray)), "paint", index), index, true);
+      const oil = driven && driven.oil > 0 ? `${far(driven.oil)} overdue` : driven ? `due in ${far(-driven.oil)}` : "";
+      add(tile("Oil and filter", `${cash(yard.oil_change)}  ·  ${oil}`, "oil"), index + 1, true);
+    }
+  }
+  // The bank's counter: what is borrowed, and what is paid off.
+  if (yard.page === "bank") {
+    let index = 0;
+    for (const amount of [1000, 5000, 20000]) { const made = tile("Borrow", cash(amount), `borrow:${amount}`); made.dataset.pick = String(index++); made.dataset.only = ""; lot.append(made); }
+    for (const amount of [1000, 5000, 20000]) { const made = tile("Pay off", cash(amount), `repay:${amount}`); made.dataset.pick = String(index++); made.dataset.only = ""; lot.append(made); }
+    const all = tile("Pay off", "All I can", "repay:all"); all.dataset.pick = String(index); all.dataset.only = ""; lot.append(all);
+  }
   for (const [index, card] of yardCards().entries()) {
     const dot = card.paint ? `<span class="dot" style="background:${card.paint}"></span>` : "";
     const tag = card.bargain && card.here ? '<span class="tag">Bargain</span>' : card.driving ? '<span class="tag">Driving</span>' : "";
     // Chosen where it stands: it is taken, taken out, bought or driven by pressing on it.
-    const act = yard.page === "start" ? `begin:${card.name}` : yard.page === "free" ? `free:${card.name}`
+    const act = yard.page === "start" ? `choose:${card.name}` : yard.page === "free" ? `free:${card.name}`
       : yard.page === "garage" ? (card.driving ? null : `drive:${card.index}`) : yard.page === "used" && card.here ? `buy:${card.place}` : null;
     const made = button(`<img src="trucks/${card.name}_small.jpg" alt="${card.title}">${tag}${dot}`, act, card.here === false ? "gone" : "");
     made.dataset.pick = String(index);
@@ -541,39 +643,8 @@ function yard() {
   }
   lot.style.setProperty("--at", String(Math.min(yardPick, Math.max(lot.children.length - 1, 0))));
   yardActs();
-  // The shop's parts and paint, and the bank's counter, down the side.
-  const rows = el("yard-rows");
-  rows.replaceChildren();
-  const row = (label) => {
-    const nav = document.createElement("nav");
-    nav.className = "part-row"; nav.dataset.row = "";
-    nav.innerHTML = `<span>${label}</span>`;
-    rows.append(nav);
-    return nav;
-  };
-  if (yard.page === "shop") {
-    const driven = (yard.trucks || []).find((truck) => truck.driving);
-    for (const group of (yard.shop && yard.shop.groups) || []) {
-      const nav = row(PARTS[group.group] || group.group);
-      if (!ALWAYS.includes(group.group)) nav.append(button(`None<small>${group.bare ? "As it is" : "Take it off"}</small>`, `fit:${group.group}:none`, group.bare ? "fitted" : ""));
-      for (const choice of group.choices) {
-        const note = choice.fitted ? "Fitted" : choice.owned ? "Yours: fit it" : cash(choice.price);
-        nav.append(button(`${KINDS[choice.choice] || choice.choice}<small>${note}</small>`, `fit:${group.group}:${choice.choice}`, choice.fitted ? "fitted" : ""));
-      }
-    }
-    swatches(row(`Respray  ·  ${cash(yard.respray)}`), yard.colours, driven && driven.paint);
-    const oil = driven && driven.oil > 0 ? `${far(driven.oil)} overdue` : driven ? `due in ${far(-driven.oil)}` : "";
-    row("Oil").append(button(`Oil and filter<small>${cash(yard.oil_change)}, ${oil}</small>`, "oil"));
-  }
-  // A first truck is taken in a colour: the same colours, and nothing to pay.
-  if (yard.page === "start") swatches(row("Colour  ·  included"), yard.colours, yard.start_paint && `#${yard.start_paint}`);
-  if (yard.page === "bank") {
-    const borrow = row(`Borrow  ·  you can owe up to ${cash(yard.limit)}`);
-    for (const amount of [1000, 5000, 20000]) borrow.append(button(`${cash(amount)}`, `borrow:${amount}`));
-    const repay = row("Pay off");
-    for (const amount of [1000, 5000, 20000]) repay.append(button(`${cash(amount)}`, `repay:${amount}`));
-    repay.append(button("All I can", "repay:all"));
-  }
+  // (Nothing is down the side but what the truck is: what there is to choose is in the strip.)
+  el("yard-rows").replaceChildren();
   setText("yard-said", yard.said || "");
   // The other pages, and the way out.
   const tabs = el("yard-tabs");
@@ -581,9 +652,22 @@ function yard() {
   if (yard.page === "free") {
     for (const grade of [1, 2, 3, 4, 5]) if (grade !== yard.grade) tabs.append(button(`Grade ${grade}`, `grade:${grade}`));
   }
-  tabs.append(button(yard.from === "title" ? "Back" : yard.page === "garage" ? "Back to the shed" : "Leave", "leave"));
+  if (yard.page === "shop" && shopOpen) {
+    // Out of a section of the shop: back to its sections, the truck as it was.
+    const out = button("Back", null);
+    out.ask = shopLeave;
+    tabs.append(out);
+  } else {
+    tabs.append(button(yard.from === "title" ? "Back" : yard.page === "garage" ? "Back to the shed" : "Leave", "leave"));
+  }
   // What was in hand is in hand still, if it is still there: on a new page, the first thing.
-  if (fresh) hold(0, 0); else hold(held[0], held[1]);
+  if (fresh) hold(0, 0);
+  else if (yard.page === "shop" && yardShown === -1) {
+    // A section just opened: what is on the truck is what is in hand.
+    const worn = Math.max(0, [...lot.children].findIndex((made) => made.classList.contains("fitted")));
+    yardPick = yardShown = worn;
+    hold(0, worn);
+  } else hold(held[0], held[1]);
 }
 
 // ---- The kept games: three slots, a tile each. A new game is begun in one, and one that
@@ -656,6 +740,8 @@ function options() {
 function show() {
   const screen = screenShown();
   // Paused in a story, the yard is a button away.
+  // In a browser there are no kept games to begin or go on with: it is a free drive.
+  el("title-new").hidden = el("title-load").hidden = !!state.web;
   // Paused: a run is started again; a track is left for the Crossroads.
   el("pause-restart").hidden = !(state.mode === "practice" || state.mode === "timed");
   // (Only from a map with no trailhead home: where there is one, it is driven to.)
@@ -745,7 +831,8 @@ function show() {
   const away = state.gold_away ?? null, over = (signal || 0) > 0.88;
   setText("detector-hand", state.hand ? `${state.hand.toFixed(1)} kg in hand` : over ? "Dig here"
     : away === null ? "No signal" : away < 5 ? "Gold a few steps off" : `Gold about ${away} m off`);
-  setText("detector-tip", over ? "You are over it." : away === null ? "Keep walking: it hears gold within 60 metres."
+  setText("detector-tip", over ? "You are over it." : state.gold_here === false ? "This ground is dug out for now. It is found here again in a few days."
+    : away === null ? "Keep walking beside the road or the track: it hears gold within 60 metres."
     : "Turn on the spot: the beeps are fastest facing the gold. Walk that way.");
   const uses = { dig: "Dig", pick: "Pick up", tray: "Put in the tray", chest: "Put in the chest", untray: "Take from the tray",
     unchest: "Take from the chest", drop: "Put down", take: "Pick up the detector", open: "Open the door", shut: "Shut the door",
@@ -793,8 +880,9 @@ function show() {
     setText("loading-facts", facts.filter(Boolean).join("  ·  "));
     setText("loading-tip", TIPS[Math.floor(Math.random() * TIPS.length)]);
     // (The showroom is the Crossroads: it has its picture.)
-    setText("loading-kicker", map.name === "showroom" ? "Opening" : "Heading out to");
-    art("loading-art", map.name === "showroom" ? "crossroads" : map.name);
+    const shown = (map.name || "").startsWith("showroom");
+    setText("loading-kicker", shown ? "Opening" : "Heading out to");
+    art("loading-art", map.name === "showroom" ? "crossroads" : map.name === "showroom_town" ? "town" : map.name);
   }
   if (screen !== shown) {
     shown = screen;
@@ -852,6 +940,9 @@ function instruments() {
     setText("lap-last", lapTime(lap.last));
     el("lap-last").classList.toggle("off", lap.last !== null && !lap.last_valid);
     setText("lap-best", lapTime(lap.best));
+    // Which section of the lap it is, and what being put back has cost so far.
+    setText("lap-section", lap.sections ? `${lap.section} of ${lap.sections}` : "-");
+    setText("lap-penalty", lap.penalty ? `+${Math.round(lap.penalty)} s` : "");
   }
   // Each medal's time, and how far behind it the lap is here, or ahead.
   const run = state.run, pace = state.pace;
