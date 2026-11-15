@@ -232,7 +232,12 @@ pub fn missing_files(files: &[GameFile]) -> Vec<String> {
                 named.push(line.file.clone());
                 if let Some(Ok(actor)) = actor {
                     let vehicle = actor.vehicle.as_ref().map(|vehicle| &vehicle.path);
-                    let relative = actor.script.iter().chain(&actor.animation).chain(vehicle);
+                    let relative = actor
+                        .script
+                        .iter()
+                        .chain(&actor.animation)
+                        .chain(vehicle)
+                        .chain(&actor.kit);
                     named.extend(relative.map(|name| resolve(&line.file, name)));
                 }
             }

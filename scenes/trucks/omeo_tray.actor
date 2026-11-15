@@ -1,0 +1,7 @@
+# Omeo Tray (1983): The tiny one with its back cut off and a tray on.
+# Written by tools/blender/truck/build.py, with its model.
+name omeo_tray
+mesh ../../target/outback/trucks/omeo_tray.glb 1
+vehicle omeo_tray.vehicle
+kit omeo_tray.kit
+camera 0 1.34 0

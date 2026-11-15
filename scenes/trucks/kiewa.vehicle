@@ -1,0 +1,44 @@
+# Kiewa (2010): A seven-seat wagon on the ute's chassis.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1990
+inertia 3665 4003 934
+centre 0 0.77 -0.17
+body 1.88 1.28 4.76 at 0 1.21 0.09
+driver right
+hold 0.762 0.420 0.430 at -0.471 0.870 0.129
+hold 1.704 0.420 0.390 at 0.000 0.870 0.750
+hold 1.690 0.450 1.240 at 0.000 0.925 1.775
+
+front at=1.395 track=1.540 radius=0.3850 inertia=2.47 driven=yes
+front spring=36957 bump=3838 rebound=7249 bar=7818 travel=0.12,0.11 roll_centre=0.15
+front brake=2772 grip=1
+rear at=1.395 track=1.540 radius=0.3850 inertia=2.84 driven=yes
+rear spring=31271 bump=3340 rebound=6325 bar=2132 travel=0.14,0.12 roll_centre=0.35
+rear brake=1635 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4975 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.37 friction=31,0.012
+torque 1000 277
+torque 1400 415
+torque 1800 461
+torque 2600 461
+torque 3400 392
+torque 4000 300
+torque 4400 185
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=1066 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.19 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

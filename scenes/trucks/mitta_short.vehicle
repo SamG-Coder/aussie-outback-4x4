@@ -1,0 +1,43 @@
+# Mitta Shorty (1993): The same with two doors.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1610
+inertia 2215 2418 678
+centre 0 0.74 -0.15
+body 1.78 1.28 4.10 at 0 1.18 0.01
+driver right
+hold 0.713 0.420 0.430 at -0.447 0.840 0.275
+hold 1.592 0.450 1.010 at 0.000 0.905 1.485
+
+front at=1.210 track=1.480 radius=0.3750 inertia=2.28 driven=yes
+front spring=37375 bump=3881 rebound=7331 bar=6325 travel=0.11,0.10 roll_centre=0.15
+front brake=2242 grip=1
+rear at=1.210 track=1.480 radius=0.3750 inertia=2.63 driven=yes
+rear spring=31625 bump=3378 rebound=6397 bar=1725 travel=0.13,0.11 roll_centre=0.35
+rear brake=1322 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4025 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.32 friction=26,0.012
+torque 1000 169
+torque 1400 253
+torque 1800 282
+torque 2600 282
+torque 3400 239
+torque 4000 183
+torque 4400 113
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.1
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=862 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.10 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

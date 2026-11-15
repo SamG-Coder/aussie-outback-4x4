@@ -1,0 +1,44 @@
+# Kosciuszko (2025): The biggest wagon there is: three rows, a V8, and room for a week's water.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 3030
+inertia 7811 8531 1948
+centre 0 0.88 -0.20
+body 2.20 1.35 5.65 at 0 1.35 0.17
+driver right
+hold 0.923 0.420 0.430 at -0.551 0.980 -0.075
+hold 2.026 0.420 0.390 at 0.000 0.980 0.935
+hold 2.004 0.450 1.590 at 0.000 1.130 2.135
+
+front at=1.700 track=1.880 radius=0.4700 inertia=4.49 driven=yes
+front spring=56271 bump=5844 rebound=11038 bar=11904 travel=0.16,0.15 roll_centre=0.15
+front brake=4220 grip=1
+rear at=1.700 track=1.880 radius=0.4700 inertia=5.17 driven=yes
+rear spring=47614 bump=5086 rebound=9631 bar=3246 travel=0.18,0.16 roll_centre=0.35
+rear brake=2489 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=7575 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.53 friction=45,0.012
+torque 1000 431
+torque 2000 574
+torque 3000 660
+torque 4000 718
+torque 5000 682
+torque 5800 610
+torque 6200 502
+
+gears 4.696 2.985 2.146 1.769 1.52 1.275 1 0.854 0.689 0.636
+final 3.9
+reverse 4.2
+gearbox shift=0.18 efficiency=0.88 clutch=1623 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.64 front=0.5 lock=30000 locker=30000
+
+aero drag=1.52 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

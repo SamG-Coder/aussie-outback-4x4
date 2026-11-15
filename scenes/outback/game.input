@@ -17,7 +17,7 @@ right key ArrowLeft -1
 right gamepad left_x
 right touch stick_x
 run key ShiftLeft
-run gamepad l3
+sprint gamepad l3
 # Looking, in radians a second: the mouse, the right stick, or dragging on the right.
 turn mouse x -0.002
 turn gamepad right_x -4.4

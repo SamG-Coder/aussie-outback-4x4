@@ -1,0 +1,43 @@
+# Tumut (2019): The tiny one, built new: square, light, and good at everything small.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1190
+inertia 1183 1292 425
+centre 0 0.70 -0.14
+body 1.64 1.22 3.47 at 0 1.11 0.06
+driver right
+hold 0.644 0.420 0.430 at -0.412 0.800 0.235
+hold 1.458 0.450 0.805 at 0.000 0.855 1.323
+
+front at=1.125 track=1.400 radius=0.3500 inertia=1.86 driven=yes
+front spring=22100 bump=2295 rebound=4335 bar=4675 travel=0.12,0.11 roll_centre=0.15
+front brake=1658 grip=1
+rear at=1.125 track=1.400 radius=0.3500 inertia=2.13 driven=yes
+rear spring=18700 bump=1998 rebound=3782 bar=1275 travel=0.14,0.12 roll_centre=0.35
+rear brake=978 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=2975 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.34 friction=28,0.012
+torque 1000 130
+torque 2000 174
+torque 3000 200
+torque 4000 217
+torque 5000 206
+torque 5800 185
+torque 6200 152
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=638 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=0.96 downforce=0 balance=0.5
+steering lock=36 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

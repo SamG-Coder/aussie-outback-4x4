@@ -1,0 +1,44 @@
+# Jamieson Troop V8 (2020): The tall wagon, built for the desert: rack, awning, two spares.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 2240
+inertia 4490 4903 901
+centre 0 0.91 -0.18
+body 1.74 1.44 4.97 at 0 1.43 0.21
+driver right
+hold 0.696 0.420 0.430 at -0.438 1.010 0.010
+hold 1.572 0.420 0.390 at 0.000 1.010 0.800
+hold 1.546 0.450 1.415 at 0.000 1.015 1.913
+
+front at=1.490 track=1.500 radius=0.4300 inertia=3.44 driven=yes
+front spring=41600 bump=4320 rebound=8160 bar=8800 travel=0.14,0.13 roll_centre=0.15
+front brake=3120 grip=1
+rear at=1.490 track=1.500 radius=0.4300 inertia=3.96 driven=yes
+rear spring=35200 bump=3760 rebound=7120 bar=2400 travel=0.16,0.14 roll_centre=0.35
+rear brake=1840 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=5600 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.41 friction=34,0.012
+torque 1000 346
+torque 1400 519
+torque 1800 577
+torque 2600 577
+torque 3400 490
+torque 4000 375
+torque 4400 231
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=1200 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.28 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

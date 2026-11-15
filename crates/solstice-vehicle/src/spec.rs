@@ -209,6 +209,12 @@ pub struct VehicleSpec {
     /// across, deep and long, and where the middle of its floor is. The body is then that
     /// box cut out of the back of it, so that what is put in the tray lies in it.
     pub tray: Option<(Vec3, Vec3)>,
+    /// The places inside it that things can be put: a seat, a boot. Each a box shut in on
+    /// every side, its size across, high and long, and where the middle of its floor is.
+    /// The body is hollow there, so that what is put in one lies in it and stays in it.
+    pub holds: Vec<(Vec3, Vec3)>,
+    /// Whether its driver sits on the right, and gets out on that side: `driver right`.
+    pub driver_right: bool,
     pub front: Axle,
     pub rear: Axle,
     pub tyre: Tyre,
@@ -272,6 +278,8 @@ impl VehicleSpec {
             body_size: Vec3::new(1.9, 0.9, 4.5),
             body_at: Vec3::new(0.0, 0.65, 0.0),
             tray: None,
+            holds: Vec::new(),
+            driver_right: false,
             front: Axle {
                 at: 1.32,
                 track: 1.66,
@@ -433,8 +441,8 @@ impl VehicleSpec {
                 values.iter().map(|w| number(w).map_err(&error)).collect()
             };
             let settings: Vec<String> = match keyword {
-                // A line for each point of the curve.
-                "torque" => Vec::new(),
+                // A line for each point of the curve, and for each place things can be put.
+                "torque" | "hold" => Vec::new(),
                 "front" | "rear" | "tyre" | "engine" | "gearbox" | "diff" | "front_diff"
                 | "transfer" | "aero" | "steering" | "geometry" | "assists" => values
                     .iter()
@@ -475,6 +483,30 @@ impl VehicleSpec {
                         return Err(error("a tray is from 5 cm to 10 m each way".to_owned()));
                     }
                     spec.tray = Some((size, Vec3::new(read(x)?, read(y)?, read(z)?)));
+                }
+                "driver" => {
+                    spec.driver_right = match values {
+                        ["left"] => false,
+                        ["right"] => true,
+                        _ => {
+                            return Err(error(
+                                "expected `driver left` or `driver right`".to_owned(),
+                            ))
+                        }
+                    };
+                }
+                "hold" => {
+                    let form = "expected `hold WIDTH HEIGHT LENGTH at X Y Z`";
+                    let [sx, sy, sz, "at", x, y, z] = values else {
+                        return Err(error(form.to_owned()));
+                    };
+                    let read = |w: &str| number(w).map_err(&error);
+                    let size = Vec3::new(read(sx)?, read(sy)?, read(sz)?);
+                    if !(size.min_element() > 0.05 && size.max_element() < 10.0) {
+                        return Err(error("a hold is from 5 cm to 10 m each way".to_owned()));
+                    }
+                    spec.holds
+                        .push((size, Vec3::new(read(x)?, read(y)?, read(z)?)));
                 }
                 "front" | "rear" => {
                     let axle = if keyword == "front" {
@@ -756,6 +788,9 @@ impl VehicleSpec {
         if !(0.0..1.0).contains(&tyre.load_sensitivity) {
             return Err("the tyre's load sensitivity is between 0 and 1".into());
         }
+        if !(0.3..=2.0).contains(&tyre.tread.0) || !(0.3..=2.0).contains(&tyre.tread.1) {
+            return Err("the tyre's tread is between 0.3 and 2 on firm ground and on soft".into());
+        }
         let engine = &self.engine;
         if engine.torque.len() < 2 {
             return Err("the engine needs at least two `torque` points".into());
@@ -855,6 +890,16 @@ impl VehicleSpec {
                 s.x, s.y, s.z, a.x, a.y, a.z
             );
         }
+        if self.driver_right {
+            let _ = writeln!(text, "driver right");
+        }
+        for (s, a) in &self.holds {
+            let _ = writeln!(
+                text,
+                "hold {} {} {} at {} {} {}",
+                s.x, s.y, s.z, a.x, a.y, a.z
+            );
+        }
         for (name, axle) in [("front", &self.front), ("rear", &self.rear)] {
             let _ = writeln!(
                 text,
@@ -893,8 +938,8 @@ impl VehicleSpec {
         );
         let _ = writeln!(
             text,
-            "tyre load={} sensitivity={} relaxation={}",
-            t.nominal_load, t.load_sensitivity, t.relaxation
+            "tyre load={} sensitivity={} relaxation={} tread={},{}",
+            t.nominal_load, t.load_sensitivity, t.relaxation, t.tread.0, t.tread.1
         );
         let e = &self.engine;
         let _ = writeln!(
@@ -1048,6 +1093,7 @@ fn set_tyre(tyre: &mut Tyre, key: &str, value: &str) -> Result<(), String> {
         "load" => tyre.nominal_load = number(value)?,
         "sensitivity" => tyre.load_sensitivity = number(value)?,
         "relaxation" => tyre.relaxation = number(value)?,
+        "tread" => tyre.tread = pair(value)?,
         other => return Err(unknown("tyre", other)),
     }
     Ok(())

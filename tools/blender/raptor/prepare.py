@@ -185,6 +185,17 @@ for obj in list(bpy.context.scene.objects):
     if obj.type != "MESH":
         bpy.data.objects.remove(obj, do_unlink=True)
 
+# The game gives the truck's paint whatever colour it is to be, rusts it, and lays dust and mud
+# on everything that is out in the weather (`Coat` in solstice-render): it knows the paint and
+# the insides by their names. Last of all, as the rest of this script knows them by the old.
+INSIDE = ("Int_T", "Leather_Int", "costuras", "Metal_Int", "INT_Plastic", "RaptorINT_cloth", "Cabin_C",
+          "Dashb", "RaptorMETAL_ENG", "RaptorENG_Plastic", "RaptorENG_T")
+for m in bpy.data.materials:
+    if m.name == "RaptorPaaint":
+        m.name = "paint"
+    elif m.name in INSIDE:
+        m.name = "inside_" + m.name
+
 bpy.ops.export_scene.gltf(filepath=dst, export_format="GLB", export_yup=True, export_apply=False,
                           export_animations=False, export_skins=False, export_cameras=False, export_lights=False)
 print("REPORT " + json.dumps(report))

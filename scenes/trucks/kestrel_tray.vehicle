@@ -1,0 +1,44 @@
+# Kestrel Tray (2023): The full-size cab on a tray: a mine-site chase truck.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 2970
+inertia 8309 9075 1909
+centre 0 0.88 -0.22
+body 2.20 1.35 5.89 at 0 1.35 0.15
+tray 2.14 0.35 1.86 at 0 1.38 2.19
+driver right
+hold 0.923 0.420 0.430 at -0.551 0.980 -0.220
+hold 2.026 0.420 0.390 at 0.000 0.980 0.730
+
+front at=1.845 track=1.880 radius=0.4700 inertia=4.49 driven=yes
+front spring=55157 bump=5728 rebound=10819 bar=11668 travel=0.16,0.15 roll_centre=0.15
+front brake=4137 grip=1
+rear at=1.845 track=1.880 radius=0.4700 inertia=5.17 driven=yes
+rear spring=46671 bump=4985 rebound=9440 bar=3182 travel=0.18,0.16 roll_centre=0.35
+rear brake=2440 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=7425 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.53 friction=45,0.012
+torque 1000 426
+torque 2000 568
+torque 3000 654
+torque 4000 710
+torque 5000 675
+torque 5800 604
+torque 6200 497
+
+gears 4.696 2.985 2.146 1.769 1.52 1.275 1 0.854 0.689 0.636
+final 3.9
+reverse 4.2
+gearbox shift=0.18 efficiency=0.88 clutch=1591 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.64 front=0.5 lock=30000 locker=30000
+
+aero drag=1.52 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

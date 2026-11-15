@@ -1,0 +1,44 @@
+# Bogong Sport (2021): A wide-bodied ute on long-travel suspension: fast over corrugations, flared and loud.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 2440
+inertia 5755 6285 1322
+centre 0 0.82 -0.19
+body 2.02 1.24 5.40 at 0 1.24 0.16
+tray 1.78 0.35 1.50 at 0 1.35 2.06
+driver right
+hold 0.834 0.420 0.430 at -0.507 0.920 -0.045
+hold 1.848 0.420 0.390 at 0.000 0.920 0.755
+
+front at=1.610 track=1.710 radius=0.4200 inertia=3.21 driven=yes
+front spring=45314 bump=4706 rebound=8889 bar=9586 travel=0.14,0.13 roll_centre=0.15
+front brake=3399 grip=1
+rear at=1.610 track=1.710 radius=0.4200 inertia=3.69 driven=yes
+rear spring=38343 bump=4096 rebound=7756 bar=2614 travel=0.16,0.14 roll_centre=0.35
+rear brake=2004 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=6100 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.41 friction=34,0.012
+torque 1000 361
+torque 1400 542
+torque 1800 602
+torque 2600 602
+torque 3400 512
+torque 4000 391
+torque 4400 241
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=1307 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.28 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

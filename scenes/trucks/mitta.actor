@@ -1,0 +1,7 @@
+# Mitta (1995): A mid-sized nineties wagon with independent front suspension and a soft ride.
+# Written by tools/blender/truck/build.py, with its model.
+name mitta
+mesh ../../target/outback/trucks/mitta.glb 1
+vehicle mitta.vehicle
+kit mitta.kit
+camera 0 1.50 0

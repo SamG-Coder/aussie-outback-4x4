@@ -1,0 +1,7 @@
+# Buffalo Chase (2020): The square-jawed dual-cab with a tray, a canopy frame and a lift.
+# Written by tools/blender/truck/build.py, with its model.
+name buffalo_chase
+mesh ../../target/outback/trucks/buffalo_chase.glb 1
+vehicle buffalo_chase.vehicle
+kit buffalo_chase.kit
+camera 0 1.54 0

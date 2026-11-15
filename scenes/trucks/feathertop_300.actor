@@ -1,0 +1,7 @@
+# Feathertop Sahara (2023): The flagship wagon: everything the big one ever was, with leather.
+# Written by tools/blender/truck/build.py, with its model.
+name feathertop_300
+mesh ../../target/outback/trucks/feathertop_300.glb 1
+vehicle feathertop_300.vehicle
+kit feathertop_300.kit
+camera 0 1.64 0

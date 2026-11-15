@@ -20,8 +20,29 @@ pub struct PlayMode {
     head_lamps: Vec<u32>,
     /// What the player's car's wheels throw up.
     spray: Spray,
+    /// What the player's car wears, the instances that are it, and where its axles are:
+    /// its front's and its rear's along it, half its track, and its wheels' radius.
+    wear: Wear,
+    /// The colour the truck's paint was made in, which a respray is told from.
+    made: glam::Vec3,
+    car: Vec<u32>,
+    axles: [f32; 4],
     /// The plants a car flattens, and which are down already.
     scrub: Scrub,
+    /// The player's truck's kit, if it is one built of pieces, and what is fitted to it
+    /// (`kit.rs`).
+    kit: Option<crate::kit::Fitted>,
+    /// The trucks stood in a showroom to be looked at, and which of them is shown.
+    display: Vec<crate::kit::Fitted>,
+    displayed: usize,
+    /// Which side of a truck in the showroom the camera is on: the more open one.
+    show_side: Option<f32>,
+    /// Where the trucks that stand to be looked at are, and how they are turned, if they
+    /// are not where the map's own truck is.
+    stand: Option<(glam::Vec3, glam::Quat)>,
+    /// Whether the player's truck is not drawn: behind the main menu no game is being
+    /// played, and the bush is all that is looked at.
+    unseen: bool,
     /// The scene's blanks, each to show a nugget with (`nugget.rs`), and
     /// the number of the nugget that was last made on it.
     nuggets: Vec<(crate::nugget::Slot, Option<u32>)>,
@@ -244,10 +265,12 @@ struct Soundscape {
     random: u32,
     /// The detector in the driver's hand, on foot: how strong its signal is, from 0 to 1.
     detector: Option<f32>,
-    /// Where the detector's coil is in its sweep, from 0, passing the middle, round to 1,
-    /// passing it again the other way; and how far its hum has wandered from its note.
-    sweep: f32,
-    waver: f32,
+    /// How far from one beep of the detector to the next it is, from 0 round to 1.
+    beat: f32,
+    /// Whether the main menu is up, with no truck behind it: the bush is all that is heard.
+    menu: bool,
+    /// How loud everything is, from 0 to 1: as the options say.
+    volume: f32,
     /// How much the engine is running, from 0, switched off, to 1.
     running: f32,
     /// Sounds to play once, as the game asked for them.
@@ -365,57 +388,56 @@ impl Soundscape {
         } else {
             self.in_water = [false; 4];
         }
-        // The detector, as a gold detector sounds. It does not beep: it hums, low and
-        // steady (its threshold), and gold is heard as that hum changing. Each time the coil
-        // passes the middle of its sweep the hum dips a little, rises and swells, and falls
-        // back; by how much, and for how long, says how near the gold is. A long way off it
-        // is a flicker in the hum; nearer, a clear rise with every pass; and over the gold
-        // the hum stays high and loud, and wails as the coil goes over.
+        // The detector. With nothing in reach it hums, very quietly: it is on. Gold is
+        // heard as beeps over that, and everything about them says how strong the signal
+        // is: how often they come, how high they are, and how loud. At the edge of its
+        // hearing, a low soft beep every second and a half; half way, two a second; a few
+        // steps off, five a second and high; and over the gold, one unbroken high note. The
+        // signal is stronger facing the gold than with a back to it (`Gold::heard`), so
+        // turning on the spot until the beeps come fastest says which way to walk.
         let (detector, asked) = (self.detector, std::mem::take(&mut self.asked));
         let mut tone = (0.0_f32, 1.0_f32);
         if let Some(signal) = detector {
-            // A threshold is never quite still.
-            self.waver = (self.waver + (self.chance() - 0.5) * 0.012) * 0.92;
-            tone = (0.2, 1.0 + self.waver);
-            if signal > 0.0 {
-                let over = signal >= crate::gold::OVER;
-                let near = (signal / crate::gold::OVER).min(1.0);
-                let strength = 0.07 + 0.93 * near.powf(1.5);
-                // How far the coil is from the middle of its sweep, in sweeps: before it
-                // below zero, after it above.
-                let pass = if self.sweep < 0.5 {
-                    self.sweep
+            tone = (0.05, 0.9);
+            if signal >= crate::gold::OVER {
+                tone = (1.0, 2.1);
+            } else if signal > 0.0 {
+                let near = signal / crate::gold::OVER;
+                self.beat = (self.beat + seconds * (0.65 + 4.6 * near * near)).rem_euclid(1.0);
+                if self.beat < 0.42 {
+                    tone = (0.3 + 0.7 * near, 1.05 + 0.85 * near);
                 } else {
-                    self.sweep - 1.0
-                };
-                // A near target is heard for more of the sweep than a far one.
-                let wide = 0.07 + 0.17 * near;
-                let mut swell = (-(pass / wide).powi(2)).exp();
-                let dip = (-((pass + 1.7 * wide) / (0.8 * wide)).powi(2)).exp();
-                if over {
-                    swell = swell.max(0.72);
+                    tone.1 = 1.05 + 0.85 * near;
                 }
-                tone.0 += 0.72 * strength * swell;
-                tone.1 += 1.2 * strength * swell - 0.1 * strength * dip;
+            } else {
+                // The first beep of a signal comes at once.
+                self.beat = 0.0;
             }
         }
+        let (menu, volume) = (self.menu, self.volume);
         self.sounds.frame(|ask| {
+            ask.master(volume);
             ask.engine(engine);
             for (name, (gain, pitch)) in TYRE_LOOPS.iter().zip(loops) {
                 ask.looping(name, gain.min(1.0), pitch);
             }
             // The bush: birds and insects in the dry, the wind as it blows, the rain as it
             // falls.
-            ask.looping("bush_day", 0.3 * (1.0 - 0.75 * rain), 1.0);
-            ask.looping("bush_wind", 0.35 * wind, 1.0);
+            // (Behind the main menu, where no truck is heard, it is all there is: louder.)
+            let alone = if menu { 2.2 } else { 1.0 };
+            ask.looping("bush_day", 0.3 * alone * (1.0 - 0.75 * rain), 1.0);
+            ask.looping(
+                "bush_wind",
+                (0.35 * wind).max(if menu { 0.3 } else { 0.0 }),
+                1.0,
+            );
             ask.looping("rain_leaves", 0.55 * rain, 1.0);
             for (name, gain, pitch) in once {
                 ask.once(name, gain, pitch);
             }
-            // The detector's hum, while it is in hand.
-            if detector.is_some() {
-                ask.looping("detector_tone", tone.0, tone.1);
-            }
+            // The detector's hum, while it is in hand: and none once it is not (a loop
+            // goes on as it was last asked for, so it is asked for at nothing).
+            ask.looping("detector_tone", tone.0, tone.1);
             for name in asked {
                 ask.once(name, 0.9, 1.0);
             }
@@ -429,12 +451,117 @@ struct Spray {
     effects: Option<[solstice_render::EffectId; 4]>,
     /// Whether starting the effects has been tried: once is enough to say it failed.
     tried: bool,
+    /// What the four wheels threw between them this frame: mud, dust and water.
+    thrown: [f32; 3],
+}
+
+/// What the player's truck wears: the colour of its paint, how rusted it is, and the dust
+/// and the mud it has gathered, each from 0 to 1; `wet` is how fresh its mud is. The
+/// renderer draws it (`solstice_render::Coat`); the game gathers it as the truck is driven
+/// (`PlayMode::gather`), and a kept game is to keep it with the truck.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Wear {
+    pub paint: glam::Vec3,
+    pub rust: f32,
+    pub dust: f32,
+    pub mud: f32,
+    pub wet: f32,
+    /// Whether the driving changes it: a picture of a truck in a given state holds it still.
+    pub held: bool,
+}
+
+/// The colour the Raptor's paint was made in, which the renderer tells its paint from what
+/// is painted on it by: measured from its texture. (To be said by each truck's own file.)
+const PAINT_WAS: glam::Vec3 = glam::Vec3::new(0.164, 0.0004, 0.0004);
+
+/// The colour of the country's ground, which a truck's mud and dust are: red clay.
+const SOIL: glam::Vec3 = glam::Vec3::new(0.33, 0.15, 0.075);
+
+impl Default for Wear {
+    fn default() -> Self {
+        Self {
+            paint: PAINT_WAS,
+            rust: 0.0,
+            dust: 0.0,
+            mud: 0.0,
+            wet: 0.0,
+            held: false,
+        }
+    }
+}
+
+impl Wear {
+    /// A truck's state from words, for a picture: `paint=#1f4fa0,rust=0.4,dust=0.3,mud=0.7,wet=1`.
+    /// The paint is as a page writes a colour. What is not said is clean, and it is held.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let mut wear = Self {
+            held: true,
+            ..Self::default()
+        };
+        for word in text.split(',').filter(|word| !word.trim().is_empty()) {
+            let (name, value) = word
+                .trim()
+                .split_once('=')
+                .ok_or_else(|| format!("`{word}` is not NAME=VALUE"))?;
+            let number = || {
+                value
+                    .parse::<f32>()
+                    .map_err(|_| format!("`{value}` is not a number"))
+            };
+            match name {
+                "paint" => {
+                    let hex = value.trim_start_matches('#');
+                    let parsed = u32::from_str_radix(hex, 16).ok().filter(|_| hex.len() == 6);
+                    let colour =
+                        parsed.ok_or_else(|| format!("`{value}` is not a colour like #1f4fa0"))?;
+                    // As a page writes it, and so as the eye sees it: the renderer wants light.
+                    let channel =
+                        |shift: u32| (((colour >> shift) & 0xff) as f32 / 255.0).powf(2.2);
+                    wear.paint = glam::Vec3::new(channel(16), channel(8), channel(0));
+                }
+                "rust" => wear.rust = number()?,
+                "dust" => wear.dust = number()?,
+                "mud" => wear.mud = number()?,
+                "wet" => wear.wet = number()?,
+                _ => {
+                    return Err(format!(
+                        "a truck has no `{name}`: paint, rust, dust, mud and wet"
+                    ))
+                }
+            }
+        }
+        Ok(wear)
+    }
+
+    /// A frame's driving: what the wheels threw, between them, and how hard it rains.
+    fn gather(&mut self, thrown: [f32; 3], rain: f32, seconds: f32) {
+        if self.held {
+            return;
+        }
+        let [mud, dust, water] = thrown;
+        // A minute of dry road is a dusty truck; a bog hole is a muddy one in a few lengths.
+        self.dust += dust * 0.004 * seconds * (1.0 - self.dust);
+        self.mud += mud * 0.012 * seconds * (1.0 - self.mud);
+        // Mud goes on wet, and dries in a few minutes.
+        self.wet = (self.wet + mud * 0.3 * seconds).min(1.0);
+        self.wet -= seconds / 240.0;
+        // A ford washes what it reaches, and the rain washes all of it, slowly: dust first.
+        self.dust -= (water * 0.05 + rain * 0.02) * seconds;
+        self.mud -= (water * 0.02 + rain * 0.003) * seconds;
+        if water > 0.0 || rain > 0.3 {
+            self.wet = self.wet.max(0.6);
+        }
+        self.dust = self.dust.clamp(0.0, 1.0);
+        self.mud = self.mud.clamp(0.0, 1.0);
+        self.wet = self.wet.clamp(0.0, 1.0);
+    }
 }
 
 impl Spray {
     /// Moves each wheel's spray to the wheel, and sets what it throws: `wetness` is how wet
     /// the rain has left the ground.
     fn follow(&mut self, renderer: &mut Renderer, hud: &solstice_game::Hud, wetness: f32) {
+        self.thrown = [0.0; 3];
         if self.effects.is_none() && !self.tried {
             self.tried = true;
             match solstice_render::Effect::parse(WHEEL_SPRAY) {
@@ -484,6 +611,9 @@ impl Spray {
                     _ => {}
                 }
             }
+            for (sum, thrown) in self.thrown.iter_mut().zip([mud, dust, water]) {
+                *sum += thrown * pressed;
+            }
             // The left wheels throw to the left, the right to the right. A wheel throws
             // behind it the way its tread is going: forward, when it turns backwards.
             let side = if index % 2 == 0 { -1.0 } else { 1.0 };
@@ -516,6 +646,7 @@ impl Spray {
 
     /// Stops every wheel throwing: the car is not being driven.
     fn rest(&mut self, renderer: &mut Renderer) {
+        self.thrown = [0.0; 3];
         for id in self.effects.into_iter().flatten() {
             for name in ["mud", "dust", "water"] {
                 renderer.particles().set(id, name, 0.0);
@@ -539,6 +670,22 @@ impl PlayMode {
         for id in play.instances() {
             renderer.set_instance_movable(id, true);
         }
+        // A truck that another has been put in the place of is not drawn (`shared.rs`).
+        for id in crate::shared::hidden(files) {
+            renderer.set_instance_hidden(id, true);
+        }
+        // Trucks stood to be looked at: the first is shown, and the rest are not.
+        let display = crate::kit::displayed(files);
+        for truck in display.iter().skip(1) {
+            for id in truck.instances() {
+                renderer.set_instance_hidden(id, true);
+            }
+        }
+        let kit = crate::kit::Fitted::find(files).map_err(|error| vec![error])?;
+        let made = kit
+            .as_ref()
+            .and_then(|kit| kit.kit.paint)
+            .unwrap_or(PAINT_WAS);
         Ok(Self {
             play,
             devices: Devices::new(),
@@ -546,7 +693,21 @@ impl PlayMode {
             tail_lamps: Vec::new(),
             head_lamps: Vec::new(),
             spray: Spray::default(),
+            wear: Wear {
+                paint: made,
+                ..Wear::default()
+            },
+            made,
+            car: Vec::new(),
+            // A truck's, until its wheels have said where they are.
+            axles: [-2.0, 1.7, 0.94, 0.44],
             scrub: Scrub::read(files),
+            kit,
+            display,
+            displayed: 0,
+            show_side: None,
+            stand: crate::shared::stand(files),
+            unseen: false,
             nuggets: {
                 let slots = crate::nugget::Slot::read(files);
                 for slot in &slots {
@@ -576,8 +737,9 @@ impl PlayMode {
             since: [1.0; 3],
             random: 0x9E37_79B9,
             detector: None,
-            sweep: 0.0,
-            waver: 0.0,
+            beat: 0.0,
+            menu: false,
+            volume: 1.0,
             running: 1.0,
             asked: Vec::new(),
         });
@@ -738,6 +900,13 @@ impl PlayMode {
         seen
     }
 
+    /// Says how loud everything is to be, from 0 to 1.
+    pub fn set_volume(&mut self, share: f32) {
+        if let Some(sound) = &mut self.sound {
+            sound.volume = share;
+        }
+    }
+
     /// Says how strong the signal of the detector in the driver's hand is, from 0 to 1, or
     /// that it is not in their hand.
     pub fn set_detector(&mut self, signal: Option<f32>) {
@@ -772,8 +941,9 @@ impl PlayMode {
             since: [1.0; 3],
             random: 0x9E37_79B9,
             detector: None,
-            sweep: 0.0,
-            waver: 0.0,
+            beat: 0.0,
+            menu: false,
+            volume: 1.0,
             running: 1.0,
             asked: Vec::new(),
         });
@@ -787,6 +957,244 @@ impl PlayMode {
             .as_mut()
             .map(|sound| sound.sounds.take())
             .unwrap_or_default()
+    }
+
+    /// What the player's truck wears, and has gathered.
+    pub fn wear(&self) -> Wear {
+        self.wear
+    }
+
+    /// Fits the player's truck: `stock`, `showroom`, or choices to put over what it is sold
+    /// with, as `bullbar=plate,tyres=mud`. A mistake, or a truck that is not built of
+    /// pieces, is an error.
+    pub fn fit(&mut self, build: &str) -> Result<(), String> {
+        let kit = self
+            .kit
+            .as_mut()
+            .ok_or("the truck here is not built of pieces")?;
+        kit.fit(build)
+    }
+
+    /// Opens a door or a tailgate of the player's truck, so far of all the way: by its
+    /// piece's name, or `all` of them.
+    pub fn swing(&mut self, piece: &str, share: f32) -> Result<(), String> {
+        let kit = self
+            .kit
+            .as_mut()
+            .ok_or("the truck here is not built of pieces")?;
+        kit.swing(piece, share)
+    }
+
+    /// The player's truck's kit, and what is fitted to it, if it is built of pieces.
+    pub fn kit(&self) -> Option<&crate::kit::Fitted> {
+        self.kit.as_ref()
+    }
+
+    /// Where the camera is to be for a truck in the showroom, and the way it looks, as a yaw
+    /// and a pitch: before the truck and to one side of it, as a truck for sale is looked
+    /// at, swaying a little as time goes by. It is to whichever side the ground falls away
+    /// on, and it is kept above the ground: a truck stands on a hillside as often as not.
+    pub fn showroom_camera(
+        &mut self,
+        origin: glam::Vec3,
+        turned: glam::Quat,
+        seconds: f32,
+    ) -> (glam::Vec3, f32, f32) {
+        use glam::Vec3;
+        let flat = |way: Vec3| Vec3::new(way.x, 0.0, way.z).normalize_or(Vec3::NEG_Z);
+        let (forward, right) = (flat(turned * Vec3::NEG_Z), flat(turned * Vec3::X));
+        let land = |at: Vec3| {
+            let found = self.play.land_below(Vec3::new(at.x, origin.y + 60.0, at.z));
+            found.unwrap_or(origin.y)
+        };
+        let stand = |side: f32, angle: f32| {
+            origin + (forward * angle.cos() + right * side * angle.sin()) * 7.4
+        };
+        let side = *self.show_side.get_or_insert_with(|| {
+            if land(stand(1.0, 0.62)) <= land(stand(-1.0, 0.62)) {
+                1.0
+            } else {
+                -1.0
+            }
+        });
+        let mut eye = stand(side, 0.62 + 0.28 * (seconds * 0.22).sin());
+        eye.y = (origin.y + 1.5).max(land(eye) + 1.25);
+        // The truck is a little to the left of the middle: what it is is down the right.
+        let middle = origin + Vec3::Y * 0.95;
+        let aside = (middle - eye).cross(Vec3::Y).normalize_or_zero();
+        let look = middle + aside * 0.7 - eye;
+        (
+            eye,
+            (-look.x).atan2(-look.z),
+            look.y.atan2(look.x.hypot(look.z)),
+        )
+    }
+
+    /// Where what is looked at in a showroom stands, and how it is turned: the trucks stood
+    /// there, or the map's own truck.
+    pub fn stand(&self) -> Option<(glam::Vec3, glam::Quat)> {
+        self.stand.or_else(|| self.play.car_pose())
+    }
+
+    /// Behind the main menu: the player's truck is not drawn, and is not heard; or, when a
+    /// game is gone into, it is again, as it is fitted.
+    pub fn set_unseen(&mut self, renderer: &mut Renderer, unseen: bool) {
+        if self.unseen == unseen {
+            return;
+        }
+        self.unseen = unseen;
+        for id in self.play.car_instances() {
+            renderer.set_instance_hidden(id, unseen);
+        }
+        if !unseen {
+            let fitted = self.kit.as_ref().map(|kit| kit.hidden());
+            for (id, hidden) in fitted.into_iter().flatten() {
+                renderer.set_instance_hidden(id, hidden);
+            }
+        }
+    }
+
+    /// Behind the main menu: a view down the track from where the truck would stand, from
+    /// a little above somebody's head, looking slowly from one side of it to the other.
+    pub fn preview_camera(
+        &mut self,
+        origin: glam::Vec3,
+        turned: glam::Quat,
+        seconds: f32,
+    ) -> (glam::Vec3, f32, f32) {
+        use glam::Vec3;
+        let ahead = turned * Vec3::NEG_Z;
+        let land = self
+            .play
+            .land_below(Vec3::new(origin.x, origin.y + 60.0, origin.z));
+        let eye = Vec3::new(origin.x, land.unwrap_or(origin.y) + 2.6, origin.z);
+        let yaw = (-ahead.x).atan2(-ahead.z) + 0.6 * (seconds * 0.045).sin();
+        (eye, yaw, -0.05)
+    }
+
+    /// Shows another of the trucks that stand to be looked at, by its place among them, in
+    /// its colour: as a page writes one, or with none the colour it was made in. The one
+    /// that was shown is hidden. Nothing is read: they are all there.
+    pub fn display(&mut self, renderer: &mut Renderer, index: usize, colour: Option<u32>) {
+        if index >= self.display.len() {
+            return;
+        }
+        if let Some(was) = self
+            .display
+            .get(self.displayed)
+            .filter(|_| index != self.displayed)
+        {
+            for id in was.instances() {
+                renderer.set_instance_hidden(id, true);
+            }
+        }
+        self.displayed = index;
+        let truck = &mut self.display[index];
+        truck.redraw();
+        // It is what is painted, and its own paint is what a respray is told from.
+        self.car = truck.instances();
+        self.made = truck.kit.paint.unwrap_or(PAINT_WAS);
+        self.wear = Wear {
+            paint: self.made,
+            ..Wear::default()
+        };
+        self.paint(colour);
+    }
+
+    /// Fits the truck that is shown, where it stands: `stock`, `showroom`, or choices over
+    /// what it is sold with. Every piece of it is there already, if it was stood there with
+    /// all of them.
+    pub fn display_fit(&mut self, build: &str) -> Result<(), String> {
+        let truck = self.display.get_mut(self.displayed);
+        truck.ok_or("no truck stands here to be fitted")?.fit(build)
+    }
+
+    /// What is on the player's truck: dust, mud and rust, each from 0 to 1.
+    pub fn dirt(&self) -> [f32; 3] {
+        [self.wear.dust, self.wear.mud, self.wear.rust]
+    }
+
+    /// Puts dust, mud and rust on the player's truck: what it had on it when it was last
+    /// driven.
+    pub fn set_dirt(&mut self, [dust, mud, rust]: [f32; 3]) {
+        (self.wear.dust, self.wear.mud, self.wear.rust) = (dust, mud, rust);
+    }
+
+    /// Resprays the player's truck a colour, as a page writes one; or, with none, puts it
+    /// back in the colour it was made in.
+    pub fn paint(&mut self, colour: Option<u32>) {
+        self.wear.paint = match colour {
+            // As the eye sees it: the renderer wants light.
+            Some(colour) => {
+                let channel = |shift: u32| (((colour >> shift) & 0xff) as f32 / 255.0).powf(2.2);
+                glam::Vec3::new(channel(16), channel(8), channel(0))
+            }
+            None => self.made,
+        };
+    }
+
+    /// Gives the player's truck its paint and its dirt: from a kept game, or for a picture.
+    pub fn set_wear(&mut self, wear: Wear) {
+        self.wear = wear;
+    }
+
+    /// The truck gathers what its wheels throw, and the renderer is told what it wears
+    /// and where it is.
+    fn coat(&mut self, renderer: &mut Renderer, seconds: f32) {
+        use glam::{Mat4, Vec3};
+        if self.car.is_empty() {
+            self.car = self.play.car_instances();
+        }
+        let Some((at, turned)) = self.play.car_pose() else {
+            renderer.set_coat(None);
+            return;
+        };
+        let car = Mat4::from_rotation_translation(turned, at);
+        // Where its tyres touch says where its axles are, how wide it is, and how far under
+        // it the ground is: when all four are down.
+        let mut ground = 0.0;
+        if let Some(hud) = self
+            .play
+            .hud()
+            .filter(|hud| hud.wheels.iter().all(|wheel| wheel.on_ground))
+        {
+            let to_car = car.inverse();
+            let touch: Vec<Vec3> = hud
+                .wheels
+                .iter()
+                .map(|wheel| to_car.transform_point3(wheel.at))
+                .collect();
+            let ease = (seconds * 4.0).min(1.0);
+            let now = [
+                (touch[0].z + touch[1].z) * 0.5,
+                (touch[2].z + touch[3].z) * 0.5,
+                touch.iter().map(|at| at.x.abs()).sum::<f32>() * 0.25,
+                self.axles[3],
+            ];
+            for (kept, now) in self.axles.iter_mut().zip(now) {
+                *kept += (now - *kept) * ease;
+            }
+            ground = touch.iter().map(|at| at.y).sum::<f32>() * 0.25;
+        }
+        let rain = (renderer.rain_state().rate / 12.0).clamp(0.0, 1.0);
+        self.wear.gather(self.spray.thrown, rain, seconds);
+        let wear = self.wear;
+        renderer.set_coat(Some((
+            solstice_render::Coat {
+                // Its own space is measured from the ground under it.
+                car: car * Mat4::from_translation(Vec3::Y * ground),
+                paint: wear.paint,
+                was: self.made,
+                rust: wear.rust,
+                dust: wear.dust,
+                mud: wear.mud,
+                wet: wear.wet,
+                soil: SOIL,
+                seed: 1851,
+                axles: self.axles,
+            },
+            &self.car,
+        )));
     }
 
     /// Says which instances of the player's car are its tail lamps and its headlamps, to be
@@ -899,10 +1307,24 @@ impl PlayMode {
             }
             None => self.spray.rest(renderer),
         }
+        self.coat(renderer, seconds);
+        if let Some(truck) = self.display.get_mut(self.displayed) {
+            truck.show(renderer);
+        }
+        if let Some(kit) = &mut self.kit {
+            if !self.unseen {
+                kit.show(renderer);
+            }
+            kit.advance(seconds);
+            for (instance, by) in kit.swings() {
+                self.play.move_within(instance, by);
+            }
+        }
         if let Some(sound) = &mut self.sound {
-            // The coil passes the middle of its sweep twice in each swing (`place_carried`).
-            sound.sweep = (self.swept * SWEEPS / std::f32::consts::PI).rem_euclid(1.0);
-            sound.frame(self.play.hud(), flattened, renderer, seconds);
+            // A truck that is not there is not heard either.
+            let hud = self.play.hud().filter(|_| !self.unseen);
+            sound.menu = self.unseen;
+            sound.frame(hud, flattened, renderer, seconds);
         }
         self.frames += 1;
         if let (true, Some(hud)) = (self.trace && self.frames % 30 == 0, self.play.hud()) {

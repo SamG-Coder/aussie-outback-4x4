@@ -1,0 +1,7 @@
+# Howitt Ute (1994): The big wagon's nose on a cab-chassis with a tray.
+# Written by tools/blender/truck/build.py, with its model.
+name howitt_ute
+mesh ../../target/outback/trucks/howitt_ute.glb 1
+vehicle howitt_ute.vehicle
+kit howitt_ute.kit
+camera 0 1.54 0

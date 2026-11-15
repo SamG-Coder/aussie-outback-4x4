@@ -111,6 +111,12 @@ impl Shed {
         self.front.x.atan2(self.front.y)
     }
 
+    /// The gate: a trailhead beside the shed, at its left-hand end, off the road. A track
+    /// of its own leaves from it.
+    pub fn gate(&self) -> Vec2 {
+        self.place(SLAB.0[0] - 9.5, 0.5)
+    }
+
     /// The bay a truck is parked in: where, and how far round.
     pub fn bay(&self) -> (Vec3, f32) {
         let at = self.place(BAY[0], BAY[1]);

@@ -1,0 +1,44 @@
+# Tambo (1986): A boxy eighties family wagon: four doors, vinyl seats, a carburettor.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1620
+inertia 2731 2983 607
+centre 0 0.72 -0.16
+body 1.68 1.24 4.55 at 0 1.14 0.12
+driver right
+hold 0.666 0.420 0.430 at -0.423 0.820 0.079
+hold 1.512 0.420 0.390 at 0.000 0.820 0.700
+hold 1.482 0.450 1.220 at 0.000 0.885 1.715
+
+front at=1.325 track=1.400 radius=0.3650 inertia=2.10 driven=yes
+front spring=37607 bump=3905 rebound=7377 bar=6364 travel=0.09,0.08 roll_centre=0.15
+front brake=2256 grip=1
+rear at=1.325 track=1.400 radius=0.3650 inertia=2.42 driven=yes
+rear spring=31821 bump=3399 rebound=6437 bar=1736 travel=0.11,0.09 roll_centre=0.35
+rear brake=1331 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4050 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.28 friction=22,0.012
+torque 1000 103
+torque 1400 155
+torque 1800 172
+torque 2600 172
+torque 3400 147
+torque 4000 112
+torque 4400 69
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.3
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=868 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.01 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

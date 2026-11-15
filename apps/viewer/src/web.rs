@@ -452,10 +452,29 @@ impl WebViewer {
             if let Some(shell) = &mut self.shell {
                 shell.see(play.things());
                 shell.after(play.play.hud());
+                shell.see_dirt(play.dirt());
+                // While somebody else's run is watched, the camera is the shot's.
+                if let Some((position, yaw, pitch)) = shell.view() {
+                    (camera.position, camera.yaw, camera.pitch) = (position, yaw, pitch);
+                }
+                let stands = play.play.car_pose();
+                if let Some((at, turned, seconds)) = shell.showroom() {
+                    let (at, turned) = play.stand().unwrap_or((at, turned));
+                    (camera.position, camera.yaw, camera.pitch) =
+                        play.showroom_camera(at, turned, seconds);
+                }
+                let preview = shell.preview();
+                play.set_unseen(&mut self.renderer, preview.is_some());
+                if let Some((at, seconds)) = preview {
+                    let (at, turned) = stands.unwrap_or((at, glam::Quat::IDENTITY));
+                    (camera.position, camera.yaw, camera.pitch) =
+                        play.preview_camera(at, turned, seconds);
+                }
                 play.set_detector(shell.detector());
                 if let Some(told) = shell.tell(play.play.hud(), delta_seconds) {
                     self.told = told;
                 }
+                let now = self.clock.time.hours;
                 for order in shell.take_orders() {
                     self.orders.push(match order {
                         // The desktop's: in a browser the page takes hold of the mouse itself.
@@ -482,6 +501,32 @@ impl WebViewer {
                             play.sound_once(name);
                             continue;
                         }
+                        Order::Door { piece, open } => {
+                            let _ = play.swing(&piece, if open { 1.0 } else { 0.0 });
+                            continue;
+                        }
+                        Order::Paint(colour) => {
+                            play.paint(colour);
+                            continue;
+                        }
+                        Order::Dirt(dirt) => {
+                            play.set_dirt(dirt);
+                            continue;
+                        }
+                        // A browser keeps one game.
+                        Order::Saves(_) | Order::Options => continue,
+                        Order::Show { index, paint } => {
+                            play.display(&mut self.renderer, index, paint);
+                            continue;
+                        }
+                        Order::Fit(build) => {
+                            let _ = play.display_fit(&build);
+                            continue;
+                        }
+                        Order::Afoot(at) => {
+                            play.play.stand_at(at);
+                            continue;
+                        }
                         Order::Swap => {
                             if play.play.afoot() {
                                 play.play.get_in(crate::shell::GET_IN + 1.0);
@@ -494,13 +539,20 @@ impl WebViewer {
                             play.play.place_car(position, yaw);
                             continue;
                         }
+                        // A timed run, or somebody else's being watched.
+                        Order::Stage(stage) => {
+                            crate::cinema::stage(play, stage);
+                            continue;
+                        }
                         Order::Quit => "quit".to_owned(),
                         Order::Load { map, scene, sky } => format!(
                             "load {map} {scene} {} {}",
                             shell.mode_name(),
-                            sky.map_or("-".to_owned(), |(hours, weather, soaked)| format!(
-                                "{hours} {weather} {soaked}"
-                            ))
+                            sky.map_or("-".to_owned(), |(hours, weather, soaked)| {
+                                // (No hour is the hour it is: the clock goes on.)
+                                let hours = if hours < 0.0 { now } else { hours };
+                                format!("{hours} {weather} {soaked}")
+                            })
                         ),
                     });
                 }
@@ -875,6 +927,7 @@ impl WebViewer {
     ) -> Result<(), JsValue> {
         let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
         let mut shell = crate::shell::Shell::new(world, kept);
+        shell.set_web();
         if !map.is_empty() {
             shell.start_in(map);
         }

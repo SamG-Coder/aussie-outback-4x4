@@ -1,0 +1,7 @@
+# Feathertop (1996): A big rounded wagon with a straight six: quiet, heavy and unstoppable.
+# Written by tools/blender/truck/build.py, with its model.
+name feathertop
+mesh ../../target/outback/trucks/feathertop.glb 1
+vehicle feathertop.vehicle
+kit feathertop.kit
+camera 0 1.54 0

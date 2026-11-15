@@ -1,5 +1,5 @@
 # What every map shares, in a file of its own beside the maps (assets/shared.solstice): the
-# truck, and the detector its driver carries. A map says an actor is here and not in it with
+# truck, the detector its driver carries, and the game's own code. A map says an actor is here and not in it with
 # `shared` at the end of its line; the map is joined with this file as it is read, and its
 # actor is given the model that is here (apps/viewer/src/shared.rs).
 #
@@ -13,5 +13,11 @@
 texture_size 1024
 actor outback/raptor.actor 0 0 0 0
 actor outback/detector.actor 0 0 0 0
+# The game's own code is here once: who drives, and what the keys and a controller do. A map
+# has its driver where it stands; what the driver is, and its script and the actions, are
+# these, whatever the map was baked with (`shared::share_code`). So what a controller does is
+# changed by baking this file alone.
+actor outback/driver.actor 0 0 0 0
+input outback/game.input
 # (No nugget is here, or in any file: the game makes each as it is found.)
 lends outback

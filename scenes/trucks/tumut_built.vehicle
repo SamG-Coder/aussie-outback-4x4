@@ -1,0 +1,43 @@
+# Tumut Trail (2021): The tiny one on big tyres with a rack: goes where the big ones cannot fit.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1220
+inertia 1212 1324 436
+centre 0 0.80 -0.14
+body 1.64 1.17 3.47 at 0 1.19 0.06
+driver right
+hold 0.646 0.420 0.430 at -0.413 0.900 0.180
+hold 1.454 0.450 0.860 at 0.000 0.950 1.295
+
+front at=1.125 track=1.440 radius=0.3900 inertia=2.57 driven=yes
+front spring=22657 bump=2353 rebound=4444 bar=4793 travel=0.14,0.13 roll_centre=0.15
+front brake=1699 grip=1
+rear at=1.125 track=1.440 radius=0.3900 inertia=2.95 driven=yes
+rear spring=19171 bump=2048 rebound=3878 bar=1307 travel=0.16,0.14 roll_centre=0.35
+rear brake=1002 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=3050 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.36 friction=30,0.012
+torque 1000 155
+torque 2000 207
+torque 3000 238
+torque 4000 259
+torque 5000 246
+torque 5800 220
+torque 6200 181
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=654 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=0.99 downforce=0 balance=0.5
+steering lock=36 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=yes stability=no descent=yes

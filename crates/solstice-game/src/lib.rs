@@ -9,6 +9,7 @@
 //! * [`track`]: `.track` files, a circuit's centre line and what lies beside it; [`race`], which
 //!   times laps round it; and [`drive`], the player's car, its camera and its instruments.
 //! * [`ground`]: a map of what open country is made of, for land that is not a circuit.
+//! * [`par`]: how long a track takes a truck of some kind, worked out from the track.
 //!
 //! None of it touches the GPU. The viewers move the renderer's instances, and its camera, as
 //! [`play::Play::frame`] tells them.
@@ -20,6 +21,7 @@ pub mod animation;
 pub mod drive;
 pub mod ground;
 pub mod input;
+pub mod par;
 pub mod play;
 pub mod race;
 pub mod scene;

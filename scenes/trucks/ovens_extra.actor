@@ -1,0 +1,7 @@
+# Ovens Extra (2016): An extra cab: two doors, a long tub.
+# Written by tools/blender/truck/build.py, with its model.
+name ovens_extra
+mesh ../../target/outback/trucks/ovens_extra.glb 1
+vehicle ovens_extra.vehicle
+kit ovens_extra.kit
+camera 0 1.48 0

@@ -1,0 +1,7 @@
+# Dargo Styleside (1987): The same cab with a steel tub and square lamps.
+# Written by tools/blender/truck/build.py, with its model.
+name dargo_tub
+mesh ../../target/outback/trucks/dargo_tub.glb 1
+vehicle dargo_tub.vehicle
+kit dargo_tub.kit
+camera 0 1.36 0

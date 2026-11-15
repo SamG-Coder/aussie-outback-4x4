@@ -1,0 +1,7 @@
+# Kestrel (2024): A full-size desert truck: over two metres wide, a bonnet like a billiard table, a supercharged V8.
+# Written by tools/blender/truck/build.py, with its model.
+name kestrel
+mesh ../../target/outback/trucks/kestrel.glb 1
+vehicle kestrel.vehicle
+kit kestrel.kit
+camera 0 1.71 0

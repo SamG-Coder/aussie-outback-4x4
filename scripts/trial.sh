@@ -38,7 +38,7 @@ said() {
 
 echo "==== the Crossroads"
 "$game" --world scenes/outback.world --ui ui --size 1280x720 --time 10:00 --weather fair --trial "$out" \
-  --tap key:Enter@6 --tap key:Enter@7.5 \
+  --tap key:ArrowDown@5 --tap key:Enter@6 --tap key:Enter@7.5 \
   --tap key:KeyE@10-11 \
   --tap mouse:0,260@12.3 \
   --tap key:KeyW@13-14.5 \
@@ -68,7 +68,7 @@ cat "$out/profile.txt" 2>/dev/null
 
 echo "==== the town"
 "$game" --world scenes/outback.world --ui ui assets/town.solstice --size 1280x720 --time 10:00 --weather fair --trial "$out" \
-  --tap key:Enter@6 --tap key:Enter@7.5 \
+  --tap key:ArrowDown@5 --tap key:Enter@6 --tap key:Enter@7.5 \
   --tap place:-14.75,65.4,6.81,-105.8@9 \
   --tap shot:06_at_the_buyers@11 \
   --tap key:KeyE@12-13 \

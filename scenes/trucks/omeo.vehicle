@@ -1,0 +1,43 @@
+# Omeo (1988): A tiny petrol wagon: floats over mud the big ones sink in, and runs out of breath on a hill.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 930
+inertia 814 889 249
+centre 0 0.70 -0.12
+body 1.42 1.16 3.25 at 0 1.08 0.06
+driver right
+hold 0.577 0.420 0.410 at -0.339 0.800 0.150
+hold 1.236 0.450 0.790 at 0.000 0.825 1.220
+
+front at=1.015 track=1.210 radius=0.3350 inertia=1.63 driven=yes
+front spring=21589 bump=2242 rebound=4235 bar=3654 travel=0.09,0.08 roll_centre=0.15
+front brake=1295 grip=1
+rear at=1.015 track=1.210 radius=0.3350 inertia=1.87 driven=yes
+rear spring=18268 bump=1951 rebound=3695 bar=996 travel=0.11,0.09 roll_centre=0.35
+rear brake=764 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=2325 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=6200 inertia=0.26 friction=20,0.012
+torque 1000 48
+torque 2000 64
+torque 3000 73
+torque 4000 80
+torque 5000 76
+torque 5800 68
+torque 6200 56
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.3
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=600 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=0.80 downforce=0 balance=0.5
+steering lock=36 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no
