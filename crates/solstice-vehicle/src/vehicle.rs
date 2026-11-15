@@ -804,7 +804,10 @@ impl Vehicle {
                 across,
                 rolling,
                 against,
-                grip: surface.grip_at(wetness) * axle.grip * footprint,
+                grip: surface.grip_at(wetness)
+                    * axle.grip
+                    * footprint
+                    * spec.tyre.tread_on(surface.sink),
                 slip: surface.slip,
                 hold: surface.hold,
                 resistance: -drag * loads[index] * (rolling / 0.5).tanh(),

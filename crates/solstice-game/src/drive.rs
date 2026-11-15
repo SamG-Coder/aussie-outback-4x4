@@ -204,11 +204,23 @@ pub const FALLEN: f32 = 14.0;
 /// Puts a car back on the track: on the centre line nearest where it is, a little back, facing
 /// the way the lap runs, at rest.
 pub fn put_back(world: &mut World, entity: Entity, track: &Track) {
+    // On a lap, in the section of it that is being driven: at its start, if the nearest of
+    // the track is in another, so that a section is not got out of by being put back.
+    let section = world
+        .entities
+        .get::<&Lap>(entity)
+        .ok()
+        .filter(|lap| lap.current.is_some())
+        .map(|lap| lap.section(track));
     let Ok(mut transform) = world.entities.get::<&mut Transform>(entity) else {
         return;
     };
     let place = track.locate(transform.translation, None);
-    let (centre, forward, left) = track.place(place.along - 8.0);
+    let along = match section {
+        Some((from, to)) if !(from..to).contains(&place.along) => from + 11.0,
+        _ => place.along,
+    };
+    let (centre, forward, left) = track.place(along - 8.0);
     let up = forward.cross(left).normalize_or(Vec3::Y);
     // The car's -Z along the track, its +X to the track's right, and standing on its slope.
     transform.rotation = Quat::from_mat3(&glam::Mat3::from_cols(-left, up, -forward)).normalize();

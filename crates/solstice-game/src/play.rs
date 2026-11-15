@@ -426,6 +426,11 @@ impl Play {
         } else {
             drive::Pace::RACING
         };
+        // The lowest the track goes: a car far below that has fallen out of the world.
+        let lowest = track.as_ref().map_or(f32::MIN, |track| {
+            let heights = track.samples.iter().map(|sample| sample.position.y);
+            heights.fold(f32::MAX, f32::min)
+        });
         schedule.add(TickGroup::PrePhysics, "driving", move |world| {
             // Every car's tyres are on ground as wet as the weather has made it.
             for (_, car) in world.entities.query_mut::<(Entity, &mut Car)>() {
@@ -554,8 +559,13 @@ impl Play {
             }
             // Put back on the track when the player asks, and when the car has fallen far
             // below it: off a cliff, or into the sea.
+            // (In the bush a car is wherever it has been driven, down a hill from the track
+            // as likely as not: there it is lost only if it is under all the land there is.)
             let fallen = circuit.as_ref().is_some_and(|track| {
                 world.entities.get::<&Transform>(entity).is_ok_and(|at| {
+                    if mapped {
+                        return at.translation.y < lowest - drive::FALLEN * 4.0;
+                    }
                     let place = track.locate(at.translation, last_at);
                     // Kept as the next step's hint, or every step searches the whole lap.
                     last_at = Some(place.sample);
@@ -776,6 +786,28 @@ impl Play {
                 }
             }
         }
+    }
+
+    /// Gets the player out of the car and stands them somewhere: where they came out of a
+    /// door. Whether they are on foot there.
+    pub fn stand_at(&mut self, at: Vec3) -> bool {
+        if !self.afoot && !self.get_out() {
+            return false;
+        }
+        let Some(walker) = &self.walker else {
+            return false;
+        };
+        let at = at + Vec3::Y * 0.2;
+        if let Ok(mut transform) = self
+            .game
+            .world
+            .entities
+            .get::<&mut Transform>(walker.entity)
+        {
+            transform.translation = at;
+        }
+        self.physics.borrow_mut().place(walker.entity, at);
+        true
     }
 
     /// The instances that draw the player's car, its wheels among them.

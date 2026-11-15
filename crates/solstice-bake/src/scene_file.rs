@@ -361,6 +361,18 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
             use crate::outback::Country;
             let (country, leads) = match &values[1..] {
                 [] => (Country::TRACK, Vec::new()),
+                // (A track's `+MAP` is its gate: a trailhead beside its start, back to a hub.)
+                [gate] if gate.starts_with('+') => (Country::TRACK, vec![gate.to_string()]),
+                [kind, gate]
+                    if !matches!(*kind, "hub" | "town")
+                        && Country::named(kind).is_some()
+                        && gate.starts_with('+') =>
+                {
+                    (
+                        Country::named(kind).expect("just seen"),
+                        vec![gate.to_string()],
+                    )
+                }
                 [hub, maps @ ..] if matches!(*hub, "hub" | "town") && (1..=6).contains(&maps.len()) => (
                     Country::named(hub).expect("one of the two"),
                     maps.iter().map(|map| map.to_string()).collect(),
@@ -668,6 +680,27 @@ struct Gameplay {
     meshes: Vec<(usize, PathBuf, Placed)>,
     /// Whether an actor has a camera already: only one can.
     has_player: [bool; 2],
+    /// The actors whose meshes are kits: the pieces of each are listed for the game.
+    kits: Vec<usize>,
+}
+
+/// Which of an actor's instances draw each named piece of its mesh, as text: a line a piece,
+/// `NAME FIRST COUNT`, counted from the actor's first instance. A piece of several materials
+/// is several instances, one after another.
+fn pieces_text(names: &[String]) -> String {
+    let mut text = String::new();
+    let mut first = 0;
+    while first < names.len() {
+        let count = names[first..]
+            .iter()
+            .take_while(|name| **name == names[first])
+            .count();
+        if !names[first].is_empty() {
+            text.push_str(&format!("{} {first} {count}\n", names[first]));
+        }
+        first += count;
+    }
+    text
 }
 
 impl Gameplay {
@@ -743,6 +776,12 @@ impl Gameplay {
             let name = resolve(&line.file, &vehicle.path);
             solstice_game::VehicleSpec::parse(self.read(base, &name)?)
                 .map_err(|e| format!("{name}: {e}"))?;
+        }
+        if let Some(kit) = &actor.kit {
+            // The game reads it: here it is only brought along.
+            let name = resolve(&line.file, kit);
+            self.read(base, &name)?;
+            self.kits.push(self.game.actors.len());
         }
         // Its model may be in the file every map shares, and not in this one. Baked whole,
         // to be looked at on its own, it is in this one after all.
@@ -1201,6 +1240,8 @@ pub(crate) fn build_commands(
                 placed.whole_owners.push(owner.clone());
             }
         }
+        let names = imported.names.clone();
+        let mut kit_pieces: Vec<GameFile> = Vec::new();
         let ranges = append_model(&mut scene, imported, &models[model])
             .map_err(|e| format!("{}: {e}", model.display()))?;
         for (_, graph_file) in animations.iter().filter(|(m, _)| m == model) {
@@ -1230,6 +1271,18 @@ pub(crate) fn build_commands(
                 Placed::Part(i) => whole_count + i,
             };
             gameplay.game.actors[*actor].instances = Some(ranges[index].clone());
+            // A kit's pieces are listed, for the game to show some and not others.
+            if gameplay.kits.contains(actor) && matches!(placed, Placed::Whole(_)) {
+                kit_pieces.push(GameFile {
+                    name: solstice_game::actor::pieces_file(&gameplay.game.actors[*actor].file),
+                    text: pieces_text(&names),
+                });
+            }
+        }
+        for file in kit_pieces.drain(..) {
+            if !gameplay.files.iter().any(|f| f.name == file.name) {
+                gameplay.files.push(file);
+            }
         }
         let collide = collides.remove(model).unwrap_or_default();
         scene.collide.resize(scene.instances.len(), Collide::Auto);

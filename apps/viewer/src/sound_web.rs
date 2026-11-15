@@ -82,6 +82,9 @@ impl Asking<'_> {
     }
 
     /// The engine's note from now on: its loops' volumes and pitches.
+    /// How loud everything is: a page has its own say in that.
+    pub fn master(&mut self, _share: f32) {}
+
     pub fn engine(&mut self, note: EngineNote) {
         let rpm = note.rpm.clamp(300.0, 12_000.0);
         // At the limiter the spark is cut and comes back, too fast to be asked for a frame

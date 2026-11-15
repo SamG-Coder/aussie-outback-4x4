@@ -720,6 +720,11 @@ impl Asking<'_> {
         }
     }
 
+    /// How loud everything is, from 0, silent, to 1, as loud as it was made.
+    pub fn master(&mut self, share: f32) {
+        self.mix.master = 0.8 * share.clamp(0.0, 1.0);
+    }
+
     /// The engine's note from now on.
     pub fn engine(&mut self, note: EngineNote) {
         let engine = &mut self.mix.engine;
