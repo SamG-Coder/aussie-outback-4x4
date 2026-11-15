@@ -1,0 +1,7 @@
+# Tumut Trail (2021): The tiny one on big tyres with a rack: goes where the big ones cannot fit.
+# Written by tools/blender/truck/build.py, with its model.
+name tumut_built
+mesh ../../target/outback/trucks/tumut_built.glb 1
+vehicle tumut_built.vehicle
+kit tumut_built.kit
+camera 0 1.45 0

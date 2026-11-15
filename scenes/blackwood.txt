@@ -2,7 +2,7 @@
 # deep ruts along its creek. Everything is built from the `outback` line.
 texture_size 1024
 camera -340 60 78 0.2 -0.1
-outback 1000 mud
+outback 1000 mud +crossroads
 actor outback/raptor.actor -341.97 55.77 62.12 -10.1 shared
 # The driver, who sits in the truck until they get out of it, and what the keys do.
 actor outback/driver.actor -341.97 55.77 62.12 -10.1

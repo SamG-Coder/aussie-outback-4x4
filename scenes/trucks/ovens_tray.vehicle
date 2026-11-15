@@ -1,0 +1,43 @@
+# Ovens Tray (2007): The single cab with an alloy tray, as a tradesman buys it.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1960
+inertia 4309 4706 891
+centre 0 0.77 -0.18
+body 1.85 1.23 5.21 at 0 1.19 0.17
+tray 1.82 0.35 2.31 at 0 1.20 1.64
+driver right
+hold 0.746 0.420 0.430 at -0.463 0.870 -0.065
+
+front at=1.540 track=1.540 radius=0.3850 inertia=2.47 driven=yes
+front spring=36400 bump=3780 rebound=7140 bar=7700 travel=0.12,0.11 roll_centre=0.15
+front brake=2730 grip=1
+rear at=1.540 track=1.540 radius=0.3850 inertia=2.84 driven=yes
+rear spring=30800 bump=3290 rebound=6230 bar=2100 travel=0.14,0.12 roll_centre=0.35
+rear brake=1610 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4900 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.37 friction=31,0.012
+torque 1000 275
+torque 1400 412
+torque 1800 458
+torque 2600 458
+torque 3400 389
+torque 4000 298
+torque 4400 183
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=1050 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.14 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=no stability=no descent=no

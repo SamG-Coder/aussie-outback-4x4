@@ -1,0 +1,7 @@
+# Jamieson V8 Single (2012): The V8 single cab: a long tray, a long-range tank, a winch.
+# Written by tools/blender/truck/build.py, with its model.
+name jamieson_v8_single
+mesh ../../target/outback/trucks/jamieson_v8_single.glb 1
+vehicle jamieson_v8_single.vehicle
+kit jamieson_v8_single.kit
+camera 0 1.71 0

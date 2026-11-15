@@ -1,0 +1,7 @@
+# Jamieson Troop (1999): The flat cab with a tall wagon body and seats down each side.
+# Written by tools/blender/truck/build.py, with its model.
+name jamieson_troop
+mesh ../../target/outback/trucks/jamieson_troop.glb 1
+vehicle jamieson_troop.vehicle
+kit jamieson_troop.kit
+camera 0 1.74 0

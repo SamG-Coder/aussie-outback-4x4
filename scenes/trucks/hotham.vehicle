@@ -1,0 +1,44 @@
+# Hotham (2009): A tall mid-sized wagon: the school run and the long weekend alike.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 2050
+inertia 3745 4089 973
+centre 0 0.80 -0.17
+body 1.89 1.30 4.74 at 0 1.25 0.08
+driver right
+hold 0.766 0.420 0.430 at -0.473 0.900 0.129
+hold 1.712 0.420 0.390 at 0.000 0.900 0.750
+hold 1.700 0.450 1.220 at 0.000 0.925 1.765
+
+front at=1.395 track=1.540 radius=0.3850 inertia=2.47 driven=yes
+front spring=38071 bump=3954 rebound=7468 bar=8054 travel=0.12,0.11 roll_centre=0.15
+front brake=2855 grip=1
+rear at=1.395 track=1.540 radius=0.3850 inertia=2.84 driven=yes
+rear spring=32214 bump=3441 rebound=6516 bar=2196 travel=0.14,0.12 roll_centre=0.35
+rear brake=1684 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=5125 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.38 friction=31,0.012
+torque 1000 281
+torque 1400 422
+torque 1800 468
+torque 2600 468
+torque 3400 398
+torque 4000 304
+torque 4400 187
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=1098 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.22 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=no stability=no descent=no

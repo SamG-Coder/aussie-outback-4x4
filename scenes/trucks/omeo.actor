@@ -1,0 +1,7 @@
+# Omeo (1988): A tiny petrol wagon: floats over mud the big ones sink in, and runs out of breath on a hill.
+# Written by tools/blender/truck/build.py, with its model.
+name omeo
+mesh ../../target/outback/trucks/omeo.glb 1
+vehicle omeo.vehicle
+kit omeo.kit
+camera 0 1.34 0

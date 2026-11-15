@@ -1,0 +1,7 @@
+# Tambo (1986): A boxy eighties family wagon: four doors, vinyl seats, a carburettor.
+# Written by tools/blender/truck/build.py, with its model.
+name tambo
+mesh ../../target/outback/trucks/tambo.glb 1
+vehicle tambo.vehicle
+kit tambo.kit
+camera 0 1.44 0

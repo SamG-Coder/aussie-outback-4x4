@@ -1,0 +1,7 @@
+# Mitta Shorty (1993): The same with two doors.
+# Written by tools/blender/truck/build.py, with its model.
+name mitta_short
+mesh ../../target/outback/trucks/mitta_short.glb 1
+vehicle mitta_short.vehicle
+kit mitta_short.kit
+camera 0 1.50 0

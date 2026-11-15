@@ -1,0 +1,7 @@
+# Wonnangatta (1978): A one-tonner: long wheelbase, heavy springs, a tray you could camp on.
+# Written by tools/blender/truck/build.py, with its model.
+name wonnangatta
+mesh ../../target/outback/trucks/wonnangatta.glb 1
+vehicle wonnangatta.vehicle
+kit wonnangatta.kit
+camera 0 1.40 0

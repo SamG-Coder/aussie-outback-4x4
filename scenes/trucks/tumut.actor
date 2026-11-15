@@ -1,0 +1,7 @@
+# Tumut (2019): The tiny one, built new: square, light, and good at everything small.
+# Written by tools/blender/truck/build.py, with its model.
+name tumut
+mesh ../../target/outback/trucks/tumut.glb 1
+vehicle tumut.vehicle
+kit tumut.kit
+camera 0 1.40 0

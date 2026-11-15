@@ -1,0 +1,43 @@
+# Delatite Tray (1997): The single cab, with a tray.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1690
+inertia 3401 3714 664
+centre 0 0.74 -0.18
+body 1.72 1.20 4.98 at 0 1.14 0.16
+tray 1.72 0.35 2.26 at 0 1.14 1.54
+driver right
+hold 0.684 0.420 0.430 at -0.432 0.840 -0.135
+
+front at=1.500 track=1.480 radius=0.3750 inertia=2.28 driven=yes
+front spring=39232 bump=4074 rebound=7696 bar=6639 travel=0.11,0.10 roll_centre=0.15
+front brake=2354 grip=1
+rear at=1.500 track=1.480 radius=0.3750 inertia=2.63 driven=yes
+rear spring=33196 bump=3546 rebound=6715 bar=1811 travel=0.13,0.11 roll_centre=0.35
+rear brake=1388 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4225 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.32 friction=26,0.012
+torque 1000 173
+torque 1400 260
+torque 1800 289
+torque 2600 289
+torque 3400 245
+torque 4000 188
+torque 4400 115
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.1
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=905 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.02 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

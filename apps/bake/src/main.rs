@@ -37,6 +37,7 @@
 mod collision_view;
 mod forest;
 mod gallery;
+mod kit;
 mod plants;
 mod scene;
 
@@ -86,6 +87,8 @@ struct Options {
     /// A character to check, and its rig's role file.
     check_character: Option<PathBuf>,
     roles: Option<PathBuf>,
+    /// A truck built of pieces to pack: its actor file (`kit.rs`).
+    kit: Option<PathBuf>,
 }
 
 /// Writes the file a browser reads for a scene too large for its memory: the manifest without
@@ -164,6 +167,7 @@ fn parse_args() -> Result<Options, String> {
         large: Default::default(),
         check_character: None,
         roles: None,
+        kit: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -182,6 +186,7 @@ fn parse_args() -> Result<Options, String> {
                 options.output_given = true;
             }
             "--scene" => options.scene_file = Some(PathBuf::from(value()?)),
+            "--kit" => options.kit = Some(PathBuf::from(value()?)),
             "--project" => options.project_scene = Some(PathBuf::from(value()?)),
             "--convert" => options.convert = Some(PathBuf::from(value()?)),
             "--check-character" => options.check_character = Some(PathBuf::from(value()?)),
@@ -433,6 +438,10 @@ fn main() -> Result<(), String> {
     }
     if let Some(path) = &options.check_character {
         return check_character(path, options.roles.as_ref());
+    }
+    // A truck built of pieces is packed, each piece to be read alone (`kit.rs`).
+    if let Some(actor) = &options.kit {
+        return kit::bake_kit(actor, &options.output);
     }
     let start = Instant::now();
     if let Some(path) = &options.web_split {

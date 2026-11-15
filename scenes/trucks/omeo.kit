@@ -1,0 +1,84 @@
+# Omeo (1988): what it is made of. Written by tools/blender/truck/build.py.
+base axle_front
+base axle_rear
+base bonnet
+base bumper_front
+base bumper_rear
+base cab
+base chassis
+base door_FL
+base door_FR
+base door_back
+base exhaust
+base filler
+base flap_L
+base flap_R
+base glass_quarter_L
+base glass_quarter_R
+base glass_screen
+base grille
+base indicator_L
+base indicator_R
+base interior
+base lamp_head_L
+base lamp_head_R
+base lamp_tail_L
+base lamp_tail_R
+base liner
+base mirror_L
+base mirror_R
+base nose
+base plate_front
+base plate_rear
+base roof_trim
+base trim_L
+base trim_R
+base wipers
+choice bullbar tube acc_bullbar_tube
+choice bullbar plate acc_bullbar_plate
+choice bullbar nudge acc_bullbar_nudge
+choice spots high acc_spots
+choice spots low acc_spots_low
+choice snorkel fitted acc_snorkel
+choice rack fitted acc_rack
+choice lightbar roof acc_lightbar
+choice lightbar rack acc_lightbar_high
+choice arches lip lip_FL lip_RL lip_FR lip_RR
+choice arches bolted acc_flares_bolted_FL acc_flares_bolted_RL acc_flares_bolted_FR acc_flares_bolted_RR
+choice arches moulded acc_flares_moulded_FL acc_flares_moulded_RL acc_flares_moulded_FR acc_flares_moulded_RR
+choice steps steps acc_steps_L acc_steps_R
+choice steps sliders acc_sliders_L acc_sliders_R
+choice suspension stock susp_stock_F susp_stock_R
+choice suspension heavy susp_heavy_F susp_heavy_R
+choice suspension lift susp_lift_F susp_lift_R
+choice suspension long susp_long_F susp_long_R
+choice tyres road tyre_road_FL tyre_road_FR tyre_road_RL tyre_road_RR
+choice tyres at tyre_at_FL tyre_at_FR tyre_at_RL tyre_at_RR
+choice tyres mud tyre_mud_FL tyre_mud_FR tyre_mud_RL tyre_mud_RR
+choice rims slot8 rim_slot8_FL rim_slot8_FR rim_slot8_RL rim_slot8_RR
+choice rims sunraysia rim_sunraysia_FL rim_sunraysia_FR rim_sunraysia_RL rim_sunraysia_RR
+choice rims spoke5 rim_spoke5_FL rim_spoke5_FR rim_spoke5_RL rim_spoke5_RR
+choice rims spoke6 rim_spoke6_FL rim_spoke6_FR rim_spoke6_RL rim_spoke6_RR
+choice rims mesh rim_mesh_FL rim_mesh_FR rim_mesh_RL rim_mesh_RR
+choice rims beadlock rim_beadlock_FL rim_beadlock_FR rim_beadlock_RL rim_beadlock_RR
+choice spare fitted acc_spare
+stock arches lip
+stock suspension stock
+stock tyres at
+stock rims sunraysia
+showroom arches lip
+showroom suspension stock
+showroom tyres at
+showroom rims sunraysia
+replaces bullbar plate bumper_front plate_front
+lift stock 0.0
+lift heavy 0.025
+lift lift 0.05
+lift long 0.1
+paint 0.7800 0.1000 0.0800
+hinge door_FL -0.710 0.000 -0.495 up -70
+hinge door_FR 0.710 0.000 -0.495 up 70
+hinge door_back 0.582 0.000 1.715 up 100
+hold passenger_seat 0.577 0.420 0.410 at -0.339 1.010 0.150 door door_FL
+hold boot 1.236 0.450 0.790 at 0.000 1.050 1.220 door door_back
+rides acc_spare door_back

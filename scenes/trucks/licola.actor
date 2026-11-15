@@ -1,0 +1,7 @@
+# Licola (1976): A short flat-panelled tray-back from the seventies: nothing on it that a hammer cannot fix.
+# Written by tools/blender/truck/build.py, with its model.
+name licola
+mesh ../../target/outback/trucks/licola.glb 1
+vehicle licola.vehicle
+kit licola.kit
+camera 0 1.52 0

@@ -1,0 +1,7 @@
+# Ovens Cab-chassis (2012): The dual cab with a tray and a ladder rack.
+# Written by tools/blender/truck/build.py, with its model.
+name ovens_cab
+mesh ../../target/outback/trucks/ovens_cab.glb 1
+vehicle ovens_cab.vehicle
+kit ovens_cab.kit
+camera 0 1.48 0

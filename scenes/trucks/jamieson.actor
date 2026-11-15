@@ -1,0 +1,7 @@
+# Jamieson (1996): A flat-panelled cab-chassis with a steel tray. Farms run on them.
+# Written by tools/blender/truck/build.py, with its model.
+name jamieson
+mesh ../../target/outback/trucks/jamieson.glb 1
+vehicle jamieson.vehicle
+kit jamieson.kit
+camera 0 1.60 0

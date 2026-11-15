@@ -1,0 +1,7 @@
+# Feathertop GX (2015): The big wagon's grandchild: a twin-turbo V8 and eight seats.
+# Written by tools/blender/truck/build.py, with its model.
+name feathertop_gx
+mesh ../../target/outback/trucks/feathertop_gx.glb 1
+vehicle feathertop_gx.vehicle
+kit feathertop_gx.kit
+camera 0 1.62 0

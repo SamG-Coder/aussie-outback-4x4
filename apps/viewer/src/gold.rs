@@ -12,8 +12,11 @@
 //! their own: one is in the driver's hand, or it is loose, a body that falls, rolls, lies
 //! where it comes to rest and is pushed by what meets it (`Play::add_thing`). Put into the
 //! truck's tray it lies in the tray, rides there, weighs on the truck's springs, and can be
-//! thrown out of it by a hard enough landing. Put into the chest in the shed it lies in the
-//! chest. One button does what there is to do ([`Gold::can`]): dig, pick up the nearest, or
+//! thrown out of it by a hard enough landing. A truck with a cab to put things in has
+//! **holds** besides ([`Hold`]): its passenger's seat, its back seat, its boot, never the
+//! driver's own. Each is behind a door, which the button opens and shuts; with the door
+//! open a nugget is put in, and lies there shut in, where no landing throws it out. Put
+//! into the chest in the shed it lies in the chest. One button does what there is to do ([`Gold::can`]): dig, pick up the nearest, or
 //! put down what is held onto whatever is in front of the driver.
 //!
 //! **Where each is** is kept with the game ([`Lies`]): loose on a map, where it lay and
@@ -38,7 +41,10 @@ use solstice_asset::GameFile;
 /// How far off the detector hears gold, and how near the driver stands to dig it: in metres.
 /// It hears a long way, faintly: gold is a few places in kilometres of bush, and a driver
 /// walking the track is to be told that there is some off to one side, and then led to it.
-const HEARS: f32 = 45.0;
+const HEARS: f32 = 60.0;
+/// How much of gold's signal is heard with the driver's back to it: the coil is held out
+/// in front, and hears best what is ahead. Turning on the spot finds which way the gold is.
+const BEHIND: f32 = 0.3;
 const DIGS: f32 = 1.7;
 /// The signal there is at the edge of where gold can be dug: at this or more, the driver
 /// is over it, and the detector says so with one unbroken tone.
@@ -47,9 +53,74 @@ pub const OVER: f32 = 0.88;
 /// stands to put one in it, and how near the chest.
 const REACH: f32 = 1.7;
 const TRAY_REACH: f32 = 1.6;
+/// How near a doorway of the truck the driver stands to open its door, and to reach in.
+const DOOR_REACH: f32 = 1.15;
 const CHEST_REACH: f32 = 1.7;
+/// How many days a map's gold lies as it was scattered, once any of it has been dug: after
+/// more than these it is scattered again, the next time the map is come into. Ground that
+/// has not been touched is left as it is.
+pub const RESCATTER_DAYS: u32 = 3;
+/// What is dug up: each kind of find, the least and the most it weighs in kilograms, and how
+/// often it is found in ordinary ground, in parts of a thousand. Mostly it is a little; a
+/// kilogram is a good week; and the last is found once in a long game.
+///
+/// At the buyer's price (`shell::PRICE`) a find in ordinary ground is worth about $270 on
+/// average, so half a dozen dug in a day's outing is a week's repayment and a little over.
+/// Richer ground has more of the big ones, poorer ground fewer (`chances`).
+pub const FINDS: [(&str, f32, f32, f32); 7] = [
+    ("a speck", 0.010, 0.030, 400.0),
+    ("a small nugget", 0.030, 0.080, 300.0),
+    ("a fair nugget", 0.080, 0.200, 170.0),
+    ("a good nugget", 0.200, 0.500, 85.0),
+    ("a big nugget", 0.500, 1.500, 30.0),
+    ("a great nugget", 1.500, 4.000, 6.0),
+    ("the find of a lifetime", 4.000, 10.000, 1.0),
+];
+
+/// How often each kind of find is found in ground this rich, as shares that add to 1. Rich
+/// is 1 for ordinary ground; above it the bigger a find is the more often it is found, and
+/// below it the less.
+pub fn chances(rich: f32) -> [f32; 7] {
+    let mut shares = [0.0; 7];
+    for (kind, (_, _, _, often)) in FINDS.iter().enumerate() {
+        shares[kind] = often * rich.max(0.05).powf(kind as f32 * 0.5);
+    }
+    let all: f32 = shares.iter().sum();
+    shares.map(|share| share / all)
+}
+
+/// What a find weighs, in kilograms: `kind` and `size` are each a number from 0 to 1, the
+/// one saying which kind of find it is in ground this rich and the other how big a one.
+pub fn find(kind: f32, size: f32, rich: f32) -> (usize, f32) {
+    let mut left = kind.clamp(0.0, 0.999_999);
+    let shares = chances(rich);
+    let mut which = FINDS.len() - 1;
+    for (index, share) in shares.iter().enumerate() {
+        if left < *share {
+            which = index;
+            break;
+        }
+        left -= share;
+    }
+    let (_, least, most, _) = FINDS[which];
+    // More of each kind are nearer its least than its most.
+    (
+        which,
+        least * (most / least).powf(size.clamp(0.0, 1.0).powf(1.5)),
+    )
+}
+
+/// A map's ground, as it was last scattered: on which day, from what number, and which of
+/// its places have been dug since (a bit each).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ground {
+    pub day: u32,
+    pub seed: u64,
+    pub dug: u32,
+}
+
 /// How many places a map's ground is given.
-const BURIED: usize = 14;
+const BURIED: usize = 24;
 /// The chest, inside: across, deep, and long (`tools/blender/shed/build.py`).
 const CHEST: Vec3 = Vec3::new(0.46, 0.42, 1.05);
 /// How far from a wall of the tray or the chest a nugget is let go.
@@ -194,11 +265,37 @@ impl Nugget {
     }
 }
 
+/// A door of the truck that something can be reached through: the piece of the truck that
+/// swings (`kit.rs`), and whether it is open.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Door {
+    pub piece: String,
+    pub open: bool,
+}
+
+/// A place in the truck that gold can be put, shut in: a seat, a boot. Its size, across,
+/// high and long, and the middle of its floor, in the truck's own space; and the ways into
+/// it, each a door (its number among the truck's doors) and where its doorway is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Hold {
+    pub name: String,
+    pub size: Vec3,
+    pub floor: Vec3,
+    pub ways: Vec<(usize, Vec3)>,
+}
+
 /// What the button does now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Use {
     Dig,
     PickUp,
+    /// Open the door the driver stands at, or shut it.
+    OpenDoor,
+    ShutDoor,
+    /// Put what is held into the hold whose open door the driver stands at; or take the
+    /// nearest nugget out of it.
+    IntoHold,
+    FromHold,
     IntoTray,
     IntoChest,
     FromTray,
@@ -214,6 +311,10 @@ impl Use {
         match self {
             Self::Dig => "dig",
             Self::PickUp => "pick",
+            Self::OpenDoor => "open",
+            Self::ShutDoor => "shut",
+            Self::IntoHold => "stow",
+            Self::FromHold => "unstow",
             Self::IntoTray => "tray",
             Self::IntoChest => "chest",
             Self::FromTray => "untray",
@@ -236,9 +337,79 @@ pub struct Stands<'a> {
     /// The truck's tray, in the truck's own space: its size inside, across, deep and long,
     /// and the middle of its floor.
     pub tray: Option<(Vec3, Vec3)>,
+    /// The truck's holds, and its doors, if it has a cab to put things in.
+    pub holds: &'a [Hold],
+    pub doors: &'a [Door],
 }
 
 impl Stands<'_> {
+    /// The hold a place is in, if it is in one.
+    fn in_hold(&self, at: Vec3) -> Option<usize> {
+        let at = self.aboard(at);
+        self.holds.iter().position(|hold| {
+            let from = at - hold.floor;
+            from.x.abs() < hold.size.x * 0.5 + 0.04
+                && from.z.abs() < hold.size.z * 0.5 + 0.04
+                && from.y > -0.1
+                && from.y < hold.size.y + 0.1
+        })
+    }
+
+    /// The doorways the driver stands at: each the hold it is a way into, its door, and how
+    /// far off it is.
+    fn doorways(&self) -> impl Iterator<Item = (usize, usize, f32)> + '_ {
+        let from = self.aboard(self.walker);
+        self.holds
+            .iter()
+            .enumerate()
+            .flat_map(move |(hold, held)| {
+                held.ways
+                    .iter()
+                    .map(move |(door, at)| (hold, *door, flat(*at, from)))
+            })
+            .filter(|(_, door, away)| *away < DOOR_REACH && *door < self.doors.len())
+    }
+
+    /// The doorway nearest the driver that they stand at: the hold it is a way into, and
+    /// its door's number.
+    pub fn doorway(&self) -> Option<(usize, usize)> {
+        self.doorways()
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(hold, door, _)| (hold, door))
+    }
+
+    /// Whether the driver can reach into a hold: they stand at a doorway of it that is open.
+    fn reaches(&self, hold: usize) -> bool {
+        self.doorways()
+            .any(|(into, door, _)| into == hold && self.doors[door].open)
+    }
+
+    /// The hold the driver can put something into: that of the nearest open doorway they
+    /// stand at.
+    fn open_hold(&self) -> Option<usize> {
+        self.doorways()
+            .filter(|(_, door, _)| self.doors[*door].open)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(hold, _, _)| hold)
+    }
+
+    /// Where something is let go into a hold: a little above its floor, `across` and `along`
+    /// it from 0 to 1, clear of its walls.
+    fn over_hold(&self, hold: usize, across: f32, along: f32) -> Vec3 {
+        let hold = &self.holds[hold];
+        let room =
+            (Vec3::new(hold.size.x, 0.0, hold.size.z) * 0.5 - Vec3::splat(0.14)).max(Vec3::ZERO);
+        let up = (hold.size.y * 0.6).min(0.25);
+        self.ashore(
+            hold.floor
+                + Vec3::new(
+                    (across * 2.0 - 1.0) * room.x,
+                    up,
+                    (along * 2.0 - 1.0) * room.z,
+                ),
+        )
+    }
+
     /// A place in the world, in the truck's own space; and the other way.
     fn aboard(&self, at: Vec3) -> Vec3 {
         self.turned.inverse() * (at - self.truck)
@@ -334,8 +505,15 @@ pub enum Body {
 /// The gold of a game.
 #[derive(Clone, Debug, Default)]
 pub struct Gold {
-    /// Where gold is in the ground of the map being played.
+    /// Where gold is in the ground of the map being played, and which of the map's places
+    /// each is (255 for one that was put there by hand).
     buried: Vec<Vec3>,
+    places: Vec<u8>,
+    /// Every map's ground that has been come into, as it was last scattered.
+    grounds: std::collections::BTreeMap<String, Ground>,
+    /// The map being played, if gold is kept for it; and how rich its ground is.
+    here: Option<String>,
+    rich: f32,
     pub nuggets: Vec<Nugget>,
     pub detector: Detector,
     next: u32,
@@ -387,6 +565,14 @@ impl Gold {
                     }),
                     _ => Detector::Hand,
                 };
+                continue;
+            }
+            // A map's ground, as it was last scattered: `scatter MAP DAY SEED DUG`.
+            if let ["scatter", map, day, seed, dug] = &words[..] {
+                if let (Ok(day), Ok(seed), Ok(dug)) = (day.parse(), seed.parse(), dug.parse()) {
+                    gold.grounds
+                        .insert((*map).to_owned(), Ground { day, seed, dug });
+                }
                 continue;
             }
             let ["nugget", id, kilos, shape, lies @ ..] = &words[..] else {
@@ -445,6 +631,13 @@ impl Gold {
     /// Adds the gold to what is kept of the game.
     pub fn keep(&self, kept: &mut String) {
         use std::fmt::Write as _;
+        for (map, ground) in &self.grounds {
+            let _ = writeln!(
+                kept,
+                "scatter {map} {} {} {}",
+                ground.day, ground.seed, ground.dug
+            );
+        }
         let pose = |at: &Vec3, turned: &Quat| {
             format!(
                 "{:.3} {:.3} {:.3} {:.4} {:.4} {:.4} {:.4}",
@@ -465,7 +658,7 @@ impl Gold {
         for nugget in &self.nuggets {
             let _ = write!(
                 kept,
-                "nugget {} {:.2} {} ",
+                "nugget {} {:.3} {} ",
                 nugget.id, nugget.kilos, nugget.shape
             );
             let _ = match &nugget.lies {
@@ -492,17 +685,25 @@ impl Gold {
     /// what it has to show nuggets with and where its chest is (`*.items`: `nugget INSTANCE
     /// POSE` a line a model, and `chest X Y Z YAW`). Its world is new: no nugget has a body
     /// in it yet.
-    pub fn enter(&mut self, files: &[GameFile], chance: u64) {
-        self.rolls = chance | 1;
-        for _ in 0..8 {
-            self.roll();
-        }
+    pub fn enter(
+        &mut self,
+        files: &[GameFile],
+        map: Option<&str>,
+        day: u32,
+        chance: u64,
+        rich: f32,
+    ) {
         self.buried.clear();
+        self.places.clear();
+        self.here = map.map(str::to_owned);
+        self.rich = rich;
         self.bodied.clear();
         self.asked.clear();
         self.chest = None;
         let mut slots = 0;
         let mut track = Vec::new();
+        // What gold is not put close by: a building, a yard, a ring to stop in.
+        let mut kept_off: Vec<(Vec3, f32)> = Vec::new();
         for file in files {
             for line in file.text.lines() {
                 let words: Vec<&str> = line.split_whitespace().collect();
@@ -524,6 +725,20 @@ impl Gold {
                             *right,
                         ));
                     }
+                    (Some("places"), Some("place"), [x, y, z, ..]) => {
+                        let what = words.get(1).copied().unwrap_or("");
+                        let built = ["door:", "stand:"]
+                            .iter()
+                            .any(|kind| what.starts_with(kind));
+                        let clear = if built || what == "buyer" {
+                            45.0
+                        } else if what == "shed" {
+                            22.0
+                        } else {
+                            11.0
+                        };
+                        kept_off.push((Vec3::new(*x, *y, *z), clear));
+                    }
                     // What the scene was given to show nuggets with, as it was read.
                     (Some("slots"), Some("slot"), [_, _]) => slots += 1,
                     (Some("items"), Some("chest"), [x, y, z, yaw]) => {
@@ -537,37 +752,107 @@ impl Gold {
             }
         }
         self.shown = vec![None; slots];
-        // Only a track has gold in its ground: a hub has a road and a shed, a town a street,
-        // and gold is brought to them.
-        let found_on = files.iter().any(|file| {
-            file.name.ends_with(".places")
-                && file.text.lines().any(|line| line.starts_with("place "))
-        });
-        if found_on || track.is_empty() {
+        // A map with no track to put it beside, or one that is not kept for (a showroom),
+        // has none.
+        let Some(map) = map.filter(|_| !track.is_empty()) else {
+            self.rolls = chance | 1;
             return;
+        };
+        // The map's ground is as it was last scattered, with what has been dug still dug:
+        // unless it has not been come into before, or some of it has been dug and more
+        // than a few days have gone by, when it is scattered again.
+        let stale =
+            |ground: &Ground| ground.dug != 0 && day.saturating_sub(ground.day) > RESCATTER_DAYS;
+        let ground = match self
+            .grounds
+            .get(map)
+            .copied()
+            .filter(|ground| !stale(ground))
+        {
+            Some(ground) => ground,
+            None => {
+                let named = map.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+                    (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+                });
+                let ground = Ground {
+                    day,
+                    seed: chance ^ named ^ u64::from(day).wrapping_mul(0x2545_F491_4F6C_DD1D),
+                    dug: 0,
+                };
+                self.grounds.insert(map.to_owned(), ground);
+                ground
+            }
+        };
+        // Its places, from its own number: the same every time, until it is scattered again.
+        self.rolls = ground.seed | 1;
+        for _ in 0..8 {
+            self.roll();
         }
-        for _ in 0..BURIED {
-            let (at, left, half_left, half_right) =
-                track[(self.roll() * track.len() as f32) as usize % track.len()];
-            let (side, half) = if self.roll() < 0.5 {
-                (1.0, half_left)
-            } else {
-                (-1.0, half_right)
-            };
-            let off = half + 5.0 + self.roll() * 22.0;
-            self.buried.push(at + left.normalize_or_zero() * side * off);
+        for place in 0..BURIED {
+            // Beside the track, on either side, clear of what is built: a few tries at it.
+            let mut at = Vec3::ZERO;
+            for _ in 0..12 {
+                let (on, left, half_left, half_right) =
+                    track[(self.roll() * track.len() as f32) as usize % track.len()];
+                let (side, half) = if self.roll() < 0.5 {
+                    (1.0, half_left)
+                } else {
+                    (-1.0, half_right)
+                };
+                let off = half + 5.0 + self.roll() * 22.0;
+                at = on + left.normalize_or_zero() * side * off;
+                if kept_off
+                    .iter()
+                    .all(|(from, clear)| flat(*from, at) > *clear)
+                {
+                    break;
+                }
+            }
+            if ground.dug & (1 << place) == 0 {
+                self.buried.push(at);
+                self.places.push(place as u8);
+            }
         }
+        // What is dug up is different every time the map is come into.
+        self.rolls = (chance ^ u64::from(ground.dug).wrapping_mul(0x9E37_79B9_7F4A_7C15)) | 1;
+        for _ in 0..8 {
+            self.roll();
+        }
+    }
+
+    /// The map's ground as it was last scattered, if it has been come into.
+    pub fn ground(&self, map: &str) -> Option<Ground> {
+        self.grounds.get(map).copied()
+    }
+
+    /// Whether there is any gold in the ground of the map: there is none in a town's.
+    pub fn any_buried(&self) -> bool {
+        !self.buried.is_empty()
     }
 
     /// Puts gold in the ground at a place: for a trial, which cannot go looking for it.
     pub fn bury(&mut self, at: Vec3) {
         self.buried.push(at);
+        self.places.push(u8::MAX);
     }
 
     /// How strong the detector's signal is where the driver stands, from 0, nothing, to 1,
     /// right over gold: what is in the ground, and a nugget lying loose on it, as one that
     /// has been thrown out of the tray is.
     pub fn signal(&self, stands: &Stands) -> f32 {
+        let nearest = self.nearest(stands).map_or(f32::MAX, |(away, _)| away);
+        // From nothing at the edge of its hearing, evenly up to `OVER` at the edge of where
+        // the gold can be dug, and from there to 1 right on top of it.
+        if nearest <= DIGS {
+            OVER + (1.0 - OVER) * (1.0 - nearest / DIGS)
+        } else {
+            OVER * (1.0 - (nearest - DIGS) / (HEARS - DIGS)).clamp(0.0, 1.0)
+        }
+    }
+
+    /// The gold nearest the driver that a detector would hear: how far off it is over the
+    /// ground, and where it is.
+    fn nearest(&self, stands: &Stands) -> Option<(f32, Vec3)> {
         let lying = self.nuggets.iter().filter_map(|nugget| match &nugget.lies {
             Lies::Loose { map, at, .. }
                 if map == stands.map && !self.chest.is_some_and(|chest| chest.holds(*at)) =>
@@ -576,20 +861,26 @@ impl Gold {
             }
             _ => None,
         });
-        let nearest = self
-            .buried
-            .iter()
-            .copied()
-            .chain(lying)
-            .map(|at| flat(at, stands.walker))
-            .fold(f32::MAX, f32::min);
-        // From nothing at the edge of its hearing, evenly up to `OVER` at the edge of where
-        // the gold can be dug, and from there to 1 right on top of it.
-        if nearest <= DIGS {
-            OVER + (1.0 - OVER) * (1.0 - nearest / DIGS)
-        } else {
-            OVER * (1.0 - (nearest - DIGS) / (HEARS - DIGS)).clamp(0.0, 1.0)
+        let each = self.buried.iter().copied().chain(lying);
+        each.map(|at| (flat(at, stands.walker), at))
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+    }
+
+    /// What the detector in the hand of a driver facing `yaw` hears: the signal, from 0 to
+    /// 1, weaker with their back to the gold than facing it, until they are over it; and
+    /// how far off the gold is, in metres, if it is heard at all.
+    pub fn heard(&self, stands: &Stands, yaw: f32) -> (f32, Option<f32>) {
+        let signal = self.signal(stands);
+        let Some((away, at)) = self.nearest(stands).filter(|_| signal > 0.0) else {
+            return (0.0, None);
+        };
+        if signal >= OVER {
+            return (signal, Some(away));
         }
+        let ahead = Vec3::new(-yaw.sin(), 0.0, -yaw.cos());
+        let towards = Vec3::new(at.x - stands.walker.x, 0.0, at.z - stands.walker.z);
+        let facing = ahead.dot(towards.normalize_or_zero()) * 0.5 + 0.5;
+        (signal * (BEHIND + (1.0 - BEHIND) * facing), Some(away))
     }
 
     fn held(&self) -> Option<usize> {
@@ -615,6 +906,12 @@ impl Gold {
     /// How many nuggets are aboard the truck, in its tray, and what they weigh.
     pub fn tray(&self) -> (usize, f32) {
         self.count(|nugget| matches!(nugget.lies, Lies::Aboard { .. }))
+    }
+
+    /// Whether anything is aboard the truck: a nugget in its tray or behind one of its
+    /// doors, or the detector, left there. What is aboard belongs with that truck.
+    pub fn aboard(&self) -> bool {
+        self.tray().0 > 0 || matches!(self.detector, Detector::Left(Lies::Aboard { .. }))
     }
 
     /// How many nuggets are in the chest of the map being played, and what they weigh.
@@ -650,12 +947,18 @@ impl Gold {
                 let up = at.y - stands.walker.y;
                 // Whatever is in the tray is in reach of somebody standing by the tray, and
                 // whatever is in the chest of somebody standing by the chest: all of it.
-                let aboard =
-                    matches!(nugget.lies, Lies::Aboard { .. }) && stands.over_tray().is_some();
-                let chested = self.by_chest(stands).is_some_and(|chest| chest.holds(at));
-                ((flat(at, stands.walker) < REACH || aboard || chested)
-                    && (-0.6..2.1).contains(&up))
-                .then_some((index, at))
+                // What is in a hold is behind its door: in reach of somebody standing at
+                // the doorway with the door open, and of nobody else.
+                let aboard = matches!(nugget.lies, Lies::Aboard { .. });
+                let near = match stands.in_hold(at).filter(|_| aboard) {
+                    Some(hold) => stands.reaches(hold),
+                    None => {
+                        flat(at, stands.walker) < REACH
+                            || (aboard && stands.over_tray().is_some())
+                            || self.by_chest(stands).is_some_and(|chest| chest.holds(at))
+                    }
+                };
+                (near && (-0.6..2.1).contains(&up)).then_some((index, at))
             })
             .min_by(|a, b| {
                 a.1.distance(stands.walker)
@@ -687,7 +990,12 @@ impl Gold {
     /// the detector from where it was left.
     pub fn can(&self, stands: &Stands) -> Option<Use> {
         if self.held().is_some() {
-            return Some(if stands.over_tray().is_some() {
+            // At a doorway of the truck: in through it, and if its door is shut, that first.
+            return Some(if stands.open_hold().is_some() {
+                Use::IntoHold
+            } else if stands.doorway().is_some() {
+                Use::OpenDoor
+            } else if stands.over_tray().is_some() {
                 Use::IntoTray
             } else if self.by_chest(stands).is_some() {
                 Use::IntoChest
@@ -709,14 +1017,48 @@ impl Gold {
             (Some((_, away)), Some(detector)) if detector < away => Some(Use::Take),
             (None, Some(_)) => Some(Use::Take),
             (Some((index, _)), _) => Some(match &self.nuggets[index].lies {
+                Lies::Aboard { at, .. } if stands.in_hold(stands.ashore(*at)).is_some() => {
+                    Use::FromHold
+                }
                 Lies::Aboard { .. } => Use::FromTray,
                 Lies::Loose { at, .. } if self.chest.is_some_and(|chest| chest.holds(*at)) => {
                     Use::FromChest
                 }
                 _ => Use::PickUp,
             }),
-            (None, None) => None,
+            // Nothing to pick up: an open door is shut, and a shut one with gold behind it
+            // is opened.
+            (None, None) => stands.doorway().and_then(|(hold, door)| {
+                if stands.doors[door].open {
+                    Some(Use::ShutDoor)
+                } else {
+                    self.stowed(stands, hold).then_some(Use::OpenDoor)
+                }
+            }),
         }
+    }
+
+    /// Whether there is gold in a hold of the truck.
+    fn stowed(&self, stands: &Stands, hold: usize) -> bool {
+        self.nuggets.iter().any(|nugget| match &nugget.lies {
+            Lies::Aboard { at, .. } => stands.in_hold(stands.ashore(*at)) == Some(hold),
+            _ => false,
+        })
+    }
+
+    /// How many nuggets are in each hold of the truck, by the hold's name.
+    pub fn in_holds(&self, stands: &Stands) -> Vec<(String, usize)> {
+        let count = |hold: usize| {
+            let inside = |nugget: &&Nugget| match &nugget.lies {
+                Lies::Aboard { at, .. } => stands.in_hold(stands.ashore(*at)) == Some(hold),
+                _ => false,
+            };
+            self.nuggets.iter().filter(inside).count()
+        };
+        let holds = stands.holds.iter().enumerate();
+        holds
+            .map(|(index, hold)| (hold.name.clone(), count(index)))
+            .collect()
     }
 
     /// Slings the detector, or takes it in hand again: whether that could be done. Not
@@ -833,11 +1175,27 @@ impl Gold {
                 // The nugget is made now: what it weighs, mostly little and now and then a
                 // great deal, and what its shape is drawn from. The detector is in the
                 // driver's hands: the nugget comes out of the ground onto it, at their feet.
-                self.buried.retain(|at| flat(*at, stands.walker) >= DIGS);
-                // An ounce or two, often; half a kilogram, as often; and now and then one
-                // to be talked of for years.
-                let luck = self.roll();
-                let kilos = 0.03 + 0.5 * luck + 14.5 * luck.powi(5);
+                // The place is dug, and stays dug for as long as the map's ground is as it
+                // was scattered.
+                let mut dug = 0_u32;
+                for index in (0..self.buried.len()).rev() {
+                    if flat(self.buried[index], stands.walker) < DIGS {
+                        self.buried.remove(index);
+                        let place = self.places.remove(index);
+                        if u32::from(place) < u32::BITS {
+                            dug |= 1 << place;
+                        }
+                    }
+                }
+                let here = self.here.clone();
+                if let Some(ground) = here.and_then(|map| self.grounds.get_mut(&map)) {
+                    ground.dug |= dug;
+                }
+                // What it is: mostly a little, and now and then one to be talked of for
+                // years (`FINDS`), the more often the richer the ground is.
+                let (kind, size) = (self.roll(), self.roll());
+                let (which, kilos) = find(kind, size, self.rich);
+                log::info!("gold: dug {}, {:.0} g", FINDS[which].0, kilos * 1000.0);
                 let shape = (self.roll() * 16_777_216.0) as u32;
                 self.nuggets.push(Nugget {
                     id: self.next,
@@ -850,7 +1208,15 @@ impl Gold {
                 // Where the coil is: a stride and a half ahead, where it can be seen.
                 self.let_go(stands, stands.walker + ahead * 1.35 + Vec3::Y * 1.0, false);
             }
-            Use::PickUp | Use::FromTray | Use::FromChest => {
+            // The door is the truck's: whoever shows the truck swings it (`Shell`).
+            Use::OpenDoor | Use::ShutDoor => {}
+            Use::IntoHold => {
+                let hold = stands.open_hold()?;
+                let (across, along) = (self.roll(), self.roll());
+                let over = stands.over_hold(hold, across, along);
+                self.let_go(stands, over, true);
+            }
+            Use::PickUp | Use::FromTray | Use::FromChest | Use::FromHold => {
                 let index = self.in_reach(stands)?;
                 let id = self.nuggets[index].id;
                 self.nuggets[index].lies = Lies::Hand;
@@ -897,8 +1263,34 @@ impl Gold {
                 let over = floor + Vec3::new(across * room.x, size.y + 0.5, along * room.z);
                 self.let_go(stands, stands.ashore(over), true);
             }
+            // No tray: onto the seat beside them, if the truck has one to put things on.
+            None if !stands.holds.is_empty() => {
+                let (across, along) = (self.roll(), self.roll());
+                let over = stands.over_hold(0, across, along);
+                self.let_go(stands, over, true);
+            }
             None => self.let_go(stands, stands.walker + Vec3::Y * 1.0, false),
         }
+    }
+
+    /// A purse paid in gold: a nugget of this weight is put in the truck's tray, whose size
+    /// inside and the middle of whose floor these are, in the truck's own space. It is a
+    /// nugget like any other from then on.
+    pub fn award(&mut self, kilos: f32, tray: (Vec3, Vec3)) {
+        let shape = (self.roll() * 16_777_216.0) as u32;
+        let (across, along) = (self.roll() - 0.5, self.roll() - 0.5);
+        let (size, floor) = tray;
+        let room = Vec3::new(size.x - 2.0 * INSET, 0.0, size.z - 2.0 * INSET).max(Vec3::ZERO);
+        self.nuggets.push(Nugget {
+            id: self.next,
+            kilos,
+            shape,
+            lies: Lies::Aboard {
+                at: floor + Vec3::new(across * room.x, 0.3, along * room.z),
+                turned: Quat::IDENTITY,
+            },
+        });
+        self.next += 1;
     }
 
     /// Whoever runs the world says where the nuggets' bodies are: each is where it has got
@@ -919,7 +1311,7 @@ impl Gold {
                     None => continue,
                 }
             };
-            *lies = if stands.in_tray(at) {
+            *lies = if stands.in_tray(at) || stands.in_hold(at).is_some() {
                 Lies::Aboard {
                     at: stands.aboard(at),
                     turned: stands.turned.inverse() * turned,
@@ -1131,7 +1523,89 @@ mod tests {
             truck: Vec3::new(500.0, 5.0, 500.0),
             turned: Quat::IDENTITY,
             tray: Some(TRAY),
+            holds: &[],
+            doors: &[],
         }
+    }
+
+    /// A truck with a seat to put things on, behind its passenger's door; and a driver
+    /// standing somewhere beside it, the door open or shut.
+    fn seat() -> Vec<Hold> {
+        vec![Hold {
+            name: "passenger_seat".to_owned(),
+            size: Vec3::new(0.6, 0.42, 0.45),
+            floor: Vec3::new(-0.45, 0.85, -0.2),
+            ways: vec![(0, Vec3::new(-0.9, 1.05, -0.2))],
+        }]
+    }
+
+    #[test]
+    fn gold_goes_on_a_seat_through_an_open_door_and_stays_behind_a_shut_one() {
+        let holds = seat();
+        let door = |open: bool| {
+            vec![Door {
+                piece: "door_FL".to_owned(),
+                open,
+            }]
+        };
+        let (shut, open) = (door(false), door(true));
+        let truck = Vec3::new(500.0, 5.0, 500.0);
+        // Standing at the passenger's door, and standing by the tray, far from it.
+        let at_door = truck + Vec3::new(-1.6, 0.0, -0.2);
+        let with = |walker: Vec3, doors: &'static [Door], holds: &'static [Hold]| Stands {
+            holds,
+            doors,
+            ..stands(walker)
+        };
+        let holds: &'static [Hold] = Vec::leak(holds);
+        let (shut, open): (&'static [Door], &'static [Door]) = (Vec::leak(shut), Vec::leak(open));
+        let mut gold = Gold::default();
+        let mut bodies = Vec::new();
+        gold.nuggets.push(Nugget {
+            id: 7,
+            kilos: 0.4,
+            shape: 99,
+            lies: Lies::Hand,
+        });
+        // A nugget in the hand at a shut door: the door is opened first. Nothing is let go.
+        assert_eq!(gold.can(&with(at_door, shut, holds)), Some(Use::OpenDoor));
+        assert_eq!(gold.act(&with(at_door, shut, holds)), Some(Use::OpenDoor));
+        assert!(gold.in_hand().is_some());
+        // Open, it goes in: onto the seat, aboard the truck, and is counted there.
+        let stood = with(at_door, open, holds);
+        assert_eq!(gold.act(&stood), Some(Use::IntoHold));
+        // (It comes to rest a little above the seat, which is 0.85 up in a truck 5 up.)
+        world(&mut bodies, gold.sync(&stood), 5.0 + 0.85 + 0.05);
+        gold.see(&stood, &bodies);
+        let Lies::Aboard { at, .. } = gold.nuggets[0].lies else {
+            panic!("it is not aboard: {:?}", gold.nuggets[0].lies);
+        };
+        assert!(
+            at.x < -0.15 && at.x > -0.75 && (at.y - 0.9).abs() < 0.3,
+            "{at}"
+        );
+        assert_eq!(gold.in_holds(&stood), [("passenger_seat".to_owned(), 1)]);
+        assert_eq!(gold.tray().0, 1);
+        // With empty hands at the open door it is taken out again; or, nothing else to do,
+        // the door is shut.
+        assert_eq!(gold.can(&stood), Some(Use::FromHold));
+        // Shut, it is not in reach, though it is an arm's length away: the door is opened.
+        let closed = with(at_door, shut, holds);
+        assert_eq!(gold.can(&closed), Some(Use::OpenDoor));
+        // And from the other side of the truck there is nothing to do at all.
+        let far_side = with(truck + Vec3::new(1.7, 0.0, -0.2), open, holds);
+        assert_eq!(gold.can(&far_side), None);
+        // Taken out, the hand has it and the seat is empty: the open door is shut.
+        assert_eq!(gold.act(&stood), Some(Use::FromHold));
+        assert!(gold.in_hand().is_some());
+        gold.nuggets[0].lies = Lies::Loose {
+            map: "elsewhere".to_owned(),
+            at: Vec3::ZERO,
+            turned: Quat::IDENTITY,
+        };
+        assert_eq!(gold.can(&stood), Some(Use::ShutDoor));
+        // A shut door with nothing behind it is left alone: the driver may just be getting in.
+        assert_eq!(gold.can(&closed), None);
     }
 
     /// What the world would do with what was asked of it: each body put where it was asked
@@ -1160,27 +1634,106 @@ mod tests {
     }
 
     #[test]
+    fn what_is_dug_up_is_mostly_a_little_and_worth_a_days_work_between_them() {
+        // Every find is within its kind's weights, and the kinds are found as often as
+        // the table says: over a great many, in ordinary ground.
+        let mut found = [0_u32; 7];
+        let (mut kilos, count) = (0.0_f64, 200_000_u32);
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let mut roll = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 40) as f32 / (1_u64 << 24) as f32
+        };
+        for _ in 0..count {
+            let (kind, weight) = find(roll(), roll(), 1.0);
+            assert!(weight >= FINDS[kind].1 && weight <= FINDS[kind].2);
+            found[kind] += 1;
+            kilos += f64::from(weight);
+        }
+        let share = |kind: usize| f64::from(found[kind]) / f64::from(count);
+        assert!(share(0) > 0.38 && share(0) < 0.43, "{}", share(0));
+        assert!(share(4) > 0.025 && share(4) < 0.036, "{}", share(4));
+        assert!(share(6) > 0.0003 && share(6) < 0.002, "{}", share(6));
+        // On average a find is worth about $300 at the buyer's: between $230 and $380.
+        let worth = kilos / f64::from(count) * f64::from(crate::shell::PRICE);
+        assert!(
+            worth > 230.0 && worth < 380.0,
+            "a find is worth ${worth:.0} on average"
+        );
+        // Poor ground has fewer of the big ones, and rich ground more.
+        let big = |rich: f32| chances(rich)[4..].iter().sum::<f32>();
+        assert!(big(0.5) < big(1.0) * 0.5 && big(1.4) > big(1.0) * 1.5);
+        println!("a find is worth ${worth:.0} on average in ordinary ground");
+        let shares: f32 = chances(1.4).iter().sum();
+        assert!((shares - 1.0).abs() < 1.0e-4);
+    }
+
+    #[test]
     fn gold_is_put_in_the_ground_when_a_map_is_entered_and_is_not_where_it_was() {
         let mut gold = Gold::default();
-        gold.enter(&files(), 7);
+        gold.enter(&files(), Some("wombat"), 1, 7, 1.0);
         assert_eq!(gold.buried.len(), BURIED);
         // Off the track, on either side, and within the map's length.
         assert!(gold
             .buried
             .iter()
             .all(|at| at.z.abs() > 7.9 && at.z.abs() < 31.0));
+        // Come into again, the next day or the day after, it is where it was: the map's
+        // ground is kept as it was scattered.
         let first = gold.buried.clone();
-        gold.enter(&files(), 8);
+        gold.enter(&files(), Some("wombat"), 2, 8, 1.0);
+        assert_eq!(gold.buried, first);
+        // Another map has its own.
+        gold.enter(&files(), Some("granite"), 2, 8, 1.0);
         assert_ne!(gold.buried, first);
-        // A hub, which has a chest and places to stop at, and no gold in its ground.
-        gold.enter(&hub(), 9);
-        assert!(gold.buried.is_empty());
+        // One dug, it stays dug; and the rest are where they were, for a few days.
+        gold.enter(&files(), Some("wombat"), 2, 8, 1.0);
+        let over = gold.buried[0];
+        assert_eq!(gold.act(&stands(over)), Some(Use::Dig));
+        gold.enter(&files(), Some("wombat"), 1 + RESCATTER_DAYS, 21, 1.0);
+        assert_eq!(gold.buried.len(), BURIED - 1);
+        assert!(gold
+            .buried
+            .iter()
+            .all(|at| first.contains(at) && *at != over));
+        // It is kept with the game, and read back.
+        let mut kept = String::new();
+        gold.keep(&mut kept);
+        let mut read = Gold::read(&kept);
+        assert_eq!(read.ground("wombat"), gold.ground("wombat"));
+        read.enter(&files(), Some("wombat"), 1 + RESCATTER_DAYS, 99, 1.0);
+        assert_eq!(read.buried, gold.buried);
+        // More than a few days on, with one dug, it is scattered again: all of it, anew.
+        gold.enter(&files(), Some("wombat"), 2 + RESCATTER_DAYS, 22, 1.0);
+        assert_eq!(gold.buried.len(), BURIED);
+        assert_ne!(gold.buried, first);
+        // Ground nobody has dug in is left as it is, however long it has been.
+        let untouched = gold.buried.clone();
+        gold.enter(&files(), Some("wombat"), 60, 23, 1.0);
+        assert_eq!(gold.buried, untouched);
+        // A showroom, which is no map of the game's, has none and keeps none.
+        gold.enter(&files(), None, 60, 24, 1.0);
+        assert!(gold.buried.is_empty() && gold.ground("showroom").is_none());
+        // A hub, which has a chest and places to stop at, has gold by its road as well.
+        gold.enter(&hub(), Some("crossroads"), 1, 9, 1.0);
+        assert_eq!(gold.buried.len(), BURIED);
+        assert!(gold.any_buried());
+        // A town has it too, though none where its buildings and its yard are.
+        let mut town = files();
+        town.push(GameFile {
+            name: "outback.places".to_owned(),
+            text: "place crossroads 100 5 0 7\nplace buyer 40 5 12 5.5\n".to_owned(),
+        });
+        gold.enter(&town, Some("town"), 1, 9, 0.4);
+        assert_eq!(gold.buried.len(), BURIED);
     }
 
     #[test]
     fn a_nugget_is_a_thing_from_the_ground_to_the_hand_to_the_tray_to_the_chest_and_is_sold() {
         let mut gold = Gold::default();
-        gold.enter(&files(), 11);
+        gold.enter(&files(), Some("wombat"), 1, 11, 1.0);
         let mut bodies: Vec<(u32, Vec3, Quat)> = Vec::new();
         let over = gold.buried[0];
         // It is heard from a long way off, faintly, and not from further; and the signal
@@ -1189,7 +1742,7 @@ mod tests {
         let mut alone = Gold::default();
         alone.bury(over);
         let off = |metres: f32| alone.signal(&stands(over + Vec3::X * metres));
-        assert!(off(40.0) > 0.0 && off(40.0) < 0.15 && off(50.0) == 0.0);
+        assert!(off(55.0) > 0.0 && off(55.0) < 0.15 && off(65.0) == 0.0);
         assert!(off(20.0) > off(30.0) && off(8.0) > off(20.0));
         assert!(off(DIGS + 0.3) < OVER && off(DIGS - 0.3) > OVER && off(0.0) > 0.99);
         // The signal rises as the driver nears it, and over it there is something to dig.
@@ -1205,7 +1758,7 @@ mod tests {
         // It is made now, with a weight and a shape. The driver's hands hold the detector:
         // it comes out of the ground onto it, a body, which falls and lies there.
         assert_eq!(gold.nuggets.len(), 1);
-        assert!(gold.nuggets[0].kilos >= 0.03 && gold.in_hand().is_none());
+        assert!(gold.nuggets[0].kilos >= 0.01 && gold.in_hand().is_none());
         let asked = gold.sync(&stands(over));
         assert!(matches!(asked[..], [Body::Put { settle: true, .. }]));
         world(&mut bodies, asked, 5.07);
@@ -1276,7 +1829,7 @@ mod tests {
             matches!(&again.nuggets[0].lies, Lies::Aboard { at, .. } if at.distance(lay) < 0.01)
         );
         // And in a map's new world it is given a body where the truck is now.
-        again.enter(&hub(), 3);
+        again.enter(&hub(), Some("crossroads"), 1, 3, 1.0);
         let at_hub = Stands {
             map: "crossroads",
             truck: Vec3::new(40.0, 5.0, 3.0),
@@ -1317,7 +1870,9 @@ mod tests {
         again.see(&by_chest, &bodies);
         assert_eq!(again.in_chest("crossroads").0, 1);
         assert_eq!(again.can(&by_chest), Some(Use::FromChest));
-        // In the chest it is not what the detector is listening for.
+        // In the chest it is not what the detector is listening for. (With what is in
+        // the hub's own ground out of the way.)
+        again.buried.clear();
         assert!(again.signal(&by_chest) < 0.01);
 
         // Back in the tray, it is sold: weighed, and gone.
@@ -1339,7 +1894,7 @@ mod tests {
     #[test]
     fn the_detector_is_put_down_lies_there_is_kept_and_is_picked_up_again() {
         let mut gold = Gold::default();
-        gold.enter(&files(), 5);
+        gold.enter(&files(), Some("wombat"), 1, 5, 1.0);
         let here = stands(Vec3::new(20.0, 5.0, 60.0));
         let mut bodies: Vec<(u32, Vec3, Quat)> = Vec::new();
         // In hand it is shown held; in the truck, not at all.
@@ -1382,7 +1937,7 @@ mod tests {
             Carried::Away
         );
         // Back on its map it has a body again, and the button picks it up.
-        again.enter(&files(), 6);
+        again.enter(&files(), Some("wombat"), 1, 6, 1.0);
         let mut bodies = Vec::new();
         world(&mut bodies, again.sync(&here), 0.0);
         assert_eq!(bodies.len(), 1);
@@ -1407,7 +1962,7 @@ mod tests {
         // Four blanks, and six nuggets in sight: the four nearest are shown, each on a
         // blank of its own, made from its own number.
         let mut gold = Gold::default();
-        gold.enter(&files(), 3);
+        gold.enter(&files(), Some("wombat"), 1, 3, 1.0);
         gold.nuggets = (0..6).map(nugget).collect();
         let here = stands(Vec3::new(0.0, 5.0, 0.0));
         let shown = gold.place(&here, true);

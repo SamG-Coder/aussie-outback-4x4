@@ -1,0 +1,7 @@
+# Buffalo (2018): Another maker's dual-cab: a square jaw, a steel bar, a bigger engine.
+# Written by tools/blender/truck/build.py, with its model.
+name buffalo
+mesh ../../target/outback/trucks/buffalo.glb 1
+vehicle buffalo.vehicle
+kit buffalo.kit
+camera 0 1.48 0

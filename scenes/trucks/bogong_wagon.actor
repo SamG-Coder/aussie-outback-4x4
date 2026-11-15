@@ -1,0 +1,7 @@
+# Bogong Wagon (2022): The wide one with a roof to its tail.
+# Written by tools/blender/truck/build.py, with its model.
+name bogong_wagon
+mesh ../../target/outback/trucks/bogong_wagon.glb 1
+vehicle bogong_wagon.vehicle
+kit bogong_wagon.kit
+camera 0 1.58 0

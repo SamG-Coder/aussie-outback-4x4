@@ -1,0 +1,44 @@
+# Delatite (1998): A nineties dual-cab ute with a tub: the first of the family utes.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1810
+inertia 3714 4056 711
+centre 0 0.74 -0.18
+body 1.72 1.20 5.03 at 0 1.14 0.19
+tray 1.48 0.35 1.41 at 0 1.25 1.94
+driver right
+hold 0.684 0.420 0.430 at -0.432 0.840 -0.015
+hold 1.548 0.420 0.390 at 0.000 0.840 0.685
+
+front at=1.500 track=1.480 radius=0.3750 inertia=2.28 driven=yes
+front spring=42018 bump=4363 rebound=8242 bar=7111 travel=0.11,0.10 roll_centre=0.15
+front brake=2521 grip=1
+rear at=1.500 track=1.480 radius=0.3750 inertia=2.63 driven=yes
+rear spring=35554 bump=3798 rebound=7192 bar=1939 travel=0.13,0.11 roll_centre=0.35
+rear brake=1487 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4525 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.33 friction=26,0.012
+torque 1000 179
+torque 1400 269
+torque 1800 299
+torque 2600 299
+torque 3400 254
+torque 4000 194
+torque 4400 119
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.1
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=970 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.02 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

@@ -1,0 +1,7 @@
+# Cobbler (2021): A tall, square, very expensive wagon with three locking diffs and a spare on its back door.
+# Written by tools/blender/truck/build.py, with its model.
+name cobbler
+mesh ../../target/outback/trucks/cobbler.glb 1
+vehicle cobbler.vehicle
+kit cobbler.kit
+camera 0 1.66 0

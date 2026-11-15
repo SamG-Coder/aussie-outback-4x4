@@ -1,0 +1,43 @@
+# Wonnangatta (1978): A one-tonner: long wheelbase, heavy springs, a tray you could camp on.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1680
+inertia 3680 4019 615
+centre 0 0.76 -0.20
+body 1.66 1.16 5.20 at 0 1.14 0.23
+tray 1.84 0.35 2.63 at 0 1.16 1.53
+driver right
+hold 0.698 0.420 0.430 at -0.399 0.860 -0.325
+
+front at=1.625 track=1.420 radius=0.3800 inertia=2.38 driven=yes
+front spring=39000 bump=4050 rebound=7650 bar=6600 travel=0.09,0.08 roll_centre=0.15
+front brake=2340 grip=1
+rear at=1.625 track=1.420 radius=0.3800 inertia=2.73 driven=yes
+rear spring=33000 bump=3525 rebound=6675 bar=1800 travel=0.11,0.09 roll_centre=0.35
+rear brake=1380 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4200 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.28 friction=22,0.012
+torque 1000 105
+torque 1400 158
+torque 1800 176
+torque 2600 176
+torque 3400 149
+torque 4000 114
+torque 4400 70
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.3
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=900 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=0.97 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

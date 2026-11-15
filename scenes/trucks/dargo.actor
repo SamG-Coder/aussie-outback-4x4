@@ -1,0 +1,7 @@
+# Dargo (1984): A single-cab tray-back diesel on leaf springs. Slow, and will not die.
+# Written by tools/blender/truck/build.py, with its model.
+name dargo
+mesh ../../target/outback/trucks/dargo.glb 1
+vehicle dargo.vehicle
+kit dargo.kit
+camera 0 1.36 0

@@ -1,0 +1,7 @@
+# Kiewa (2010): A seven-seat wagon on the ute's chassis.
+# Written by tools/blender/truck/build.py, with its model.
+name kiewa
+mesh ../../target/outback/trucks/kiewa.glb 1
+vehicle kiewa.vehicle
+kit kiewa.kit
+camera 0 1.53 0

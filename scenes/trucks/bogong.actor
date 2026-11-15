@@ -1,0 +1,7 @@
+# Bogong Sport (2021): A wide-bodied ute on long-travel suspension: fast over corrugations, flared and loud.
+# Written by tools/blender/truck/build.py, with its model.
+name bogong
+mesh ../../target/outback/trucks/bogong.glb 1
+vehicle bogong.vehicle
+kit bogong.kit
+camera 0 1.54 0

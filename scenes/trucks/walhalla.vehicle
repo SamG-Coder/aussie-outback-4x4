@@ -1,0 +1,44 @@
+# Walhalla (2005): A soft wagon with all-wheel drive and not much clearance.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1690
+inertia 2849 3112 768
+centre 0 0.68 -0.16
+body 1.85 1.18 4.55 at 0 1.07 0.03
+driver right
+hold 0.748 0.420 0.430 at -0.464 0.780 0.119
+hold 1.676 0.420 0.390 at 0.000 0.780 0.740
+hold 1.648 0.450 1.085 at 0.000 0.855 1.688
+
+front at=1.350 track=1.540 radius=0.3500 inertia=1.86 driven=yes
+front spring=31386 bump=3259 rebound=6156 bar=6639 travel=0.12,0.11 roll_centre=0.15
+front brake=2354 grip=1
+rear at=1.350 track=1.540 radius=0.3500 inertia=2.13 driven=yes
+rear spring=26557 bump=2837 rebound=5372 bar=1811 travel=0.14,0.12 roll_centre=0.35
+rear brake=1388 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=4225 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.36 friction=30,0.012
+torque 1000 255
+torque 1400 383
+torque 1800 425
+torque 2600 425
+torque 3400 361
+torque 4000 276
+torque 4400 170
+
+gears 4.17 2.34 1.52 1.14 0.87 0.69
+final 3.9
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=905 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=1.05 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=yes traction=no stability=no descent=no

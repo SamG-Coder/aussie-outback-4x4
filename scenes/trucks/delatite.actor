@@ -1,0 +1,7 @@
+# Delatite (1998): A nineties dual-cab ute with a tub: the first of the family utes.
+# Written by tools/blender/truck/build.py, with its model.
+name delatite
+mesh ../../target/outback/trucks/delatite.glb 1
+vehicle delatite.vehicle
+kit delatite.kit
+camera 0 1.42 0

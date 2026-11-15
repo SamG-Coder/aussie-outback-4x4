@@ -1,0 +1,43 @@
+# Dargo Styleside (1987): The same cab with a steel tub and square lamps.
+# A first reckoning from its size, its years and its grade (tools/blender/truck/build.py):
+# to be driven, and put right.
+
+mass 1550
+inertia 2670 2916 567
+centre 0 0.72 -0.17
+body 1.66 1.16 4.60 at 0 1.10 0.12
+tray 1.42 0.35 1.95 at 0 1.18 1.40
+driver right
+hold 0.697 0.420 0.430 at -0.399 0.820 -0.145
+
+front at=1.425 track=1.420 radius=0.3600 inertia=2.02 driven=yes
+front spring=35982 bump=3737 rebound=7058 bar=6089 travel=0.09,0.08 roll_centre=0.15
+front brake=2159 grip=1
+rear at=1.425 track=1.420 radius=0.3600 inertia=2.32 driven=yes
+rear spring=30446 bump=3252 rebound=6158 bar=1661 travel=0.11,0.09 roll_centre=0.35
+rear brake=1273 grip=1
+
+tyre grip=1.0,0.95 peak=0.13,9 along=1.5,0.3 across=1.35,0.1
+tyre load=3875 sensitivity=0.1 relaxation=0.5
+
+engine idle=750 limit=4400 inertia=0.27 friction=22,0.012
+torque 1000 101
+torque 1400 152
+torque 1800 169
+torque 2600 169
+torque 3400 143
+torque 4000 110
+torque 4400 67
+
+gears 3.93 2.33 1.45 1 0.82
+final 4.3
+reverse 4.2
+gearbox shift=0.35 efficiency=0.88 clutch=830 cruise=0.42
+diff preload=40 power=0 coast=0
+front_diff preload=20 power=0 coast=0
+transfer low=2.3 front=0.5 lock=30000 locker=30000
+
+aero drag=0.95 downforce=0 balance=0.5
+steering lock=33 ackermann=0.7 quick=0.55
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

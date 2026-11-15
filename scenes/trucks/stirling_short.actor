@@ -1,0 +1,7 @@
+# Stirling 90 (2024): The same with two doors and a short tail.
+# Written by tools/blender/truck/build.py, with its model.
+name stirling_short
+mesh ../../target/outback/trucks/stirling_short.glb 1
+vehicle stirling_short.vehicle
+kit stirling_short.kit
+camera 0 1.66 0

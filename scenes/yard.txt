@@ -1,0 +1,18 @@
+# A yard to stand one of the game's own trucks in, to look at it: not a map of the game.
+# The truck is built from its pieces as the game builds it (apps/viewer/src/kit.rs):
+#
+#   bake --scene scenes/yard.txt --output target/outback/yard.solstice
+#   viewer target/outback/yard.solstice --play --fly --camera "-3.6,1.7,-5.2,3.75,-0.13"
+#          --kit showroom --capture yard.png --frames 90
+#
+# `--kit` takes `stock` (bare, as it is sold), `showroom`, or choices to put over stock, as
+# `bullbar=plate,tyres=mud,suspension=lift`. Change the actor's name for another truck: each
+# has its files in scenes/trucks, written with its model by tools/blender/truck/build.py.
+texture_size 256
+terrain 200 128 0 1000
+camera -4.2 1.9 -6.5 3.69 -0.12
+actor trucks/mitta.actor 0 0 0 0
+# Its driver, who gets out of it and walks, and the detector they carry.
+actor outback/driver.actor 0 0 0 0
+actor outback/detector.actor 0 0 0 0
+input outback/game.input

@@ -1,0 +1,7 @@
+# Cobbler Ute (2023): The square one as a dual-cab with a tub.
+# Written by tools/blender/truck/build.py, with its model.
+name cobbler_ute
+mesh ../../target/outback/trucks/cobbler_ute.glb 1
+vehicle cobbler_ute.vehicle
+kit cobbler_ute.kit
+camera 0 1.66 0
