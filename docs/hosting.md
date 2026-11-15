@@ -76,7 +76,12 @@ bash scripts/build-game-web.sh --hosted
 cd site && ../target/tools/wrangler/node_modules/.bin/wrangler pages deploy --branch main --commit-dirty=true
 ```
 
-That is all a change to the pages, the menus or the browser's program needs. A new Windows
+That is all a change to the pages, the menus or the browser's program needs. The build names
+each script by the build (`loader.js?v=...`, in `scripts/build-game-web.sh`): Cloudflare has
+browsers keep a `.js` file for four hours whatever `_headers` says, while a page is asked for
+afresh each time, and without the names a browser that had been here ran the last build's
+scripts with the new program. Old deployments can be deleted once a new one is up
+(`wrangler pages deployment list`, `wrangler pages deployment delete ID --force`). A new Windows
 build is packed and put in R2, which wrangler does itself, as it is small:
 
 ```bash

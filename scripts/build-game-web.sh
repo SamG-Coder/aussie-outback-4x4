@@ -39,6 +39,35 @@ grep -q 'solstice-world' dist/play/game.html || { echo "the viewer's page has no
 # And the page it is played in, which stays while that one is loaded again for each map.
 cp apps/viewer/web/shell.html dist/play/index.html
 
+# The pages ask for their scripts by this build's own name. Cloudflare has browsers keep a
+# script for four hours whatever _headers says, and a page is asked for afresh each time: so
+# without this a browser that had been here ran the last build's scripts with this build's
+# program, which told it that the maps' shared file could not be read.
+python - <<'STAMP'
+import hashlib, pathlib
+play = pathlib.Path("dist/play")
+stamp = hashlib.sha256((play / "play/solstice_viewer_bg.wasm").read_bytes()).hexdigest()[:10]
+named = [
+    ("game.html", 'import("./game.js")', 2),
+    ("game.html", '"./play/solstice_viewer.js"', 1),
+    ("game.html", 'import("./loader.js")', 1),
+    ("game.html", 'import("./auto-quality.js")', 1),
+    ("index.html", 'from "./sound.js"', 1),
+    ("game.js", 'from "./sound.js"', 1),
+    ("ui/index.html", 'href="ui.css"', 1),
+    ("ui/index.html", 'src="ui.js"', 1),
+]
+for name, old, times in named:
+    page = play / name
+    text = page.read_text(encoding="utf-8")
+    if text.count(old) != times:
+        raise SystemExit(f"{name}: expected {times} of {old}, found {text.count(old)}: see scripts/build-game-web.sh")
+    quote = old[-2] if old.endswith(")") else old[-1]
+    cut = old.rindex(quote)
+    page.write_text(text.replace(old, f"{old[:cut]}?v={stamp}{old[cut:]}"), encoding="utf-8", newline="\n")
+print(f"scripts named for build {stamp}")
+STAMP
+
 # The sounds, squeezed for the web: 33 MB of them as they are made come to about 6. The engine's
 # loops are kept exactly as they are (FLAC), as a steady note shows the least flaw where a loop
 # comes round; the rest are Opus, whose flaws the bush and the tyres hide. sounds.json says
