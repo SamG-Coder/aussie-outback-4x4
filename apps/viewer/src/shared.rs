@@ -10,7 +10,7 @@
 //! A map that is read with the shared file also leaves out of its own whatever else that
 //! file has: its trees, grass and stone, and the textures of its ground. The shared file
 //! lends them, and they are put back as the two are joined (`solstice_asset::join::fill`).
-use glam::{Mat4, Quat};
+use glam::{Mat4, Quat, Vec3};
 use solstice_asset::join::Joined;
 use solstice_asset::{GameFile, PagedScene};
 use solstice_game::scene::ActorLine;
@@ -125,6 +125,46 @@ pub fn swap_truck(
     Ok(())
 }
 
+/// The game's own code is kept once, in the shared file: who drives and what the keys and a
+/// controller do (an actor's file, its script, the input actions), and a truck's numbers. A
+/// map has copies of them, from when it was baked; the shared file's take their place as the
+/// two are joined, and any it has that the map has not are added. So what the controller
+/// does is changed by baking the shared file alone, and is the same on every map.
+///
+/// (What a map lists of its own is its own: its actors and where they stand, its places,
+/// its track.)
+pub fn share_code(files: &mut Vec<GameFile>, shared: &[GameFile]) {
+    let code = |name: &str| {
+        [".actor", ".star", ".input", ".vehicle"]
+            .iter()
+            .any(|kind| name.ends_with(kind))
+    };
+    for theirs in shared.iter().filter(|file| code(&file.name)) {
+        match files.iter_mut().find(|own| own.name == theirs.name) {
+            Some(own) => own.text.clone_from(&theirs.text),
+            None => files.push(theirs.clone()),
+        }
+    }
+}
+
+/// The file that says where trucks stood to be looked at stand: `X Y Z YAW`.
+pub const STAND: &str = "showroom.stand";
+
+/// Where the trucks that stand to be looked at are, and how they are turned, if a scene's
+/// files say.
+pub fn stand(files: &[GameFile]) -> Option<(Vec3, Quat)> {
+    let file = files.iter().find(|file| file.name == STAND)?;
+    let numbers: Vec<f32> = file
+        .text
+        .split_whitespace()
+        .filter_map(|word| word.parse().ok())
+        .collect();
+    let [x, y, z, yaw] = numbers[..] else {
+        return None;
+    };
+    Some((Vec3::new(x, y, z), Quat::from_rotation_y(yaw.to_radians())))
+}
+
 /// Stands trucks in a map to be looked at, where the map has its car: each was put together
 /// from its pack (`kit::assemble`), and all of them stand in the one place, to be shown one
 /// at a time (`kit::displayed`). The map's own car is no longer drawn. Nothing drives them:
@@ -132,6 +172,7 @@ pub fn swap_truck(
 pub fn show_trucks(
     scene: &mut solstice_asset::LoadedScene,
     trucks: Vec<crate::kit::Assembled>,
+    stand: Option<&str>,
 ) -> Result<(), String> {
     let text = |files: &[GameFile], name: &str| {
         files
@@ -147,10 +188,28 @@ pub fn show_trucks(
             car.is_some_and(|car| car.vehicle.is_some())
         })
         .ok_or("the map has no car to stand the trucks in place of")?;
-    let place = Mat4::from_rotation_translation(
-        Quat::from_rotation_y(actor.yaw_degrees.to_radians()),
-        actor.position,
-    );
+    // Where the map's car is; or, if the map says where trucks stand for what is being
+    // looked at (`place stand:WHAT X Y Z YAW` among its places), there.
+    let stood = stand.and_then(|stand| {
+        let places = scene.scene.gameplay.iter();
+        let mut lines = places
+            .filter(|file| file.name.ends_with(".places"))
+            .flat_map(|file| file.text.lines());
+        lines.find_map(|line| {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            let ["place", what, x, y, z, yaw] = words[..] else {
+                return None;
+            };
+            if what.strip_prefix("stand:") != Some(stand) {
+                return None;
+            }
+            let number = |word: &str| word.parse::<f32>().ok();
+            Some((Vec3::new(number(x)?, number(y)?, number(z)?), number(yaw)?))
+        })
+    });
+    let (position, yaw_degrees) = stood.unwrap_or((actor.position, actor.yaw_degrees));
+    let place =
+        Mat4::from_rotation_translation(Quat::from_rotation_y(yaw_degrees.to_radians()), position);
     let mut list = String::new();
     for (number, truck) in trucks.into_iter().enumerate() {
         let count = truck.scene.scene.instances.len() as u32;
@@ -173,7 +232,17 @@ pub fn show_trucks(
         }
     }
     let files = &mut scene.scene.gameplay;
-    files.retain(|other| other.name != crate::kit::SHOWN && other.name != HIDDEN);
+    files.retain(|other| {
+        other.name != crate::kit::SHOWN && other.name != HIDDEN && other.name != STAND
+    });
+    // Where they stand, for whoever looks at them: `X Y Z YAW`.
+    files.push(GameFile {
+        name: STAND.to_owned(),
+        text: format!(
+            "{} {} {} {yaw_degrees}\n",
+            position.x, position.y, position.z
+        ),
+    });
     files.push(GameFile {
         name: crate::kit::SHOWN.to_owned(),
         text: list,
@@ -196,6 +265,7 @@ pub fn wanted(files: &[GameFile]) -> bool {
 /// of the map's shared actors the instances that draw it, and puts them where the map puts
 /// the actor.
 pub fn adopt(scene: &mut PagedScene, shared: &[GameFile], joined: Joined) -> Result<(), String> {
+    share_code(&mut scene.gameplay, shared);
     let there = actors(shared);
     let mut changed = Vec::new();
     for (line, mut actor) in actors(&scene.gameplay) {
@@ -264,4 +334,42 @@ pub fn adopt(scene: &mut PagedScene, shared: &[GameFile], joined: Joined) -> Res
             .map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_shared_files_code_takes_the_place_of_a_maps_copy_of_it() {
+        let file = |name: &str, text: &str| GameFile {
+            name: name.to_owned(),
+            text: text.to_owned(),
+        };
+        let mut map = vec![
+            file(GAME_FILE, "actor outback/driver.actor 1 2 3 0\n"),
+            file("outback/driver.star", "old\n"),
+            file("outback.places", "place shed 0 0 0 3\n"),
+        ];
+        let shared = [
+            file(GAME_FILE, "actor outback/driver.actor 0 0 0 0\n"),
+            file("outback/driver.star", "new\n"),
+            file("outback/game.input", "sprint gamepad l3\n"),
+            file("outback.places", "place nowhere 9 9 9 9\n"),
+        ];
+        share_code(&mut map, &shared);
+        let text = |name: &str| {
+            let found = map.iter().find(|file| file.name == name);
+            found.map(|file| file.text.as_str())
+        };
+        // Its script is the shared one, and the actions it had none of are there.
+        assert_eq!(text("outback/driver.star"), Some("new\n"));
+        assert_eq!(text("outback/game.input"), Some("sprint gamepad l3\n"));
+        // Where its actors stand, and its places, are its own.
+        assert_eq!(
+            text(GAME_FILE),
+            Some("actor outback/driver.actor 1 2 3 0\n")
+        );
+        assert_eq!(text("outback.places"), Some("place shed 0 0 0 3\n"));
+    }
 }

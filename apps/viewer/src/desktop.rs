@@ -401,6 +401,8 @@ mod native {
         no_truck: bool,
         /// The share of its engine's pull the truck still has: less, overdue for its oil.
         pull: f32,
+        /// Where in a showroom the trucks stand, if the map says where for what is looked at.
+        stand: Option<String>,
         /// Whether a scene was named, rather than left to be the game's hub.
         scene_named: bool,
         /// For trying the menus with no hand on anything: scripts to run in the pages, and
@@ -683,6 +685,7 @@ mod native {
             night_eyes: false,
             no_truck: false,
             pull: 1.0,
+            stand: None,
             scene_named: false,
             ui_runs: Vec::new(),
             taps: Vec::new(),
@@ -1093,7 +1096,7 @@ mod native {
                         .map_err(|error| format!("{}: {error}", pack.display()))?;
                     trucks.push(truck);
                 }
-                solstice_viewer::shared::show_trucks(&mut scene, trucks)?;
+                solstice_viewer::shared::show_trucks(&mut scene, trucks, options.stand.as_deref())?;
             } else if let Some(truck) = &options.truck {
                 let pack = truck_pack(path, truck);
                 let mut file = std::fs::File::open(&pack)
@@ -2391,6 +2394,7 @@ mod native {
             if let Some(shell) = &mut self.shell {
                 self.options.shown = shell.showing();
                 self.options.pull = shell.power();
+                self.options.stand = shell.stand().map(str::to_owned);
                 let wearing = shell.wearing();
                 self.options.kit = wearing.as_ref().map(|(_, fit)| (*fit).to_owned());
                 self.options.truck = wearing.map(|(truck, _)| truck);
@@ -2615,7 +2619,7 @@ mod native {
                     // been told where the map's truck stands.)
                     let stands = play.play.car_pose();
                     if let Some((at, turned, seconds)) = shell.showroom() {
-                        let (at, turned) = stands.unwrap_or((at, turned));
+                        let (at, turned) = play.stand().unwrap_or((at, turned));
                         (camera.position, camera.yaw, camera.pitch) =
                             play.showroom_camera(at, turned, seconds);
                     }

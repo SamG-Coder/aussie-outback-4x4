@@ -1,14 +1,14 @@
-# Ironbark Flat: the town, and the track to it. Seven hundred metres of gentler country. A
-# truck comes into it at a gate, where the track from the shed at the Crossroads arrives, and
-# the gate is the way back. From there a four-wheel-drive track winds down over the creek, by
-# a ford, to what is left of a gold town: one street, and along it a hotel where used trucks
-# are sold, a motor spares store, the gold buyer's, in whose yard a truck with gold in its tray
-# stops to sell it, and a bank. The track ends at the far end of the street.
+# Ironbark Flat: the town, and the road to it. Seven hundred metres of gentler country. A main
+# road comes in from the edge of the map, where the road from the Crossroads' shed arrives,
+# and driving back out by it is the way back. It runs four hundred metres, wide and smooth, to
+# what is left of a gold town: one street, and along it a hotel where used trucks are sold, a
+# motor spares store, the gold buyer's, in whose yard a truck with gold in its tray stops to
+# sell it, and a bank. The road ends at the far end of the street.
 texture_size 1024
-camera 255 56 22 1.6 -0.1
-outback 700 town crossroads
-actor outback/raptor.actor 248.60 51.28 21.75 95.4 shared
+camera -100 86 -310 1.8 -0.1
+outback 700 town >crossroads
+actor outback/raptor.actor -93.06 80.24 -311.94 103.4 shared
 # The driver, who sits in the truck until they get out of it, and what the keys do.
-actor outback/driver.actor 248.60 51.28 21.75 95.4
-actor outback/detector.actor 248.60 51.28 21.75 95.4 shared
+actor outback/driver.actor -93.06 80.24 -311.94 103.4
+actor outback/detector.actor -93.06 80.24 -311.94 103.4 shared
 input outback/game.input

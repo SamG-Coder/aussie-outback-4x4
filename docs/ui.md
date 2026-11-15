@@ -74,14 +74,84 @@ and `crates/solstice-game/src/par.rs`; the watching is `apps/viewer/src/cinema.r
 Either reads the map's scene into the same window, behind a loading screen with the map's
 picture. A map whose scene is not baked yet is still on the signs, and its card says so.
 
-**Gates.** Every map has a way home. A track has a gate beside where a truck starts on it
-(`outback SIZE KIND +crossroads` in its scene), and going through a trailhead arrives
-there; coming back to the Crossroads arrives at the trailhead that was left. The town is
-not on the Crossroads' road at all: its trailhead is a gate beside the shed
-(`+town`, the last of the hub's maps), and the town's map is a main road from its own gate,
-over the creek, to the town's street, which is where it ends. A map with no `length` in the
-world file, the town, is only driven to: its card says Gate and Drive there, with no class,
-hour or weather to choose.
+**Ways out.** Every map has a way home. A track has a gate beside where a truck starts on
+it (`outback SIZE KIND +crossroads` in its scene): a ring, as a trailhead is. Going through
+a trailhead arrives there; coming back to the Crossroads arrives at the trailhead that was
+left.
+
+The town is not a trailhead. A main road runs from the Crossroads' road, beside the shed,
+to the edge of the map (`>town`, the last of the hub's maps), and whoever drives down it is
+in the town's map, with nothing asked: on the town's own road, which comes in from the edge
+of its map (`outback 700 town >crossroads`) and ends at the town's street. Driving back
+down that road to the edge is driving back onto the Crossroads' road, facing the shed. Each
+is a `place edge:MAP X Y Z RADIUS X Y Z YAW` of its map's places: where a truck is as good
+as gone, and where one that comes in by it is put. A truck that has just come in is not
+sent back until it has been clear of the way out.
+
+Every road is a main road, the Crossroads' as the town's: smooth, level across, with no hump
+across it, no ledge of rock in it and no log across it. The Crossroads' road still fords the
+creek, twice: it goes round a valley.
+
+The road to the town is a main road, to be driven fast: two trucks wide, its bends opened
+out, level across, smooth, and with no creek to cross, no log across it, no hump to turn
+the rain off and no ledge of rock. No road has a log across it; a track does.
+
+**The game's own code is kept once.** Who drives and what the keys and a controller do (the
+driver's actor file, its script, the input actions) and a truck's numbers are in the shared
+file, `scenes/shared.txt`. A map has copies from when it was baked; the shared file's take
+their place as the two are joined (`shared::share_code`). So what a controller does is
+changed by baking the shared file alone, and is the same on every map.
+
+**Gold** is in the ground of every map: two dozen places a map, each within thirty metres
+of its road or track, and none where anything is built or stopped at. Nothing of it is in
+any file. A map's ground is scattered when the map is first come into, from a number of the
+game's own, and is kept (`scatter MAP DAY SEED DUG` in the kept game): what has been dug
+stays dug, and the rest is where it was. Once any of it has been dug and more than three
+days have gone by (`RESCATTER_DAYS`), it is scattered again the next time the map is come
+into. Ground nobody has dug in is left as it is. The detector hears gold from sixty metres,
+and says so when a map is dug out.
+
+What is dug up is drawn from a table (`gold::FINDS`), by weight:
+
+| Find | Weighs | In a thousand | Worth, at $2,400 a kilo |
+|---|---|---|---|
+| A speck | 10 to 30 g | 400 | $24 to $72 |
+| A small nugget | 30 to 80 g | 300 | $72 to $190 |
+| A fair nugget | 80 to 200 g | 170 | $190 to $480 |
+| A good nugget | 200 to 500 g | 85 | $480 to $1,200 |
+| A big nugget | 0.5 to 1.5 kg | 30 | $1,200 to $3,600 |
+| A great nugget | 1.5 to 4 kg | 6 | $3,600 to $9,600 |
+| The find of a lifetime | 4 to 10 kg | 1 | $9,600 to $24,000 |
+
+Those are the odds in ordinary ground, where a find is worth $269 on average. How rich a
+map's ground is is the world file's (`gold MAP RICH`): the richer, the more of the big ones
+(`gold::chances`). As it stands: the town 0.35 ($115 a find), the Crossroads 0.5 ($147),
+Wombat Creek 1 ($269), Blackwood Gully 1.2 ($323), Granite Ridge 1.4 ($380). The bank takes
+$1,850 a week, so seven finds on Wombat Creek are a week's repayment.
+
+**Running** is held on the keys (Shift). On a controller the left stick is pressed once to
+run and again to walk, and standing still is walking again.
+
+**Where to.** The way pointed out at the top of the screen is to the nearest trailhead,
+unless somewhere was chosen on the map: a place in its list, or anywhere on it that was
+clicked (`set waypoint X Z`). Chosen again it is let go; come to, it is let go.
+
+**Free roam is free.** A truck is put back on the track when the driver asks. It is not put
+back for being a long way down the hill from it.
+
+**A timed run is driven through its gates.** A track is in sections of about four hundred
+metres, a gate of two posts at the start of each and four at the line. They are crossed in
+turn. Being put back on the track puts the truck at the start of the section it is in, and
+adds ten seconds (`PUT_BACK`); it no longer costs the run its medal. The section and what
+has been added so far are with the lap's time.
+
+**Where roads join.** A made road's cuttings and fillings run out a long way into the land
+(`ROAD_BATTER`), and by one the ground is all the nearby road's, each stretch by how much
+of the place is its own (`Trail::bench`), not the nearest stretch's: so where a road leaves
+the track, or bends back beside itself, the one runs into the other with no step. The road
+that leaves is as high as the track for as long as it runs beside it, and the track's own
+banks are a road's for sixty metres either side of the junction. `OUTBACK_VIEW=x,z,half` on
+the plan's test says how steep the steepest step of ground in a view is.
 
 A timed track is driven at the hour and in the weather picked for it. The Crossroads and
 the town are at whatever hour the clock has got to, in the day's own weather as the
@@ -132,12 +202,25 @@ is New game, Free drive, Load game, Options and Quit.
   (a window, or the whole screen). They are the player's, not a game's, and are kept in
   `save/options.txt`.
 
-**The showroom** (`yard`) is one page with a truck standing behind it, in the Crossroads'
-bush: the first truck of a story (`start`, and then its colour, `colour`), a free drive's
-(`free`), the garage (`garage`), the auto shop (`shop`), the used trucks (`used`) and the
-bank (`bank`). The trucks to choose from are a strip along the bottom, the one in hand in
-the middle, and pressing on one chooses it. Each page is come to from its own place in the
-game and has one way out.
+**The showroom** (`yard`) is one page with a truck standing behind it: the first truck of a
+story (`start`, and then its colour, `colour`), a free drive's (`free`), the garage
+(`garage`), the auto shop (`shop`), the used trucks (`used`) and the bank (`bank`). Each
+page is come to from its own place in the game and has one way out.
+
+It is looked at where it is done. The first truck, a free drive's and the garage are at the
+Crossroads, by the shed (the map `showroom`). What is done in the town is in the town
+(`showroom_town`, the town's own scene): the truck stands in the yard before Motor Spares,
+the hotel or the bank, facing the road, with the building behind it. Where is a
+`place stand:WHAT X Y Z YAW` of the town's places (`Town::stands`), which
+`shared::show_trucks` stands the trucks at and `PlayMode::stand` looks at.
+
+Everything there is to choose is in the strip along the bottom, the one in hand in the
+middle, and pressing on it chooses it: trucks, a first truck's colours, and in the auto
+shop its sections (each group of parts, the respray, the oil), which open into what is in
+them. A part or a colour in hand is put on the truck to be seen before it is bought
+(`try:GROUP:CHOICE`, `tint:RRGGBB`), and taken off again when the section is left
+(`untry`). The bank's counter is the same strip: what to borrow, and what to pay off.
+Down the side is only what the truck is.
 
 **Driving**: `drive`, `pause` (Resume, Map, Options, Quit to main menu; Restart on a run
 against the clock; Back to the Crossroads only on a map with no gate home), `offer` (a

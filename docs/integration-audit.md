@@ -13,6 +13,23 @@ to review it.
 each "Open" line below says what became of it. Still only by reading, tests, design maps,
 stills and page previews.
 
+**Fourth pass.** From playing: there was no gold at the Crossroads at all, by design, and
+the gates added in the second pass had switched it off on the tracks as well (a map with any
+place in it was taken for a hub). There is now gold on every map but the town's. A truck in
+free roam was put back on the track for being fourteen metres below it, which in the hills
+is anywhere down a slope; it is left where it is. A timed run lost its medal for one reset;
+it is now driven through gates in turn and a reset adds ten seconds. The driver and the
+controls were copied into every map, so changing them meant baking every map; they are in
+the shared file once.
+
+**Fifth pass: gold.** A map's gold was scattered afresh every day and every time the map
+was come into on a new day, so what had been dug came back; and a find was worth $6,500 on
+average, twenty-four of them a map: one outing paid the whole debt. It is now scattered
+when a map is first come into and kept, with what is dug staying dug, and scattered again
+only after some has been dug and more than three days have gone by. Every map has it, the
+town's included. What is dug is drawn from a table that averages $269 a find in ordinary
+ground, less by home and more on the harder tracks (docs/ui.md, Gold).
+
 ## Summary
 
 | Section | Ties to | State |
@@ -85,8 +102,16 @@ bank are doors in the town, walked up to on foot. Each opens one page in the sho
 - Open: in a free drive the doors do nothing and say nothing.
 - Open: the `.vehicle` figures are first estimates, and so are the figures above.
 
+- Third pass: what is done in the town is looked at in the town, the truck stood in the
+  yard before the building it is done in, not by the shed at the Crossroads.
+- Third pass: the auto shop's parts were rows of small buttons down the side. They are now
+  in the strip along the bottom, as trucks and colours are: its sections, and in a section
+  what there is, each put on the truck to be seen before it is bought. The bank's counter
+  is the same strip.
+
 Review: put a nugget in the tray, park in the shed, open the Garage and try to take another
-truck out. Then walk to each of the three doors in town.
+truck out. Then walk to each of the three doors in town: the truck should be standing in
+front of that building, and the auto shop's parts should be chosen along the bottom.
 
 ## 4. Gold and the detector
 
@@ -104,8 +129,9 @@ Review: find gold by the beeps alone, carry it to town in the tray, sell it, and
 
 ## 5. Maps, gates and the town
 
-The Crossroads is the hub. The town is reached from a gate beside the shed, down its own
-670 m main road with a ford; its gate is the way back.
+The Crossroads is the hub. A main road runs from beside the shed to the edge of the map, and
+driving down it is driving into the town's map, on a 400 m main road in from its own edge;
+driving back out is the way back. Nothing is asked either way.
 
 - **Fault, fixed: the town was offered as a timed track.** Giving the town a length made the
   trailhead card offer Practice and Timed run on a track that is not a loop. The town is now
@@ -122,11 +148,24 @@ The Crossroads is the hub. The town is reached from a gate beside the shed, down
 - Was open, done: Wombat Creek, Granite Ridge and Blackwood Gully each have a gate beside
   their start, back to the Crossroads. The pause menu's "Back to the Crossroads" now shows
   nowhere, and is kept only for a map baked without a gate.
-- The way to the town is a graded main road, two trucks wide, not a four-wheel-drive track.
+- The way to the town is a main road to drive fast, not a four-wheel-drive track: two
+  trucks wide, smooth, its bends opened out, with no creek crossing, logs, humps or ledges.
+  No road in the game has a log across it now.
+- Third pass: the gate beside the shed and the town's own gate are gone. The maps join at
+  their edges, as zones do: `place edge:MAP`, `Place::edge`, tested in
+  `driving_off_the_edge_of_a_map_by_its_road_is_driving_into_the_next`.
 - Open: picking an hour for a timed track moves the day's clock to it.
 
-Review: drive from the shed's gate to the town and back; sleep, and check the weather matches
-the calendar's square for the new day.
+- Third pass, a fault fixed: where the road to the edge left the Crossroads' road there was
+  a wall of earth a metre and more high between them, and another inside the road's own
+  bend. The ground by a road was the nearest stretch's alone. It is now shared between
+  every stretch that is near (`Trail::bench`), and a made road's banks run out thirteen
+  metres. Measured on the design: the steepest step by the junction was over a metre in
+  half a metre, and is 0.45 m, which is what open ground elsewhere on the map is.
+
+Review: from the shed take the road to the edge of the map; the town loads, and the truck is
+on its road facing in. Drive to the town at speed, then back out the same road to the
+Crossroads. Sleep, and check the weather matches the calendar's square for the new day.
 
 ## 6. Timed runs
 

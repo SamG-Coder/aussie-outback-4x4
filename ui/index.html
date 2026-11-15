@@ -100,6 +100,7 @@
     <dl id="laps" hidden>
       <dt>Lap</dt><dd id="lap-count">1</dd>
       <dt class="keep">Time</dt><dd id="lap-time" class="big keep">-:--.---</dd>
+      <dt class="keep">Section</dt><dd class="keep"><span id="lap-section">-</span> <b class="penalty" id="lap-penalty"></b></dd>
       <dt>Last</dt><dd id="lap-last">-:--.---</dd>
       <dt>Best</dt><dd id="lap-best">-:--.---</dd>
     </dl>
@@ -585,6 +586,7 @@
       <img id="chart-img" alt="">
       <div id="chart-labels"></div>
       <svg class="chart-arrow" id="chart-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 21 L12 16 L4 21 Z"/></svg>
+      <svg class="chart-flag" id="chart-flag" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6 22 V2 L19 7 L8 12 V22 Z"/></svg>
     </div>
     <div class="chart-side">
       <p class="kicker">Map</p>
@@ -599,6 +601,9 @@
         <li><i class="key-line"></i>Contours, every 5 m</li>
       </ul>
       <p class="about">North is up. The bar in the corner is a hundred metres.</p>
+      <p class="label">Where to</p>
+      <p class="about" id="chart-going"></p>
+      <nav class="menu small places" id="chart-places"></nav>
       <nav class="menu small" data-menu="map">
         <button data-close="map"><span>Back</span></button>
       </nav>

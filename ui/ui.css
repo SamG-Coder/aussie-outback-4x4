@@ -745,3 +745,28 @@ button.slot.sure em, button.slot.sure.held em { color: var(--bone); background: 
   .rail .heading { font-size: 3rem; }
   .rail .facts { margin-top: 0.6rem; padding-top: 0.6rem; gap: 0.4rem 2rem; }
 }
+
+/* ---- A tile of the strip that is words: a section of the auto shop, a part, something at
+   the bank's counter. The same size as a truck's picture, so the strip slides the same. */
+.lot button.tile { display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; aspect-ratio: 16 / 9;
+  padding: 0.5rem 0.8rem; text-align: left; border: 1px solid var(--line); border-bottom-width: 0.25rem;
+  background: rgba(17, 13, 10, 0.86); }
+.lot button.tile b { font: 700 1.2rem/1.05 var(--sign); font-stretch: 75%; letter-spacing: 0.04em; text-transform: uppercase; color: var(--bone); }
+.lot button.tile small { font: normal 0.82rem/1.2 var(--text); color: var(--dust); }
+.lot button.tile.fitted, .lot button.colour.fitted i { border-color: var(--gum); }
+.lot button.tile.fitted small { color: var(--gum); }
+.lot button.tile.held { border-bottom-color: var(--ochre); }
+
+/* What being put back on the track has cost a lap so far, beside the section it is in. */
+#laps .penalty { color: var(--clay); margin-left: 0.5rem; font-weight: 700; }
+
+/* On the map: where the driver has said they are going, and the places to choose from. */
+.chart-flag { position: absolute; width: 1.9rem; height: 1.9rem; transform: translate(-25%, -92%); fill: var(--ochre);
+  stroke: var(--ink); stroke-width: 1.2; pointer-events: none; filter: drop-shadow(0 0.15rem 0.3rem rgba(0, 0, 0, 0.7)); }
+.chart { cursor: crosshair; }
+.menu.small.places { margin-top: 0.4rem; gap: 0; }
+.menu.small.places button { padding: 0.28rem 1rem 0.28rem 0.9rem; min-width: 0; }
+.menu.small.places button span { font-size: 1.2rem; }
+.menu.small.places button.going span { color: var(--ochre); }
+.chart-side .label { margin-top: 1.2rem; font: 600 0.8rem/1 var(--sign); letter-spacing: 0.18em; text-transform: uppercase; color: var(--dust); }
+.chart-side #chart-going { margin-top: 0.4rem; font-size: 1rem; }
