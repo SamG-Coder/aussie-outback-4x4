@@ -399,6 +399,10 @@ mod native {
         night_eyes: bool,
         /// Whether the truck is not drawn: for a picture of a map and nothing else.
         no_truck: bool,
+        /// The share of its engine's pull the truck still has: less, overdue for its oil.
+        pull: f32,
+        /// Where in a showroom the trucks stand, if the map says where for what is looked at.
+        stand: Option<String>,
         /// Whether a scene was named, rather than left to be the game's hub.
         scene_named: bool,
         /// For trying the menus with no hand on anything: scripts to run in the pages, and
@@ -680,6 +684,8 @@ mod native {
             world: None,
             night_eyes: false,
             no_truck: false,
+            pull: 1.0,
+            stand: None,
             scene_named: false,
             ui_runs: Vec::new(),
             taps: Vec::new(),
@@ -1086,17 +1092,18 @@ mod native {
                     let pack = truck_pack(path, truck);
                     let mut file = std::fs::File::open(&pack)
                         .map_err(|error| format!("{}: {error}", pack.display()))?;
-                    let truck = solstice_viewer::kit::assemble(&mut file, Some(build))
+                    let truck = solstice_viewer::kit::assemble(&mut file, Some(build), 1.0)
                         .map_err(|error| format!("{}: {error}", pack.display()))?;
                     trucks.push(truck);
                 }
-                solstice_viewer::shared::show_trucks(&mut scene, trucks)?;
+                solstice_viewer::shared::show_trucks(&mut scene, trucks, options.stand.as_deref())?;
             } else if let Some(truck) = &options.truck {
                 let pack = truck_pack(path, truck);
                 let mut file = std::fs::File::open(&pack)
                     .map_err(|error| format!("{}: {error}", pack.display()))?;
-                let truck = solstice_viewer::kit::assemble(&mut file, options.kit.as_deref())
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                let truck =
+                    solstice_viewer::kit::assemble(&mut file, options.kit.as_deref(), options.pull)
+                        .map_err(|error| format!("{}: {error}", pack.display()))?;
                 solstice_viewer::shared::swap_truck(&mut scene, truck)?;
             }
             Source::Loaded(scene)
@@ -1909,9 +1916,6 @@ mod native {
     const SLOTS: u32 = 3;
     /// Where the options are kept: they are the player's, whichever game is played.
     const OPTIONS_FILE: &str = "save/options.txt";
-    /// The file that says which kept game is being played: its number.
-    const SLOT_FILE: &str = "save/slot.txt";
-
     /// The file a kept game is in: the first is the one there has always been.
     fn slot_file(slot: u32) -> PathBuf {
         if slot <= 1 {
@@ -1979,7 +1983,6 @@ mod native {
         };
         if let Some(slot) = play {
             *playing = slot;
-            write(Path::new(SLOT_FILE), &slot.to_string());
             let kept = std::fs::read_to_string(slot_file(slot)).unwrap_or_default();
             log::info!("games: playing the one in place {slot}");
             shell.load(&kept);
@@ -2390,6 +2393,8 @@ mod native {
             // stand here to be looked at.
             if let Some(shell) = &mut self.shell {
                 self.options.shown = shell.showing();
+                self.options.pull = shell.power();
+                self.options.stand = shell.stand().map(str::to_owned);
                 let wearing = shell.wearing();
                 self.options.kit = wearing.as_ref().map(|(_, fit)| (*fit).to_owned());
                 self.options.truck = wearing.map(|(truck, _)| truck);
@@ -2614,7 +2619,7 @@ mod native {
                     // been told where the map's truck stands.)
                     let stands = play.play.car_pose();
                     if let Some((at, turned, seconds)) = shell.showroom() {
-                        let (at, turned) = stands.unwrap_or((at, turned));
+                        let (at, turned) = play.stand().unwrap_or((at, turned));
                         (camera.position, camera.yaw, camera.pitch) =
                             play.showroom_camera(at, turned, seconds);
                     }
@@ -2709,6 +2714,10 @@ mod native {
                             Order::Saves(what) => {
                                 let trial = self.options.trial.is_some();
                                 change_game(&mut self.options.slot, trial, shell, what);
+                            }
+                            Order::Afoot(at) => {
+                                let stood = play.play.stand_at(at);
+                                log::info!("driver: out at the door, {stood}");
                             }
                             // Out of the truck, or, beside it, back in.
                             Order::Swap => {

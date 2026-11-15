@@ -6,5 +6,6 @@ script driver.star
 property walk_speed float 1.8   # metres a second
 property run_speed float 4.6
 property jump_speed float 4.7   # metres a second off the ground: a jump of about a metre
+property sprinting float 0      # 1 while running was switched on, on a controller
 camera 0 1.68 0
 character 0.3 1.78

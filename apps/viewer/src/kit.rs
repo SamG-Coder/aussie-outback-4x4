@@ -336,9 +336,95 @@ pub struct Assembled {
 /// are read, and then the pieces of its build and no others: what is not fitted to it is
 /// never read. `build` is `stock`, `showroom`, or choices to put over what it is sold with;
 /// with none it is as it is sold.
+/// What each kind of tyre makes of the ground: times its grip on firm ground, and on soft.
+const TREADS: [(&str, (f32, f32)); 3] = [
+    ("road", (1.06, 0.8)),
+    ("at", (1.0, 1.0)),
+    ("mud", (0.93, 1.18)),
+];
+/// What each suspension does to a truck: times its springs, times its dampers, and times
+/// how far its wheels travel. (How much higher it stands is the kit's own `lift`.)
+const SUSPENSIONS: [(&str, [f32; 3]); 4] = [
+    ("stock", [1.0, 1.0, 1.0]),
+    ("heavy", [1.12, 1.15, 1.0]),
+    ("lift", [1.0, 1.1, 1.1]),
+    ("long", [0.96, 1.15, 1.22]),
+];
+
+/// A truck's numbers (its `.vehicle` file) as it is fitted: its tyres' tread, its suspension's
+/// springs, dampers and travel, how high it stands (its weight is as much higher, and its
+/// belly as much further off the ground), and its engine's pull, of which `power` is the
+/// share an engine overdue for its oil still has.
+pub fn tuned(vehicle: &str, kit: &Kit, build: &Build, power: f32) -> String {
+    let lift = kit.lift(build);
+    let tread = build
+        .fitted("tyres")
+        .and_then(|fitted| TREADS.iter().find(|(name, _)| *name == fitted))
+        .map_or((1.0, 1.0), |(_, tread)| *tread);
+    let [spring, damper, travel] = build
+        .fitted("suspension")
+        .and_then(|fitted| SUSPENSIONS.iter().find(|(name, _)| *name == fitted))
+        .map_or([1.0; 3], |(_, does)| *does);
+    let number = |word: &str| word.parse::<f32>().ok();
+    // A `key=value` word of a line, its value (or each of its values) times something.
+    let scaled = |word: &str, key: &str, by: f32| -> Option<String> {
+        let values = word.strip_prefix(key)?.strip_prefix('=')?;
+        let each: Option<Vec<String>> = values
+            .split(',')
+            .map(|value| number(value).map(|value| format!("{:.4}", value * by)))
+            .collect();
+        Some(format!("{key}={}", each?.join(",")))
+    };
+    let mut out = String::new();
+    for line in vehicle.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let written = match words[..] {
+            ["centre", x, y, z] => match number(y) {
+                Some(y) => format!("centre {x} {:.3} {z}", y + lift),
+                None => line.to_owned(),
+            },
+            // Its body's underside is as much higher as it stands: the box is that much
+            // shallower, from below.
+            ["body", w, h, l, "at", x, y, z] => match (number(h), number(y)) {
+                (Some(h), Some(y)) if h > lift + 0.2 => {
+                    format!(
+                        "body {w} {:.3} {l} at {x} {:.3} {z}",
+                        h - lift,
+                        y + lift * 0.5
+                    )
+                }
+                _ => line.to_owned(),
+            },
+            ["torque", rpm, pull] => match number(pull) {
+                Some(pull) => format!("torque {rpm} {:.1}", pull * power.clamp(0.5, 1.0)),
+                None => line.to_owned(),
+            },
+            ["front" | "rear", ..] => words
+                .iter()
+                .map(|word| {
+                    scaled(word, "spring", spring)
+                        .or_else(|| scaled(word, "bump", damper))
+                        .or_else(|| scaled(word, "rebound", damper))
+                        .or_else(|| scaled(word, "travel", travel))
+                        .unwrap_or_else(|| (*word).to_owned())
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            ["tyre", ..] if line.contains("relaxation=") => {
+                format!("{line} tread={},{}", tread.0, tread.1)
+            }
+            _ => line.to_owned(),
+        };
+        out.push_str(&written);
+        out.push('\n');
+    }
+    out
+}
+
 pub fn assemble(
     file: &mut (impl std::io::Read + std::io::Seek),
     build: Option<&str>,
+    power: f32,
 ) -> Result<Assembled, String> {
     let said = |error: std::io::Error| error.to_string();
     let list = pack::read_list(file).map_err(said)?;
@@ -400,7 +486,12 @@ pub fn assemble(
         .iter()
         .map(|(name, text)| GameFile {
             name: format!("{FOLDER}{name}"),
-            text: text.clone(),
+            // Its numbers are as it is fitted.
+            text: if name.ends_with(".vehicle") {
+                tuned(text, &kit, &build, power)
+            } else {
+                text.clone()
+            },
         })
         .collect();
     files.push(GameFile {
@@ -767,6 +858,34 @@ mod tests {
         assert!(kit.hinges[0].upright && !kit.hinges[1].upright);
         assert_eq!(kit.holds[0].doors, ["door_FL"]);
         assert!(kit.holds[1].doors.is_empty());
+    }
+
+    #[test]
+    fn what_is_fitted_changes_a_trucks_numbers() {
+        let kit = Kit::parse(KIT).unwrap();
+        let vehicle = "centre 0 0.76 -0.14
+body 1.74 1.28 3.99 at 0 1.20 0.05
+            front spring=30000 bump=3000 rebound=6000 travel=0.10,0.08
+            tyre load=3625 sensitivity=0.1 relaxation=0.5
+torque 1000 100
+";
+        // As it is sold: road tyres, and everything else as it was.
+        let stock = tuned(vehicle, &kit, &kit.stock, 1.0);
+        assert!(stock.contains("centre 0 0.760 -0.14") && stock.contains("torque 1000 100.0"));
+        assert!(stock.contains("tread=1.06,0.8") && stock.contains("travel=0.1000,0.0800"));
+        // Built up, on mud tyres and a lift, with its oil overdue: it stands higher, its
+        // belly is further off the ground, its wheels travel further, and it pulls less.
+        let built = tuned(vehicle, &kit, &kit.showroom, 0.9);
+        assert!(built.contains("centre 0 0.810 -0.14"), "{built}");
+        assert!(
+            built.contains("body 1.74 1.230 3.99 at 0 1.225 0.05"),
+            "{built}"
+        );
+        assert!(
+            built.contains("travel=0.1100,0.0880") && built.contains("bump=3300.0000"),
+            "{built}"
+        );
+        assert!(built.contains("tread=0.93,1.18") && built.contains("torque 1000 90.0"));
     }
 
     #[test]
