@@ -91,6 +91,11 @@ impl InstanceTable {
         self.gpu_index.is_empty()
     }
 
+    /// Which of the instances on the GPU one of the scene's is, if it is drawn at all.
+    pub fn gpu_number(&self, instance: u32) -> Option<u32> {
+        self.index(instance).map(|index| index as u32)
+    }
+
     fn index(&self, instance: u32) -> Option<usize> {
         self.gpu_index
             .get(instance as usize)

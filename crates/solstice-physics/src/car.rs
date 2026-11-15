@@ -78,6 +78,43 @@ impl Ground for SceneGround<'_> {
     }
 }
 
+/// A box with a hollow cut out of it: the boxes that are left, under the hollow and over
+/// it, to each side of it, before it and behind. A box the hollow does not reach is left
+/// whole. Each box and the hollow are their least corner and their greatest.
+pub(crate) fn hollowed(solid: (Vec3, Vec3), hollow: (Vec3, Vec3)) -> Vec<(Vec3, Vec3)> {
+    let (low, high) = solid;
+    let (from, to) = (hollow.0.max(low), hollow.1.min(high));
+    if from.cmpge(to).any() {
+        return vec![solid];
+    }
+    let left = [
+        // Under it and over it, the whole of the box across and along.
+        (low, Vec3::new(high.x, from.y, high.z)),
+        (Vec3::new(low.x, to.y, low.z), high),
+        // To each side of it, as high as it is.
+        (
+            Vec3::new(low.x, from.y, low.z),
+            Vec3::new(from.x, to.y, high.z),
+        ),
+        (
+            Vec3::new(to.x, from.y, low.z),
+            Vec3::new(high.x, to.y, high.z),
+        ),
+        // Before it and behind, as high and as wide as it is.
+        (
+            Vec3::new(from.x, from.y, low.z),
+            Vec3::new(to.x, to.y, from.z),
+        ),
+        (
+            Vec3::new(from.x, from.y, to.z),
+            Vec3::new(to.x, to.y, high.z),
+        ),
+    ];
+    left.into_iter()
+        .filter(|(low, high)| (*high - *low).min_element() > 1e-3)
+        .collect()
+}
+
 impl Physics {
     /// Says what the ground is made of at each place, for tyres. Without it, all is asphalt.
     pub fn set_surfaces(&mut self, surfaces: impl Fn(Vec3) -> Surface + 'static) {
@@ -173,6 +210,31 @@ impl Physics {
                         ),
                     ]
                 }
+            };
+            // Where it has holds it is hollow: each is cut out of whatever boxes it is in,
+            // with a wall left round it, so that what is put in one is shut in.
+            let boxes = if spec.holds.is_empty() {
+                boxes
+            } else {
+                const WALL: f32 = 0.04;
+                let mut solid: Vec<(Vec3, Vec3)> = boxes
+                    .iter()
+                    .map(|(middle, half, _)| (*middle - *half, *middle + *half))
+                    .collect();
+                for (size, floor) in &spec.holds {
+                    let hollow = (
+                        (*floor - Vec3::new(size.x, 0.0, size.z) * 0.5).max(low + WALL),
+                        (*floor + Vec3::new(size.x * 0.5, size.y, size.z * 0.5)).min(high - WALL),
+                    );
+                    solid = solid
+                        .into_iter()
+                        .flat_map(|solid| hollowed(solid, hollow))
+                        .collect();
+                }
+                solid
+                    .into_iter()
+                    .map(|(low, high)| boxed(low, high, false))
+                    .collect()
             };
             let mut colliders = Vec::new();
             for (middle, half, round) in boxes {
@@ -310,5 +372,43 @@ impl Physics {
             rigid.set_linvel(to_vector(step.velocity + knocked), true);
             rigid.set_angvel(to_vector(step.spin + twisted), true);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How much room boxes take up, between them.
+    fn volume(boxes: &[(Vec3, Vec3)]) -> f32 {
+        boxes
+            .iter()
+            .map(|(low, high)| {
+                let size = *high - *low;
+                size.x * size.y * size.z
+            })
+            .sum()
+    }
+
+    #[test]
+    fn a_box_hollowed_is_what_is_left_round_the_hollow() {
+        let solid = (Vec3::new(-1.0, 0.0, -2.0), Vec3::new(1.0, 1.5, 2.0));
+        // A hollow in the middle of it leaves six boxes, which with it make up the whole.
+        let hollow = (Vec3::new(-0.5, 0.4, -0.5), Vec3::new(0.2, 1.0, 0.6));
+        let left = hollowed(solid, hollow);
+        assert_eq!(left.len(), 6);
+        let hole = (hollow.1 - hollow.0).to_array().iter().product::<f32>();
+        assert!((volume(&left) + hole - volume(&[solid])).abs() < 1e-4);
+        // Nothing left is in the hollow: its middle is in none of them.
+        let middle = (hollow.0 + hollow.1) * 0.5;
+        assert!(left
+            .iter()
+            .all(|(low, high)| !(middle.cmpgt(*low).all() && middle.cmplt(*high).all())));
+        // One that reaches the top of the box leaves nothing over it; one outside the box
+        // leaves the box as it was.
+        let open = (Vec3::new(-0.5, 0.4, -0.5), Vec3::new(0.2, 2.0, 0.6));
+        assert_eq!(hollowed(solid, open).len(), 5);
+        let away = (Vec3::new(3.0, 0.0, 0.0), Vec3::new(4.0, 1.0, 1.0));
+        assert_eq!(hollowed(solid, away), [solid]);
     }
 }

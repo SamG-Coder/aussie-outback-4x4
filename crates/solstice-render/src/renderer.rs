@@ -316,6 +316,9 @@ struct History {
 pub struct Renderer {
     /// The lamps of whatever is driven, when they are on.
     lamp: Option<crate::Lamp>,
+    /// What whatever is driven wears, and which of the scene's instances are it: the first
+    /// of them as the GPU numbers them, and how many.
+    coat: Option<(crate::Coat, u32, u32)>,
     streamer: Streamer,
     settings: RendererSettings,
     scene: GpuScene,
@@ -795,6 +798,7 @@ impl Renderer {
             profiler: Profiler::new(gpu),
             scene,
             lamp: None,
+            coat: None,
             streamer,
             frame_uniform,
             view_slots,
@@ -969,6 +973,22 @@ impl Renderer {
 
     pub fn weather(&self) -> Weather {
         self.clouds.weather()
+    }
+
+    /// Says what whatever is driven wears from now on (see [`crate::Coat`]), and which of
+    /// the scene's instances are it; or, with `None`, that nothing wears anything. The
+    /// instances are taken as one run of the scene's: a car's are, as a bake places them.
+    /// Set each frame the car moves, as its lamp is.
+    pub fn set_coat(&mut self, coat: Option<(crate::Coat, &[u32])>) {
+        self.coat = coat.and_then(|(coat, instances)| {
+            let numbered = instances
+                .iter()
+                .filter_map(|&instance| self.scene.instance_table.gpu_number(instance));
+            let (first, last) = numbered.fold((u32::MAX, 0), |(first, last), number| {
+                (first.min(number), last.max(number))
+            });
+            (first <= last).then(|| (coat, first, last - first + 1))
+        });
     }
 
     /// Turns on the lamps of whatever is driven, where they are now, or turns them off. Set
@@ -1698,6 +1718,12 @@ impl Renderer {
         };
         let previous = self.history.unwrap_or(current);
 
+        // The coat of what is driven: the world as its own space sees it, a row a line.
+        let coat = self.coat;
+        let coat_rows = coat.map_or([glam::Vec4::ZERO; 3], |(coat, ..)| {
+            let to_car = coat.car.inverse();
+            [to_car.row(0), to_car.row(1), to_car.row(2)]
+        });
         let frame = FrameUniform {
             view_proj: jittered,
             inv_view_proj: jittered.inverse(),
@@ -1744,6 +1770,22 @@ impl Renderer {
             lamp_spread: self.lamp.map_or(1.0, |lamp| lamp.half_angle.cos()),
             lamp_intensity: self.lamp.map_or(Vec3::ZERO, |lamp| lamp.intensity),
             _pad3: 0.0,
+            coat_x: coat_rows[0],
+            coat_y: coat_rows[1],
+            coat_z: coat_rows[2],
+            coat_paint: coat.map_or(Vec3::ZERO, |(coat, ..)| coat.paint),
+            coat_rust: coat.map_or(0.0, |(coat, ..)| coat.rust.clamp(0.0, 1.0)),
+            coat_soil: coat.map_or(Vec3::ZERO, |(coat, ..)| coat.soil),
+            coat_mud: coat.map_or(0.0, |(coat, ..)| coat.mud.clamp(0.0, 1.0)),
+            coat_was: coat.map_or(Vec3::ZERO, |(coat, ..)| coat.was),
+            coat_dust: coat.map_or(0.0, |(coat, ..)| coat.dust.clamp(0.0, 1.0)),
+            coat_first: coat.map_or(0, |(_, first, _)| first),
+            coat_count: coat.map_or(0, |(_, _, count)| count),
+            coat_seed: coat.map_or(0, |(coat, ..)| coat.seed),
+            coat_wet: coat.map_or(0.0, |(coat, ..)| coat.wet.clamp(0.0, 1.0)),
+            coat_axles: coat.map_or(glam::Vec4::ZERO, |(coat, ..)| {
+                glam::Vec4::from_array(coat.axles)
+            }),
             daylight_illuminance: environment.daylight(),
         };
         gpu.queue

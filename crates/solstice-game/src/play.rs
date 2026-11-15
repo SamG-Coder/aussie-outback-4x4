@@ -110,6 +110,9 @@ pub struct Play {
     track: Option<Rc<Track>>,
     /// How wet the ground is, from 0 to 1, as whoever runs the weather last said.
     wetness: Rc<Cell<f32>>,
+    /// The pace the game drives the player's car at, while it does: see
+    /// [`Play::set_autopilot`].
+    chauffeur: Rc<Cell<Option<drive::Pace>>>,
     /// The camera that follows the player's car.
     chase: Chase,
     /// The player's car's instruments, as of the latest frame.
@@ -414,6 +417,9 @@ impl Play {
         let mut players_gearbox = true;
         let wetness: Rc<Cell<f32>> = Rc::default();
         let rained = wetness.clone();
+        // The pace the car is to be driven at by the game, when whoever runs it asks.
+        let chauffeur: Rc<Cell<Option<drive::Pace>>> = Rc::default();
+        let (hired, mut was_hired) = (chauffeur.clone(), false);
         // On a bush track a car that drives itself tours; round a circuit, it races.
         let pace = if mapped {
             drive::Pace::TOURING
@@ -464,6 +470,31 @@ impl Play {
                     }
                 }
             }
+            // Whoever runs the game may have the car driven at a pace of their choosing, as
+            // when another driver's run is shown: handed over, and handed back, as the key
+            // does it.
+            let hire = hired.get();
+            if hire.is_some() != was_hired {
+                was_hired = hire.is_some();
+                last_at = None;
+                if let Ok(mut car) = world.entities.get::<&mut Car>(entity) {
+                    if was_hired {
+                        if !itself {
+                            players_gearbox = car.driver.automatic;
+                        }
+                        car.driver.automatic = true;
+                        if mapped {
+                            car.vehicle
+                                .set_drive_mode(solstice_physics::vehicle::DriveMode::FourHigh);
+                            car.vehicle.set_lockers(false, true);
+                        }
+                    } else if !itself {
+                        car.driver.automatic = players_gearbox;
+                    }
+                }
+            }
+            let itself = itself || hire.is_some();
+            let pace = hire.unwrap_or(pace);
             if let (true, Some(track)) = (itself, &circuit) {
                 let car = world
                     .entities
@@ -655,6 +686,7 @@ impl Play {
             flying: false,
             track,
             wetness,
+            chauffeur,
             chase: Chase::default(),
             hud: None,
             race_log,
@@ -732,6 +764,32 @@ impl Play {
             .flat_map(|d| d.instances.iter().map(|(id, _)| *id))
     }
 
+    /// Moves one instance of an actor within the actor: a door swung on its hinge. `by` is
+    /// applied to where the instance now is, in the actor's own space.
+    pub fn move_within(&mut self, instance: u32, by: Mat4) {
+        for drawn in &mut self.drawn {
+            for (id, local) in &mut drawn.instances {
+                if *id == instance {
+                    *local = by * *local;
+                    // Drawn again, though the actor has not moved.
+                    drawn.drawn = None;
+                }
+            }
+        }
+    }
+
+    /// The instances that draw the player's car, its wheels among them.
+    pub fn car_instances(&self) -> Vec<u32> {
+        let Some(car) = self.player.as_ref().filter(|player| player.car) else {
+            return Vec::new();
+        };
+        self.drawn
+            .iter()
+            .filter(|drawn| drawn.entity == car.entity)
+            .flat_map(|drawn| drawn.instances.iter().map(|(id, _)| *id))
+            .collect()
+    }
+
     /// The scripts the game runs, by name, which a viewer may watch and [`Play::reload`].
     pub fn scripts(&self) -> &[String] {
         &self.scripts
@@ -780,7 +838,12 @@ impl Play {
         };
         let yaw = at.rotation.to_euler(EulerRot::YXZ).0;
         let facing = Quat::from_rotation_y(yaw);
-        let beside = at.translation + facing * Vec3::new(-1.95, 0.0, 0.3) + Vec3::Y * 0.35;
+        // Out of the door they sit by: the left, unless the car's numbers say the right.
+        let right = entities
+            .get::<&Car>(car.entity)
+            .is_ok_and(|car| car.vehicle.spec().driver_right);
+        let side = if right { 1.95 } else { -1.95 };
+        let beside = at.translation + facing * Vec3::new(side, 0.0, 0.3) + Vec3::Y * 0.35;
         if let Ok(mut transform) = entities.get::<&mut Transform>(walker.entity) {
             transform.translation = beside;
             transform.rotation = facing;
@@ -822,6 +885,40 @@ impl Play {
             return false;
         };
         drive::put_at(&mut self.game.world, car.entity, position, yaw_degrees);
+        true
+    }
+
+    /// Has the game drive the player's car round the track at a pace, whatever the player
+    /// asks of it, or gives it back to them: for showing how somebody else drives it.
+    pub fn set_autopilot(&mut self, pace: Option<drive::Pace>) {
+        self.chauffeur.set(pace);
+    }
+
+    /// Puts the player's car `back` metres behind the start line, facing the way the lap
+    /// runs, at rest, with no lap begun: the start of a timed run. Whether there is a car
+    /// and a track to put it on.
+    pub fn to_the_line(&mut self, back: f32) -> bool {
+        let (Some(car), Some(track)) = (
+            self.player.as_ref().filter(|player| player.car),
+            self.track.clone(),
+        ) else {
+            return false;
+        };
+        let (centre, forward, left) = track.place(-back);
+        let up = forward.cross(left).normalize_or(Vec3::Y);
+        let entities = &mut self.game.world.entities;
+        if let Ok(mut transform) = entities.get::<&mut Transform>(car.entity) {
+            transform.rotation =
+                Quat::from_mat3(&glam::Mat3::from_cols(-left, up, -forward)).normalize();
+            transform.translation = centre + up * 0.08;
+        }
+        if let Ok(mut driven) = entities.get::<&mut Car>(car.entity) {
+            driven.vehicle.settle();
+            driven.asked = Default::default();
+        }
+        if let Ok(mut lap) = entities.get::<&mut Lap>(car.entity) {
+            *lap = Lap::new(&track);
+        }
         true
     }
 

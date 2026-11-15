@@ -51,6 +51,25 @@ struct Frame {
     lamp_spread: f32,
     lamp_intensity: vec3f,
     _pad3: f32,
+    // The coat of whatever is driven (`Coat` in frame.rs): its paint's colour, and its rust,
+    // dust and mud. The rows that take a place in the world to the car's own space, metres
+    // from the ground under its middle, x to its right, y up, z to its back; nothing wears
+    // a coat when `coat_count` is 0.
+    coat_x: vec4f,
+    coat_y: vec4f,
+    coat_z: vec4f,
+    coat_paint: vec3f,
+    coat_rust: f32,
+    coat_soil: vec3f,
+    coat_mud: f32,
+    coat_was: vec3f,
+    coat_dust: f32,
+    coat_first: u32,
+    coat_count: u32,
+    coat_seed: u32,
+    coat_wet: f32,
+    // Where its front and rear axles are along z, half its track, and its wheels' radius.
+    coat_axles: vec4f,
 }
 
 const DEBUG_NONE: u32 = 0u;
