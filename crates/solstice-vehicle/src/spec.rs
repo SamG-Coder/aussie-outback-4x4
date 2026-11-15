@@ -788,6 +788,9 @@ impl VehicleSpec {
         if !(0.0..1.0).contains(&tyre.load_sensitivity) {
             return Err("the tyre's load sensitivity is between 0 and 1".into());
         }
+        if !(0.3..=2.0).contains(&tyre.tread.0) || !(0.3..=2.0).contains(&tyre.tread.1) {
+            return Err("the tyre's tread is between 0.3 and 2 on firm ground and on soft".into());
+        }
         let engine = &self.engine;
         if engine.torque.len() < 2 {
             return Err("the engine needs at least two `torque` points".into());
@@ -935,8 +938,8 @@ impl VehicleSpec {
         );
         let _ = writeln!(
             text,
-            "tyre load={} sensitivity={} relaxation={}",
-            t.nominal_load, t.load_sensitivity, t.relaxation
+            "tyre load={} sensitivity={} relaxation={} tread={},{}",
+            t.nominal_load, t.load_sensitivity, t.relaxation, t.tread.0, t.tread.1
         );
         let e = &self.engine;
         let _ = writeln!(
@@ -1090,6 +1093,7 @@ fn set_tyre(tyre: &mut Tyre, key: &str, value: &str) -> Result<(), String> {
         "load" => tyre.nominal_load = number(value)?,
         "sensitivity" => tyre.load_sensitivity = number(value)?,
         "relaxation" => tyre.relaxation = number(value)?,
+        "tread" => tyre.tread = pair(value)?,
         other => return Err(unknown("tyre", other)),
     }
     Ok(())

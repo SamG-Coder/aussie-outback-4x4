@@ -4,7 +4,7 @@
 # from the `outback` line: the land, the creek, the track, and what grows.
 texture_size 1024
 camera -150 74 -150 0.4 -0.1
-outback 1000
+outback 1000 +crossroads
 actor outback/raptor.actor -158.09 70.73 -160.11 177.1 shared
 # The driver, who sits in the truck until they get out of it, and what the keys do.
 actor outback/driver.actor -158.09 70.73 -160.11 177.1

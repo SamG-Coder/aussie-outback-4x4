@@ -459,7 +459,7 @@ impl WebViewer {
                 }
                 let stands = play.play.car_pose();
                 if let Some((at, turned, seconds)) = shell.showroom() {
-                    let (at, turned) = stands.unwrap_or((at, turned));
+                    let (at, turned) = play.stand().unwrap_or((at, turned));
                     (camera.position, camera.yaw, camera.pitch) =
                         play.showroom_camera(at, turned, seconds);
                 }
@@ -521,6 +521,10 @@ impl WebViewer {
                         }
                         Order::Fit(build) => {
                             let _ = play.display_fit(&build);
+                            continue;
+                        }
+                        Order::Afoot(at) => {
+                            play.play.stand_at(at);
                             continue;
                         }
                         Order::Swap => {
@@ -923,6 +927,7 @@ impl WebViewer {
     ) -> Result<(), JsValue> {
         let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
         let mut shell = crate::shell::Shell::new(world, kept);
+        shell.set_web();
         if !map.is_empty() {
             shell.start_in(map);
         }

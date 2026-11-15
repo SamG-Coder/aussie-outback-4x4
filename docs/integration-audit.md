@@ -9,6 +9,27 @@ by still pictures taken without a window, and by the pages in a browser preview.
 this audit was checked by playing the game.** Each section ends with what to try in the game
 to review it.
 
+**Second pass, the same day.** What the first pass left open was then worked through:
+each "Open" line below says what became of it. Still only by reading, tests, design maps,
+stills and page previews.
+
+**Fourth pass.** From playing: there was no gold at the Crossroads at all, by design, and
+the gates added in the second pass had switched it off on the tracks as well (a map with any
+place in it was taken for a hub). There is now gold on every map but the town's. A truck in
+free roam was put back on the track for being fourteen metres below it, which in the hills
+is anywhere down a slope; it is left where it is. A timed run lost its medal for one reset;
+it is now driven through gates in turn and a reset adds ten seconds. The driver and the
+controls were copied into every map, so changing them meant baking every map; they are in
+the shared file once.
+
+**Fifth pass: gold.** A map's gold was scattered afresh every day and every time the map
+was come into on a new day, so what had been dug came back; and a find was worth $6,500 on
+average, twenty-four of them a map: one outing paid the whole debt. It is now scattered
+when a map is first come into and kept, with what is dug staying dug, and scattered again
+only after some has been dug and more than three days have gone by. Every map has it, the
+town's included. What is dug is drawn from a table that averages $269 a find in ordinary
+ground, less by home and more on the harder tracks (docs/ui.md, Gold).
+
 ## Summary
 
 | Section | Ties to | State |
@@ -20,7 +41,7 @@ to review it.
 | 5. Maps, gates and the town | saves, trailheads, weather, pause menu | Three faults fixed |
 | 6. Timed runs | trucks' grades, money, calendar | One fault fixed |
 | 7. Pages: look and wording | every screen | Two faults fixed, two styles remain |
-| 8. Browser version | menu, trucks | Not working with the new menu: open |
+| 8. Browser version | menu, trucks | A free drive only; a story there is open |
 
 ## 1. Main menu and kept games
 
@@ -35,9 +56,10 @@ choose one; Free Drive keeps nothing.
 - Options (volume, full screen) are the player's, not a game's: they are kept in
   `save/options.txt` and carried across loading a game.
 - Deleting a slot works from the menu whichever slot was last played.
-- Open: `save/slot.txt` is still written and nothing reads it.
-- Open: the old title actions (`story`, `garage`, `truck_next`, `truck_prev`, `truck_fit`) and
-  the yard's `home` page are no longer reachable from any page and can be removed.
+- Was open, done: `save/slot.txt` is no longer written.
+- Was open, done: the old title actions (`story`, `garage`, `truck_next`, `truck_prev`,
+  `truck_fit`), the pause menu's garage and the yard's `home` page are removed.
+- A first truck is chosen in two steps: which, and then its colour, in the same strip.
 
 Review: start a game in slot 1, quit to the main menu, do a free drive, sleep in the shed, quit,
 load slot 1. The day and the truck's place should be as the story left them.
@@ -53,7 +75,8 @@ comes out each Friday on waking. The bank is a door in the town; the calendar is
   owed, and nothing where there is no debt.
 - Buying a truck or a part with too little in hand goes on the debt up to the bank's limit:
   the shop, the used trucks and the bank all use the one `Yard`.
-- Open: an overdue oil change has no effect on the truck yet.
+- Was open, done: oil is due every 150 km of driving, and an engine overdue for it loses
+  0.4% of its pull for each kilometre overdue, up to a fifth (`Owned::power`).
 
 Review: in a story open the calendar in the shed: Fridays show $1,850 and "Still owed". Pay
 some off at the bank, sleep to Friday, and check the debt drops by the repayment.
@@ -69,13 +92,26 @@ bank are doors in the town, walked up to on foot. Each opens one page in the sho
   refused while anything is aboard: "There is gold aboard this one. Put it in the chest first."
 - A first truck's colour and the shop's respray are the one colour row.
 - Dirt, kilometres, parts and paint are kept per truck and follow it through the showroom.
-- Open: leaving a door puts the driver back in the truck where it was parked, not at the door.
+- Was open, done: coming out of a door the driver is on foot at the door, the truck where
+  it was parked.
+- Was open, done: what is fitted changes the driving (`kit::tuned`). Road tyres grip firm
+  ground 6% better and soft ground 20% worse; mud tyres 7% worse and 18% better. Heavy-duty
+  springs are a quarter stiffer; a lift travels a quarter further and long-travel 60%
+  further; and a truck stands, and carries its weight and its belly, as much higher as its
+  kit says its suspension lifts it. The picture of the truck does not rise with it.
 - Open: in a free drive the doors do nothing and say nothing.
-- Open: lift kits and tyres do not change how a truck drives; the `.vehicle` figures are
-  first estimates.
+- Open: the `.vehicle` figures are first estimates, and so are the figures above.
+
+- Third pass: what is done in the town is looked at in the town, the truck stood in the
+  yard before the building it is done in, not by the shed at the Crossroads.
+- Third pass: the auto shop's parts were rows of small buttons down the side. They are now
+  in the strip along the bottom, as trucks and colours are: its sections, and in a section
+  what there is, each put on the truck to be seen before it is bought. The bank's counter
+  is the same strip.
 
 Review: put a nugget in the tray, park in the shed, open the Garage and try to take another
-truck out. Then walk to each of the three doors in town.
+truck out. Then walk to each of the three doors in town: the truck should be standing in
+front of that building, and the auto shop's parts should be chosen along the bottom.
 
 ## 4. Gold and the detector
 
@@ -93,8 +129,9 @@ Review: find gold by the beeps alone, carry it to town in the tray, sell it, and
 
 ## 5. Maps, gates and the town
 
-The Crossroads is the hub. The town is reached from a gate beside the shed, by its own
-670 m track with a ford; its gate is the way back.
+The Crossroads is the hub. A main road runs from beside the shed to the edge of the map, and
+driving down it is driving into the town's map, on a 400 m main road in from its own edge;
+driving back out is the way back. Nothing is asked either way.
 
 - **Fault, fixed: the town was offered as a timed track.** Giving the town a length made the
   trailhead card offer Practice and Timed run on a track that is not a loop. The town is now
@@ -108,12 +145,27 @@ The Crossroads is the hub. The town is reached from a gate beside the shed, by i
   shows only on a map with no trailhead home.
 - Going through a trailhead arrives at the other map's gate; coming back arrives at the
   trailhead that was left.
-- Open: Wombat Creek, Granite Ridge and Blackwood Gully have no gate home, so they keep the
-  pause menu's "Back to the Crossroads".
+- Was open, done: Wombat Creek, Granite Ridge and Blackwood Gully each have a gate beside
+  their start, back to the Crossroads. The pause menu's "Back to the Crossroads" now shows
+  nowhere, and is kept only for a map baked without a gate.
+- The way to the town is a main road to drive fast, not a four-wheel-drive track: two
+  trucks wide, smooth, its bends opened out, with no creek crossing, logs, humps or ledges.
+  No road in the game has a log across it now.
+- Third pass: the gate beside the shed and the town's own gate are gone. The maps join at
+  their edges, as zones do: `place edge:MAP`, `Place::edge`, tested in
+  `driving_off_the_edge_of_a_map_by_its_road_is_driving_into_the_next`.
 - Open: picking an hour for a timed track moves the day's clock to it.
 
-Review: drive from the shed's gate to the town and back; sleep, and check the weather matches
-the calendar's square for the new day.
+- Third pass, a fault fixed: where the road to the edge left the Crossroads' road there was
+  a wall of earth a metre and more high between them, and another inside the road's own
+  bend. The ground by a road was the nearest stretch's alone. It is now shared between
+  every stretch that is near (`Trail::bench`), and a made road's banks run out thirteen
+  metres. Measured on the design: the steepest step by the junction was over a metre in
+  half a metre, and is 0.45 m, which is what open ground elsewhere on the map is.
+
+Review: from the shed take the road to the edge of the map; the town loads, and the truck is
+on its road facing in. Drive to the town at speed, then back out the same road to the
+Crossroads. Sleep, and check the weather matches the calendar's square for the new day.
 
 ## 6. Timed runs
 
@@ -125,6 +177,8 @@ and purses paid in gold; first wins pay in full, and night and rain pay more.
   runs in its own grade's class: the card says "Your truck's class" and there is nothing to
   pick.
 - Open: the medal times are untuned, and no full timed lap has been driven in the game.
+  They cannot be set without driving: every run is written to `save/game.log`
+  (`timed: class N round MAP in M:SS`), and can be tuned from that once some are driven.
 
 Review: at a trailhead in a grade 1 truck the card should read "Class 1"; buy a grade 2 truck
 and it should read "Class 2".
@@ -136,17 +190,21 @@ and it should read "Class 2".
 - **Fault, fixed: pages promised a save that does not happen in a free drive** ("The game is
   saved", "The game is kept as you play"). They now say so only in a story.
 - The controls list in Options now names going in a door.
-- Open: there are two page layouts. The main menu and the pause menu use the rail down the
-  left; the shed, the buyer, the trailhead card, the line-up, the result, the calendar and the
-  map use the centred card. They share type and colour, not the frame.
-- Open: `docs/ui.md` and `docs/campaign.md` describe the menus as they were before this work.
+- Was open, done: two layouts, by rule. A menu (main menu, pause, the shed, the gold
+  buyer's) is the rail down the left; a sheet to read or choose among (a trailhead's card,
+  the kept games, the options, the calendar, the map) is the card. The shed and the buyer's
+  were cards and are now rails.
+- Was open, done: `docs/ui.md` and `docs/campaign.md` say what is built now.
 
 Review: every page reached with the controller only; nothing should need the mouse.
 
 ## 8. Browser version
 
-- Open: the browser version has no slots, so the new main menu cannot start or load a story
-  there, and it still drives only the map's own truck. It compiles; it has not been run.
+- Was open, part done: in a browser the main menu now shows only what works there, a free
+  drive in the map's own truck, and quitting to the menu works. It compiles; it has not
+  been run.
+- Open: a story in a browser needs the game's own trucks there, whose pieces cannot yet
+  be sent a part at a time. That is engine work of its own.
 
 ## Files by section, for review
 
