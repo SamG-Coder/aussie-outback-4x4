@@ -753,20 +753,47 @@ scene. The page that is loaded again is `game.html`, inside another that stays, 
 a browser lets start only after a key or a click, and would otherwise fall silent at every
 map until something was pressed again. The inner page's address says where the game has got
 to: `scene`, `map`, `mode`, `drive`, and
-`time`, `weather` and `soaked` if they were chosen. The mode carries the class, the time of
-day and the weather with it after dots (`timed.4.3.3`), so that the page that follows knows
-what a run pays. Best laps and what has been won are kept in the browser's own
-storage. The sound is the browser's to mix (docs/sound.md), and starts with the first key or
-click, which is when a browser lets a page be heard.
+`time`, `weather` and `soaked` if they were chosen. The sound is the browser's to mix
+(docs/sound.md), and starts with the first key or click, which is when a browser lets a page
+be heard.
 
-In a browser the game is a free drive in the map's own truck, and its main menu shows only
-that: there are no kept games to begin or go on with, and none of the game's own trucks,
-whose pieces a browser cannot yet be sent a part at a time (`Shell::set_web`).
+**The game is carried from page to page.** The shell is in the viewer, and goes with the
+page. So as the game asks for another map the page asks the viewer what it is doing
+(`ui_carry`, `Shell::carry`): the map that is being gone to and what for, what is on the
+screen, whether it is a story and which kept game, the page of the yard that is shown and
+the truck that stands there, the door that was gone in at, the edge that was driven out by,
+and the game as it is kept. That is put in the tab's own storage (`sessionStorage`), and the
+address of the next page says `carried`. The next page makes the game before it makes its
+scene (`WebGame` in `web.rs`, `trucks` in `game.js`), from what was carried
+(`Shell::take_up`); with nothing carried, the game's address is its title, and
+`?scene=town&map=town&drive` is a free drive of that map.
+
+**Its trucks are fetched before its scene is made.** A game's trucks are not in its maps:
+each is a pack beside them, `trucks/NAME.truck`. The game says which the scene is to be read
+with (`WebGame::packs_wanted`, `Shell::packs`): the one that is driven, or those that stand
+in the showroom, and those parked in the used-truck yard if the map is the town. The page
+fetches them and hands them over, and `WebViewer::create` puts each together and joins it
+onto the scene as the desktop does (`shared::swap_truck`, `show_trucks`, `park_trucks`). A
+scene in a browser is read as it is drawn, a range of its file at a time, and a truck put
+together in memory has no file: it is written out as one, kept, and its ranges are numbered
+from a place no file reaches (`shared::Memory`, `MEMORY_AT`), so that when one is asked for
+it is handed over from what is kept and never asked of the site. The desktop's `--stream`
+does the same, which is how it is tried without a browser:
+`viewer assets/town.solstice --stream --play --truck howitt --park howitt,kestrel`.
+
+**Kept games** are three, as on the desktop, in the browser's own storage for the site
+(`localStorage`: `aussie-outback-4x4.profile`, `.profile2`, `.profile3`; `change_game` in
+`web.rs`). The one that is being played is kept as it changes and as each map is left. A
+free drive is kept nowhere.
+
+`node tools/hosting/story.mjs https://rust4x4.com/play/game.html OUT` begins a story in a
+headless Edge, takes the first truck offered, comes to the hub in it, reads the page again,
+and opens the town; it prints what the pages were told at each step and keeps a picture of
+each.
 
 ## Still to do
 
-- In a browser: the game's own trucks, and with them a story; and going from map to map
-  without loading the page again.
+- In a browser: going from map to map without loading the page again.
 - Restarting a map in free roam reads its scene again, which takes as long as going to it
   did. (Against the clock it goes back to the line.)
 - The others in a timed run are times, dots on the map and a cinematic of the map's own

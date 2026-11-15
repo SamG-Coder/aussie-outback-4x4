@@ -12,6 +12,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p dist
 cp site/index.html site/_headers dist/
+# Its pictures, which are of the game and are kept beside it (site/art).
+rm -rf dist/art
+cp -r site/art dist/art
 
 # NAME-ON-THE-SITE  FILE  WHAT-MARKS-ITS-SIZE-IN-THE-PAGE
 fill() {

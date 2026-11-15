@@ -112,6 +112,8 @@ mod native {
     /// Reads pages from a scene file on background threads.
     struct PageReader {
         path: Arc<PathBuf>,
+        /// What was joined onto the scene from memory: its ranges are answered from here.
+        memory: solstice_viewer::shared::Memory,
         finished_sender: mpsc::Sender<(u32, Option<Vec<u8>>)>,
         finished: mpsc::Receiver<(u32, Option<Vec<u8>>)>,
         running: u32,
@@ -121,10 +123,11 @@ mod native {
         /// Pages to read at once: enough to use the disk, few enough to stay out of the way.
         const MAX_FETCHING: u32 = 256;
 
-        fn new(path: &Path) -> Self {
+        fn new(path: &Path, memory: &solstice_viewer::shared::Memory) -> Self {
             let (finished_sender, finished) = mpsc::channel();
             Self {
                 path: Arc::new(path.to_owned()),
+                memory: memory.clone(),
                 finished_sender,
                 finished,
                 running: 0,
@@ -143,6 +146,22 @@ mod native {
                 }
             }
             for request in renderer.stream_requests(Self::MAX_FETCHING) {
+                // What is in memory is handed over at once: a truck put together from its
+                // pack has no file to be read from.
+                if let Some(bytes) = self.memory.read(request.start, request.end) {
+                    let data = if request.deflated {
+                        solstice_asset::file::inflate(bytes).ok()
+                    } else {
+                        Some(bytes.to_vec())
+                    };
+                    match data {
+                        Some(data) => {
+                            renderer.deliver_fetched(request.id, data);
+                        }
+                        None => renderer.request_failed(request.id),
+                    }
+                    continue;
+                }
                 self.running += 1;
                 let path = self.path.clone();
                 let sender = self.finished_sender.clone();
@@ -211,14 +230,14 @@ mod native {
     /// A scene as this run holds it: all in memory, or read from disk as wanted.
     enum Source {
         Loaded(LoadedScene),
-        Streamed(PagedScene),
+        Streamed(PagedScene, solstice_viewer::shared::Memory),
     }
 
     impl Source {
         fn viewpoint(&self) -> Option<Viewpoint> {
             match self {
                 Self::Loaded(loaded) => loaded.scene.viewpoint,
-                Self::Streamed(paged) => paged.viewpoint,
+                Self::Streamed(paged, _) => paged.viewpoint,
             }
         }
 
@@ -229,7 +248,7 @@ mod native {
         ) -> Result<Option<solstice_asset::Collision>, Box<dyn std::error::Error>> {
             let paged = match self {
                 Self::Loaded(loaded) => return Ok(loaded.collision.clone()),
-                Self::Streamed(paged) => paged,
+                Self::Streamed(paged, _) => paged,
             };
             let Some(index) = &paged.collision else {
                 return Ok(None);
@@ -250,7 +269,7 @@ mod native {
         fn list_instances(&self, near: [f32; 4]) {
             let paged = match self {
                 Self::Loaded(loaded) => &loaded.scene,
-                Self::Streamed(paged) => paged,
+                Self::Streamed(paged, _) => paged,
             };
             let [x, y, z, radius] = near;
             println!("instance  mesh  material  x y z  yaw");
@@ -270,14 +289,14 @@ mod native {
         fn gameplay(&self) -> &[solstice_asset::GameFile] {
             match self {
                 Self::Loaded(loaded) => &loaded.scene.gameplay,
-                Self::Streamed(paged) => &paged.gameplay,
+                Self::Streamed(paged, _) => &paged.gameplay,
             }
         }
 
         fn animation(&self) -> solstice_game::animation::AnimationAssets<'_> {
             let paged = match self {
                 Self::Loaded(loaded) => &loaded.scene,
-                Self::Streamed(paged) => paged,
+                Self::Streamed(paged, _) => paged,
             };
             solstice_game::animation::AnimationAssets {
                 skeletons: &paged.skeletons,
@@ -297,9 +316,9 @@ mod native {
                 Self::Loaded(loaded) => {
                     (Renderer::new(gpu, loaded, format, options.settings), None)
                 }
-                Self::Streamed(paged) => (
+                Self::Streamed(paged, memory) => (
                     Renderer::streaming(gpu, paged, format, options.settings, options.budget),
-                    Some(PageReader::new(&options.scene)),
+                    Some(PageReader::new(&options.scene, memory)),
                 ),
             };
             renderer.set_weather(options.weather, 0.0);
@@ -1118,7 +1137,15 @@ mod native {
                 // And what nuggets are shown with, which are made as they are found.
                 solstice_viewer::nugget::join_streamed(&mut scene)?;
             }
-            Source::Streamed(scene)
+            // Its trucks are put together from their packs and kept in memory: the map's
+            // own bytes are read from its file as they are wanted, and theirs from there.
+            let mut memory = solstice_viewer::shared::Memory::default();
+            let mut joins = solstice_viewer::shared::Streamed {
+                scene: &mut scene,
+                memory: &mut memory,
+            };
+            put_trucks(options, path, &mut joins)?;
+            Source::Streamed(scene, memory)
         } else {
             let mut scene = load_scene(path)?;
             // A game's maps share its truck, which is in a file of its own beside them: the
@@ -1132,53 +1159,65 @@ mod native {
                 solstice_viewer::shared::adopt(&mut scene.scene, &files, joined)?;
                 solstice_viewer::nugget::join_loaded(&mut scene)?;
             }
-            // A truck built of pieces, in place of the map's own: put together now, of the
-            // pieces it is wearing. What is not fitted to it is not read.
-            if !options.shown.is_empty() {
-                // Trucks stood here to be looked at: every one of the page, each put together
-                // now, so that another is shown with nothing more read.
-                let mut trucks = Vec::new();
-                for (truck, build) in &options.shown {
-                    let pack = truck_pack(path, truck);
-                    let mut file = std::fs::File::open(&pack)
-                        .map_err(|error| format!("{}: {error}", pack.display()))?;
-                    let truck = solstice_viewer::kit::assemble(&mut file, Some(build), 1.0)
-                        .map_err(|error| format!("{}: {error}", pack.display()))?;
-                    trucks.push(truck);
-                }
-                solstice_viewer::shared::show_trucks(&mut scene, trucks, options.stand.as_deref())?;
-            } else if let Some(truck) = &options.truck {
+            put_trucks(options, path, &mut scene)?;
+            Source::Loaded(scene)
+        })
+    }
+
+    /// Puts in a scene that has been read the trucks it is to be played with, each put
+    /// together from its pack: those stood to be looked at, or the one that is driven; and
+    /// those parked in its used-truck yard, if it has one.
+    fn put_trucks(
+        options: &Options,
+        path: &Path,
+        scene: &mut impl solstice_viewer::shared::Joins,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // A truck built of pieces, in place of the map's own: put together now, of the
+        // pieces it is wearing. What is not fitted to it is not read.
+        if !options.shown.is_empty() {
+            // Trucks stood here to be looked at: every one of the page, each put together
+            // now, so that another is shown with nothing more read.
+            let mut trucks = Vec::new();
+            for (truck, build) in &options.shown {
                 let pack = truck_pack(path, truck);
                 let mut file = std::fs::File::open(&pack)
                     .map_err(|error| format!("{}: {error}", pack.display()))?;
-                let truck =
-                    solstice_viewer::kit::assemble(&mut file, options.kit.as_deref(), options.pull)
-                        .map_err(|error| format!("{}: {error}", pack.display()))?;
-                solstice_viewer::shared::swap_truck(&mut scene, truck)?;
+                let truck = solstice_viewer::kit::assemble(&mut file, Some(build), 1.0)
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                trucks.push(truck);
             }
-            // A map with a used-truck yard has the day's trucks parked in it, as they
-            // were made.
-            let spots = solstice_viewer::shared::lot(&scene.scene.gameplay);
-            if !spots.is_empty() && !options.parked.is_empty() {
-                let mut trucks = Vec::new();
-                for sale in &options.parked {
-                    let pack = truck_pack(path, &sale.truck);
-                    let mut file = std::fs::File::open(&pack)
-                        .map_err(|error| format!("{}: {error}", pack.display()))?;
-                    let truck = solstice_viewer::kit::assemble(&mut file, Some("stock"), 1.0)
-                        .map_err(|error| format!("{}: {error}", pack.display()))?;
-                    trucks.push(solstice_viewer::shared::Parked {
-                        place: sale.place,
-                        truck,
-                        paint: sale.paint,
-                        price: sale.price,
-                        km: sale.km,
-                    });
-                }
-                solstice_viewer::shared::park_trucks(&mut scene, trucks, &spots, options.pulled)?;
+            solstice_viewer::shared::show_trucks(scene, trucks, options.stand.as_deref())?;
+        } else if let Some(truck) = &options.truck {
+            let pack = truck_pack(path, truck);
+            let mut file = std::fs::File::open(&pack)
+                .map_err(|error| format!("{}: {error}", pack.display()))?;
+            let truck =
+                solstice_viewer::kit::assemble(&mut file, options.kit.as_deref(), options.pull)
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+            solstice_viewer::shared::swap_truck(scene, truck)?;
+        }
+        // A map with a used-truck yard has the day's trucks parked in it, as they
+        // were made.
+        let spots = solstice_viewer::shared::lot(&scene.paged().gameplay);
+        if !spots.is_empty() && !options.parked.is_empty() {
+            let mut trucks = Vec::new();
+            for sale in &options.parked {
+                let pack = truck_pack(path, &sale.truck);
+                let mut file = std::fs::File::open(&pack)
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                let truck = solstice_viewer::kit::assemble(&mut file, Some("stock"), 1.0)
+                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                trucks.push(solstice_viewer::shared::Parked {
+                    place: sale.place,
+                    truck,
+                    paint: sale.paint,
+                    price: sale.price,
+                    km: sale.km,
+                });
             }
-            Source::Loaded(scene)
-        })
+            solstice_viewer::shared::park_trucks(scene, trucks, &spots, options.pulled)?;
+        }
+        Ok(())
     }
 
     /// Does what the arguments say. `sites` are where a game's maps are fetched from before

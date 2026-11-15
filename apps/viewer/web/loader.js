@@ -664,6 +664,7 @@ export async function requestAdapter() {
 /// streamer's options; and `onDownload`, `onTablesProgress` and `onStage` to follow it.
 /// `sharedUrl` is the file a game's maps share, if the scene is one of a game's: a map that
 /// is read with it is joined with it, and the file given back is then the two as one.
+/// `game` is the game the scene is one map of, with its trucks' packs (`WebGame`).
 export async function openScene(wasm, canvas, options) {
   const { WebViewer, header_bytes, read_header } = wasm;
   // `bytes` opens a scene file already in memory instead of `url`.
@@ -701,6 +702,8 @@ export async function openScene(wasm, canvas, options) {
     Boolean(options.defaultLimits),
     shared?.manifest,
     shared?.dataOffset,
+    // A game's own trucks, to be put in the scene as it is made (game.js).
+    options.game ?? undefined,
   );
   // Asked for a range from where the shared file's are numbered, the two files answer as one.
   const both = shared ? new JoinedFile(file, shared.file, wasm.shared_file_start()) : file;

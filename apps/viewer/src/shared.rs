@@ -27,6 +27,99 @@ pub const FILE: &str = "shared.solstice";
 /// (`apps/viewer/web/loader.js`).
 pub const WEB_AT: u64 = 1 << 40;
 
+/// Where scenes that are held in memory are numbered from, in the requests of a scene that
+/// is read as it is drawn, and how far apart: a truck put together from its pack is such a
+/// scene, joined onto a map whose own bytes are in a file (see [`Memory`]). Past anything a
+/// map's file or the shared file reaches, on a disk or in a browser.
+pub const MEMORY_AT: u64 = 1 << 41;
+const MEMORY_EACH: u64 = 1 << 32;
+
+/// Scenes that are all in memory, joined onto one that is read from its file as it is drawn.
+///
+/// Such a scene asks whoever runs it for ranges of bytes of its file. What is joined onto it
+/// here has no file: it is written out as a file would be, kept, and numbered from
+/// [`MEMORY_AT`] on, so that a range asked for from there is answered from what is kept
+/// ([`Memory::read`]) and never asked of a disk or a site.
+#[derive(Clone, Default)]
+pub struct Memory {
+    files: Vec<std::sync::Arc<Vec<u8>>>,
+}
+
+impl Memory {
+    /// Joins a scene that is all in memory onto one that is not.
+    pub fn join(
+        &mut self,
+        scene: &mut PagedScene,
+        loaded: &solstice_asset::LoadedScene,
+    ) -> Result<Joined, String> {
+        use solstice_asset::file;
+        let said = |error: file::DecodeError| error.to_string();
+        let bytes = file::encode(loaded);
+        let header = file::decode_header(&bytes).map_err(said)?;
+        let (from, to) = (
+            header.manifest_offset as usize,
+            (header.manifest_offset + header.manifest_bytes) as usize,
+        );
+        let manifest =
+            file::inflate(bytes.get(from..to).ok_or("its manifest is cut short")?).map_err(said)?;
+        let other = file::decode_manifest(&manifest, to as u64).map_err(said)?;
+        let at = MEMORY_AT + self.files.len() as u64 * MEMORY_EACH;
+        let joined =
+            solstice_asset::join::join(scene, other, at).map_err(|error| error.to_string())?;
+        self.files.push(std::sync::Arc::new(bytes));
+        Ok(joined)
+    }
+
+    /// The bytes of a range that was asked for, if it is of what is kept here.
+    pub fn read(&self, start: u64, end: u64) -> Option<&[u8]> {
+        let within = start.checked_sub(MEMORY_AT)?;
+        let file = self.files.get((within / MEMORY_EACH) as usize)?;
+        let from = (within % MEMORY_EACH) as usize;
+        file.get(from..from + (end - start) as usize)
+    }
+
+    /// Whether nothing is kept here.
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+}
+
+/// A scene that others can be joined onto: one that is all in memory, or one that is read
+/// as it is drawn, with a [`Memory`] for what is joined onto it. What puts trucks in a map
+/// (below) does it to either.
+pub trait Joins {
+    /// The scene's tables.
+    fn paged(&mut self) -> &mut PagedScene;
+    /// Joins a scene that is all in memory onto it.
+    fn join_loaded(&mut self, other: solstice_asset::LoadedScene) -> Result<Joined, String>;
+}
+
+impl Joins for solstice_asset::LoadedScene {
+    fn paged(&mut self) -> &mut PagedScene {
+        &mut self.scene
+    }
+
+    fn join_loaded(&mut self, other: solstice_asset::LoadedScene) -> Result<Joined, String> {
+        self.join(other).map_err(|error| error.to_string())
+    }
+}
+
+/// A scene that is read as it is drawn, with where what is joined onto it is kept.
+pub struct Streamed<'a> {
+    pub scene: &'a mut PagedScene,
+    pub memory: &'a mut Memory,
+}
+
+impl Joins for Streamed<'_> {
+    fn paged(&mut self) -> &mut PagedScene {
+        self.scene
+    }
+
+    fn join_loaded(&mut self, other: solstice_asset::LoadedScene) -> Result<Joined, String> {
+        self.memory.join(self.scene, &other)
+    }
+}
+
 /// The actors of a scene's game, each with the line it is on.
 fn actors(files: &[GameFile]) -> Vec<(usize, ActorLine)> {
     let Some(game) = files.iter().find(|file| file.name == GAME_FILE) else {
@@ -71,10 +164,7 @@ pub fn hidden(files: &[GameFile]) -> Vec<u32> {
 /// the truck the map has: the map's car is given the new truck's instances, where the map
 /// has its car, and its actor file, its numbers and its kit; and the truck that was there
 /// is no longer drawn.
-pub fn swap_truck(
-    scene: &mut solstice_asset::LoadedScene,
-    truck: crate::kit::Assembled,
-) -> Result<(), String> {
+pub fn swap_truck(scene: &mut impl Joins, truck: crate::kit::Assembled) -> Result<(), String> {
     let text = |files: &[GameFile], name: &str| {
         files
             .iter()
@@ -82,30 +172,32 @@ pub fn swap_truck(
             .map(|file| file.text.clone())
     };
     // The map's car: the actor whose file makes it one, and that something draws.
-    let (line, mut actor) = actors(&scene.scene.gameplay)
+    let files = &scene.paged().gameplay;
+    let (line, mut actor) = actors(files)
         .into_iter()
         .find(|(_, actor)| {
-            let file = text(&scene.scene.gameplay, &actor.file);
+            let file = text(files, &actor.file);
             let car = file.and_then(|text| solstice_game::ActorFile::parse(&text).ok());
             car.is_some_and(|car| car.vehicle.is_some())
         })
         .ok_or("the map has no car to put the truck in place of")?;
     let was = actor.instances.clone();
     let count = truck.scene.scene.instances.len() as u32;
-    let joined = scene.join(truck.scene).map_err(|error| error.to_string())?;
+    let joined = scene.join_loaded(truck.scene)?;
+    let scene = scene.paged();
     let instances = joined.instances..joined.instances + count;
     let place = Mat4::from_rotation_translation(
         Quat::from_rotation_y(actor.yaw_degrees.to_radians()),
         actor.position,
     );
     for id in instances.clone() {
-        let instance = &mut scene.scene.instances[id as usize];
+        let instance = &mut scene.instances[id as usize];
         instance.transform = place * instance.transform;
     }
     actor.file.clone_from(&truck.actor);
     actor.instances = Some(instances);
     actor.shared = false;
-    let files = &mut scene.scene.gameplay;
+    let files = &mut scene.gameplay;
     if let Some(game) = files.iter_mut().find(|file| file.name == GAME_FILE) {
         let mut lines: Vec<String> = game.text.lines().map(str::to_owned).collect();
         lines[line] = actor.to_text();
@@ -170,7 +262,7 @@ pub fn stand(files: &[GameFile]) -> Option<(Vec3, Quat)> {
 /// at a time (`kit::displayed`). The map's own car is no longer drawn. Nothing drives them:
 /// they are as they were made, at rest.
 pub fn show_trucks(
-    scene: &mut solstice_asset::LoadedScene,
+    scene: &mut impl Joins,
     trucks: Vec<crate::kit::Assembled>,
     stand: Option<&str>,
 ) -> Result<(), String> {
@@ -180,10 +272,11 @@ pub fn show_trucks(
             .find(|file| file.name == name)
             .map(|file| file.text.clone())
     };
-    let (_, actor) = actors(&scene.scene.gameplay)
+    let files = &scene.paged().gameplay;
+    let (_, actor) = actors(files)
         .into_iter()
         .find(|(_, actor)| {
-            let file = text(&scene.scene.gameplay, &actor.file);
+            let file = text(files, &actor.file);
             let car = file.and_then(|text| solstice_game::ActorFile::parse(&text).ok());
             car.is_some_and(|car| car.vehicle.is_some())
         })
@@ -191,7 +284,7 @@ pub fn show_trucks(
     // Where the map's car is; or, if the map says where trucks stand for what is being
     // looked at (`place stand:WHAT X Y Z YAW` among its places), there.
     let stood = stand.and_then(|stand| {
-        let places = scene.scene.gameplay.iter();
+        let places = files.iter();
         let mut lines = places
             .filter(|file| file.name.ends_with(".places"))
             .flat_map(|file| file.text.lines());
@@ -213,9 +306,10 @@ pub fn show_trucks(
     let mut list = String::new();
     for (number, truck) in trucks.into_iter().enumerate() {
         let count = truck.scene.scene.instances.len() as u32;
-        let joined = scene.join(truck.scene).map_err(|error| error.to_string())?;
+        let joined = scene.join_loaded(truck.scene)?;
+        let scene = scene.paged();
         for id in joined.instances..joined.instances + count {
-            let instance = &mut scene.scene.instances[id as usize];
+            let instance = &mut scene.instances[id as usize];
             instance.transform = place * instance.transform;
         }
         // Each has its files in a folder of its own: two of them may be the same truck.
@@ -224,14 +318,14 @@ pub fn show_trucks(
         list.push_str(&format!("{} {}\n", renamed(&truck.actor), joined.instances));
         for file in truck.files {
             let name = renamed(&file.name);
-            scene.scene.gameplay.retain(|other| other.name != name);
-            scene.scene.gameplay.push(GameFile {
+            scene.gameplay.retain(|other| other.name != name);
+            scene.gameplay.push(GameFile {
                 name,
                 text: file.text,
             });
         }
     }
-    let files = &mut scene.scene.gameplay;
+    let files = &mut scene.paged().gameplay;
     files.retain(|other| {
         other.name != crate::kit::SHOWN && other.name != HIDDEN && other.name != STAND
     });
@@ -310,7 +404,7 @@ pub fn lot(files: &[GameFile]) -> Vec<(Vec3, f32)> {
 /// Nothing drives them. What they are and what colour each is in is said in [`PARKED`],
 /// for whoever draws them (`PlayMode`).
 pub fn park_trucks(
-    scene: &mut solstice_asset::LoadedScene,
+    scene: &mut impl Joins,
     trucks: Vec<Parked>,
     spots: &[(Vec3, f32)],
     pulled: bool,
@@ -336,11 +430,9 @@ pub fn park_trucks(
             .and_then(|file| crate::kit::Kit::parse(&file.text).ok())
             .and_then(|kit| kit.paint);
         let count = parked.truck.scene.scene.instances.len() as u32;
-        let joined = scene
-            .join(parked.truck.scene)
-            .map_err(|error| error.to_string())?;
+        let joined = scene.join_loaded(parked.truck.scene)?;
         for id in joined.instances..joined.instances + count {
-            let instance = &mut scene.scene.instances[id as usize];
+            let instance = &mut scene.paged().instances[id as usize];
             instance.transform = place * instance.transform;
         }
         let paint = match parked.paint {
@@ -368,16 +460,16 @@ pub fn park_trucks(
         let ahead = at + turned * Vec3::new(0.0, 0.0, -PRICE_AHEAD);
         let board = crate::board::board(parked.price, parked.km);
         let count = board.scene.instances.len() as u32;
-        let joined = scene.join(board).map_err(|error| error.to_string())?;
+        let joined = scene.join_loaded(board)?;
         let stood = Mat4::from_rotation_translation(turned, ahead);
         for id in joined.instances..joined.instances + count {
-            let instance = &mut scene.scene.instances[id as usize];
+            let instance = &mut scene.paged().instances[id as usize];
             instance.transform = stood * instance.transform;
         }
         blockers.push_str(&stops(ahead + Vec3::Y * 0.55, Vec3::new(1.1, 1.1, 0.5)));
         blockers.push('\n');
     }
-    let files = &mut scene.scene.gameplay;
+    let files = &mut scene.paged().gameplay;
     if let Some(game) = files.iter_mut().find(|file| file.name == GAME_FILE) {
         if !game.text.ends_with('\n') {
             game.text.push('\n');

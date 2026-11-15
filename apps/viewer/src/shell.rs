@@ -467,6 +467,25 @@ pub enum Screen {
 }
 
 impl Screen {
+    /// From its name, as [`Screen::name`] gives it.
+    fn named(name: &str) -> Option<Self> {
+        const ALL: [Screen; 12] = [
+            Screen::Title,
+            Screen::Drive,
+            Screen::Pause,
+            Screen::Offer,
+            Screen::Loading,
+            Screen::Shed,
+            Screen::Sleep,
+            Screen::Buyer,
+            Screen::Lineup,
+            Screen::Watch,
+            Screen::Result,
+            Screen::Yard,
+        ];
+        ALL.into_iter().find(|screen| screen.name() == name)
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Title => "title",
@@ -749,8 +768,8 @@ pub struct Shell {
     free_grade: u32,
     /// The colour a first truck is taken in, if one has been chosen: else as it was made.
     start_paint: Option<u32>,
-    /// Whether the game is in a browser, which reads one scene a page and has no trucks of
-    /// the game's own to stand in a showroom: there it is a free drive, and no more.
+    /// Whether the game is in a browser, which reads one scene a page: what is being done
+    /// is carried from each page to the next ([`Shell::carry`]).
     web: bool,
     /// What has been chosen in the auto shop and not yet paid for: parts, each its group
     /// and which of it; a colour; and an oil change. And what a bill is being shown for,
@@ -1237,6 +1256,184 @@ impl Shell {
     /// Says that the game is in a browser: see `web`.
     pub fn set_web(&mut self) {
         self.web = true;
+    }
+
+    /// Which of the kept games is being played: none, at the main menu and in a free drive.
+    pub fn playing(&self) -> u32 {
+        self.save
+    }
+
+    /// What is being done, to be taken up by another shell ([`Shell::take_up`]): a browser
+    /// reads a page for each map, and the game that is in this one is gone with it. So as
+    /// another map is asked for, what a shell knows that is kept nowhere is written down:
+    /// the map that is being gone to and what for, what is on the screen, whether it is a
+    /// story and which kept game, the page of the yard that is shown and the truck that
+    /// stands there, the door that was gone in at, the edge that was driven out by. A line
+    /// each; and after a line `kept`, the game as it is kept ([`Shell::keep_now`]).
+    pub fn carry(&mut self) -> String {
+        let flag = |on: bool| u8::from(on);
+        let mut out = format!(
+            "map {}\nscreen {}\nmode {}\nflags {} {} {}\nsave {}\n",
+            self.map,
+            self.screen.name(),
+            self.mode_name(),
+            flag(self.story),
+            flag(self.to_title),
+            flag(self.built),
+            self.save
+        );
+        out += &format!(
+            "yard {} {} {} {}\n",
+            self.yard_page,
+            self.yard_from.name(),
+            self.show_index,
+            self.free_grade
+        );
+        let colour =
+            |paint: Option<u32>| paint.map_or("-".to_owned(), |paint| format!("{paint:06x}"));
+        if let Some((truck, build, paint)) = &self.show {
+            out += &format!("show {truck} {build} {}\n", colour(*paint));
+        }
+        if let Some(back) = &self.show_back {
+            out += &format!("back {back}\n");
+        }
+        if let Some((map, at)) = &self.door_from {
+            out += &format!("door {map} {} {} {}\n", at.x, at.y, at.z);
+        }
+        if let Some(from) = &self.came_from {
+            out += &format!("came {from}\n");
+        }
+        if let Some(truck) = &self.start_truck {
+            out += &format!("start {truck}\n");
+        }
+        if self.start_paint.is_some() {
+            out += &format!("start_paint {}\n", colour(self.start_paint));
+        }
+        if let Some(truck) = &self.drives {
+            out += &format!("drives {truck}\n");
+        }
+        let [dust, mud, rust] = self.free_dirt;
+        out += &format!(
+            "chance {}\noptions {} {}\ndirt {dust} {mud} {rust}\nkept\n",
+            self.chance, self.volume, self.look
+        );
+        out += &self.keep_now();
+        out
+    }
+
+    /// The game as another shell kept it when it wrote down what it was doing: what follows
+    /// the line `kept` of what [`Shell::carry`] wrote, if anything was written.
+    pub fn carried_kept(carried: &str) -> Option<&str> {
+        if carried.starts_with("kept\n") {
+            return Some(&carried[5..]);
+        }
+        carried
+            .find("\nkept\n")
+            .map(|at| &carried[at + "\nkept\n".len()..])
+    }
+
+    /// Takes up what another shell was doing, from what it wrote down ([`Shell::carry`]).
+    /// This one was made with the game as it is kept; the map that is being read is the one
+    /// that shell was going to, and when it has been read ([`Shell::enter`]) the game goes
+    /// on as it would have there.
+    pub fn take_up(&mut self, carried: &str) {
+        let number = |word: &str| word.parse::<f32>().ok();
+        let colour = |word: &str| u32::from_str_radix(word, 16).ok();
+        for line in carried.lines() {
+            let words: Vec<&str> = line.split_whitespace().collect();
+            match words[..] {
+                ["kept"] => break,
+                ["map", map] => self.start_in(map),
+                ["screen", screen] => {
+                    self.screen = Screen::named(screen).unwrap_or(Screen::Loading);
+                }
+                ["mode", mode] => {
+                    let screen = self.screen;
+                    self.resume(mode);
+                    self.screen = screen;
+                }
+                ["flags", story, to_title, built] => {
+                    (self.story, self.to_title, self.built) =
+                        (story == "1", to_title == "1", built == "1");
+                }
+                ["save", save] => self.save = save.parse().unwrap_or(0),
+                ["yard", page, from, index, grade] => {
+                    const PAGES: [&str; 8] = [
+                        "start", "colour", "used", "garage", "free", "dealer", "shop", "bank",
+                    ];
+                    if let Some(page) = PAGES.into_iter().find(|known| *known == page) {
+                        self.yard_page = page;
+                    }
+                    self.yard_from = Screen::named(from).unwrap_or(Screen::Title);
+                    self.show_index = index.parse().unwrap_or(0);
+                    self.free_grade = grade.parse().unwrap_or(1);
+                }
+                ["show", truck, build, paint] => {
+                    self.show = Some((truck.to_owned(), build.to_owned(), colour(paint)));
+                }
+                ["back", map] => self.show_back = Some(map.to_owned()),
+                ["door", map, x, y, z] => {
+                    if let (Some(x), Some(y), Some(z)) = (number(x), number(y), number(z)) {
+                        self.door_from = Some((map.to_owned(), Vec3::new(x, y, z)));
+                    }
+                }
+                ["came", map] => self.came_from = Some(map.to_owned()),
+                ["start", truck] => self.start_truck = Some(truck.to_owned()),
+                ["start_paint", paint] => self.start_paint = colour(paint),
+                ["drives", truck] => self.drives = Some(truck.to_owned()),
+                ["chance", chance] => self.chance = chance.parse().unwrap_or(self.chance),
+                ["options", volume, look] => {
+                    self.volume = volume.parse().unwrap_or(self.volume).min(10);
+                    self.look = look.parse().unwrap_or(self.look).clamp(1, 10);
+                }
+                ["dirt", dust, mud, rust] => {
+                    if let (Some(dust), Some(mud), Some(rust)) =
+                        (number(dust), number(mud), number(rust))
+                    {
+                        self.free_dirt = [dust, mud, rust];
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.told_screen = None;
+    }
+
+    /// The trucks whose packs the scene that is to be read is read with, by their names:
+    /// those that stand in a showroom, or the one that is driven; and those parked in the
+    /// used-truck yard, if the map is the one the yard is in. For whoever has to fetch them
+    /// before the scene can be read.
+    pub fn packs(&self) -> Vec<String> {
+        let mut names: Vec<String> = if self.in_showroom() {
+            let page = self.page_trucks().into_iter();
+            page.map(|(truck, ..)| truck).collect()
+        } else {
+            let worn = self.would_wear().into_iter();
+            worn.map(|(truck, _)| truck).collect()
+        };
+        // (The yard is in the town, which is the map its showroom is too.)
+        let scene = |map: &str| self.world.map(map).map(|map| map.scene.clone());
+        if scene(SHOWROOM_TOWN).is_some() && scene(SHOWROOM_TOWN) == scene(&self.map) {
+            names.extend(self.parked().0.into_iter().map(|sale| sale.truck));
+        }
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// The truck that is driven, by its name, if it is one of a story's.
+    pub fn driven(&self) -> Option<String> {
+        let owned = self.yard.driven().filter(|_| self.story);
+        owned.map(|owned| owned.truck.clone())
+    }
+
+    /// Says what kit the truck that is driven has, where the scene it was last seen in is
+    /// gone: a browser's page, which has the truck's pack before it reads its scene. What
+    /// the truck is fitted with is said with it ([`Shell::wearing`]).
+    pub fn know_kit(&mut self, truck: &str, kit: crate::kit::Kit) {
+        if self.yard.driven().is_some_and(|owned| owned.truck == truck) {
+            self.kit = Some((truck.to_owned(), kit));
+        }
     }
 
     /// Says whether this is a trial: see [`Shell::after`].
@@ -2362,9 +2559,10 @@ impl Shell {
     pub fn close(&mut self) {
         let (trial, saves) = (self.trial, std::mem::take(&mut self.saves));
         let options = (self.volume, self.fullscreen, self.look, self.hour);
-        let world = self.world.clone();
+        let (world, web) = (self.world.clone(), self.web);
         *self = Shell::new(world, "");
         (self.trial, self.saves, self.save) = (trial, saves, 0);
+        self.web = web;
         (self.volume, self.fullscreen, self.look, self.hour) = options;
         self.to_title = true;
         let hub = self.world.hub.clone();
@@ -2469,9 +2667,10 @@ impl Shell {
     pub fn load(&mut self, kept: &str) {
         let (trial, saves, save) = (self.trial, std::mem::take(&mut self.saves), self.save);
         let options = (self.volume, self.fullscreen, self.look, self.hour);
-        let world = self.world.clone();
+        let (world, web) = (self.world.clone(), self.web);
         *self = Shell::new(world, kept);
         (self.trial, self.saves, self.save) = (trial, saves, save);
+        self.web = web;
         (self.volume, self.fullscreen, self.look, self.hour) = options;
         if self.yard.begun() {
             self.story = true;
@@ -2649,7 +2848,7 @@ impl Shell {
             // A free drive is chosen in the showroom: any truck there is. (A trial, which
             // plays by itself, takes the first of them and drives.)
             (Screen::Title, "free_page") => {
-                if self.trial || self.web {
+                if self.trial {
                     self.act("free");
                 } else {
                     self.story = false;
@@ -2763,7 +2962,7 @@ impl Shell {
             // Back to the main menu: the game is kept and closed, so that nothing done from
             // the menu after it (a free drive, say) is written into it. (A trial keeps none.)
             (Screen::Pause, "title") => {
-                if self.trial || self.web {
+                if self.trial {
                     self.screen = Screen::Title;
                 } else {
                     self.orders.push(Order::Saves(Saves::Close));
@@ -4819,5 +5018,81 @@ length wombat 2.4 km
         assert_eq!(piece_said("door_FL"), "Front left door");
         assert_eq!(piece_said("acc_bullbar_tube"), "Bullbar tube");
         assert_eq!(piece_said("grille"), "Grille");
+    }
+
+    const STORY: &str = "hub crossroads
+map crossroads assets/hub.solstice The Crossroads
+map town assets/town.solstice Ironbark Flat
+map showroom assets/hub.solstice The Showroom
+kind showroom Showroom
+map showroom_town assets/town.solstice Ironbark Flat
+kind showroom_town Township
+truck bendoc 1 6000 1981 Bendoc
+truck dargo 1 6500 1984 Dargo
+truck omeo 1 8000 1988 Omeo
+truck mitta 2 16000 1995 Mitta
+";
+
+    #[test]
+    fn a_game_is_carried_from_one_page_of_a_browser_to_the_next() {
+        let world = || World::parse(STORY).expect("the world reads");
+        let taken_up = |carried: &str| {
+            let kept = Shell::carried_kept(carried).expect("the game is carried with it");
+            let mut next = Shell::new(world(), kept);
+            next.take_up(carried);
+            next
+        };
+        // A new game is begun in the first place: its first truck is chosen in the showroom,
+        // which is another page.
+        let mut shell = Shell::new(world(), "");
+        shell.set_web();
+        shell.set_saves(&[(1, Some(String::new()))], 1);
+        shell.load("");
+        let asked = shell.take_orders();
+        assert!(asked
+            .iter()
+            .any(|order| matches!(order, Order::Load { map, .. } if map == SHOWROOM)));
+        let mut next = taken_up(&shell.carry());
+        assert_eq!(
+            (
+                next.screen,
+                next.yard_page,
+                next.map.as_str(),
+                next.playing()
+            ),
+            (Screen::Yard, "start", SHOWROOM, 1)
+        );
+        // That page is read with the trucks that are offered, and no others.
+        let mut offered: Vec<String> = crate::yard::starters(&world().trucks)
+            .into_iter()
+            .map(|truck| truck.name.clone())
+            .collect();
+        offered.sort();
+        assert_eq!(next.packs(), offered);
+        // One is taken: the story has begun, and the hub is read with that truck.
+        next.enter(&[]);
+        next.yard_act(&format!("begin:{}", offered[0]));
+        let mut last = taken_up(&next.carry());
+        assert!(last.story);
+        assert_eq!(last.map, "crossroads");
+        assert_eq!(last.packs(), vec![offered[0].clone()]);
+        assert_eq!(
+            last.wearing().map(|(truck, _)| truck),
+            Some(offered[0].clone())
+        );
+        last.enter(&[]);
+        assert_eq!(last.screen, Screen::Drive);
+        // In the town the day's used trucks are parked, and their packs are wanted too.
+        last.go("town", Mode::Roam);
+        let town = taken_up(&last.carry());
+        assert!(town.packs().len() > 1);
+        // A door gone in at is come out of, on foot, a page later.
+        let mut inside = taken_up(&last.carry());
+        inside.door_from = Some(("town".to_owned(), Vec3::new(1.0, 2.0, 3.0)));
+        let out = taken_up(&inside.carry());
+        assert_eq!(
+            out.door_from,
+            Some(("town".to_owned(), Vec3::new(1.0, 2.0, 3.0)))
+        );
     }
 }

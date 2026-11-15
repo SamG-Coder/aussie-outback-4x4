@@ -518,6 +518,19 @@ pub fn tuned(vehicle: &str, kit: &Kit, build: &Build, power: f32) -> String {
     out
 }
 
+/// The kit of the truck that is in a pack, without anything of it being put together.
+pub fn pack_kit(file: &mut (impl std::io::Read + std::io::Seek)) -> Result<Kit, String> {
+    let said = |error: std::io::Error| error.to_string();
+    let list = pack::read_list(file).map_err(said)?;
+    let entry = list
+        .iter()
+        .find(|entry| entry.kind == "text" && entry.name.ends_with(".kit"))
+        .ok_or("the pack has no kit")?;
+    let bytes = pack::read(file, entry).map_err(said)?;
+    let text = String::from_utf8(bytes).map_err(|_| format!("{} is not text", entry.name))?;
+    Kit::parse(&text).map_err(|error| format!("{}: {error}", entry.name))
+}
+
 pub fn assemble(
     file: &mut (impl std::io::Read + std::io::Seek),
     build: Option<&str>,

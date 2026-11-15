@@ -5,11 +5,18 @@
 // the viewer: what the shell has to tell the pages, what the pages say back, and what the
 // shell asks of the page, which is to go to another map. A browser reads one scene a page, so
 // going to a map loads the page again with that map's scene, and the shell takes the game up
-// from what the address says: which map, what for, and that it is being driven.
+// from what the page before wrote down as it left (`ui_carry`, kept for the tab), or, with
+// nothing written down, from what the address says: which map, what for, and that it is
+// being driven.
+//
+// A game's trucks are not in its maps. Each is a pack beside them (`trucks/NAME.truck`), put
+// together as the map is read: so before the scene is made, the game says which packs it is
+// to be read with (`WebGame`), and they are fetched here (`trucks`).
 
 import { makeSound } from "./sound.js";
 
-const KEPT = "aussie-outback-4x4.profile";
+// What a page wrote down of the game as it left for another map, for that page to take up.
+const CARRIED = "aussie-outback-4x4.carried";
 
 // The game's maps, as the world file names them: `map NAME SCENE TITLE`, and which is the hub.
 function readWorld(text) {
@@ -59,12 +66,41 @@ export async function prepare(params) {
   return { text, world, map, frame, tell, progress, scene: sceneName(map.scene ?? "") };
 }
 
+/// Before the scene is made: the game, taken up where the page before left it, with the
+/// packs of the trucks its scene is to be read with, fetched from `base` (where the maps
+/// are). `wasm` is the viewer's module, and `game` what `prepare` gave.
+export async function trucks(wasm, params, game, base) {
+  // Only a page that was come to from another takes up what that one was doing: the game's
+  // address by itself is its title.
+  const carried = params.has("carried") ? sessionStorage.getItem(CARRIED) ?? "" : "";
+  if (!params.has("carried")) sessionStorage.removeItem(CARRIED);
+  const made = new wasm.WebGame(
+    game.text,
+    carried,
+    params.get("map") ?? "",
+    params.get("mode") ?? "roam",
+    params.has("drive"),
+  );
+  const names = made.packs_wanted();
+  let received = 0;
+  await Promise.all(names.map(async (name) => {
+    const got = await fetch(`${base}trucks/${name}.truck`);
+    if (!got.ok) throw new Error(`The truck ${name} could not be fetched (${got.status}).`);
+    const bytes = new Uint8Array(await got.arrayBuffer());
+    received += bytes.length;
+    game.progress(names.length > 1 ? "Fetching trucks" : "Fetching the truck", received);
+    made.give_pack(name, bytes);
+  }));
+  return made;
+}
+
 /// Once the scene's game is running: starts the shell, and returns what to call each frame.
 export function attach(viewer, params, game, file) {
   const { text, world, frame, tell } = game;
+  // (The game the scene was made with is the one started: `trucks`.)
   viewer.ui_start(
     text,
-    localStorage.getItem(KEPT) ?? "",
+    "",
     params.get("map") ?? "",
     params.get("mode") ?? "roam",
     params.has("drive"),
@@ -104,6 +140,8 @@ export function attach(viewer, params, game, file) {
     next.set("map", map);
     next.set("mode", mode);
     next.set("drive", "");
+    // What the game is doing goes with it: the next page takes it up.
+    next.set("carried", "");
     for (const name of ["time", "weather", "soaked"]) next.delete(name);
     if (sky.length === 3) {
       const hours = Number(sky[0]);
@@ -146,12 +184,22 @@ export function attach(viewer, params, game, file) {
       if (told) tell(JSON.parse(told));
       for (const order of viewer.ui_orders()) {
         const [what, map, scene, mode, ...sky] = order.split(" ");
-        if (what === "load") go(map, scene, mode, sky);
+        if (what === "load") {
+          try {
+            sessionStorage.setItem(CARRIED, viewer.ui_carry());
+          } catch (error) {
+            console.warn(`the game could not be carried to the next map: ${error.message ?? error}`);
+          }
+          go(map, scene, mode, sky);
+        }
         // A page cannot close itself: quitting goes back to the title, in the hub.
-        if (what === "quit") location.search = "";
+        if (what === "quit") {
+          sessionStorage.removeItem(CARRIED);
+          location.search = "";
+        }
       }
-      const keep = viewer.ui_keep();
-      if (keep) localStorage.setItem(KEPT, keep);
+      // (The game keeps itself, in the browser's storage, in the place of the one played.)
+      viewer.ui_keep();
       sound.tick(viewer.sound_asks());
     },
   };

@@ -1080,8 +1080,6 @@ function options() {
 function show() {
   const screen = screenShown();
   // Paused in a story, the yard is a button away.
-  // In a browser there are no kept games to begin or go on with: it is a free drive.
-  el("title-new").hidden = el("title-load").hidden = !!state.web;
   // Paused: a run is started again; a track is left for the Crossroads.
   el("pause-restart").hidden = !(state.mode === "practice" || state.mode === "timed");
   // (Only from a map with no trailhead home: where there is one, it is driven to.)

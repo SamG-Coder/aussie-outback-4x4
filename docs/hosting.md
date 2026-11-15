@@ -5,7 +5,7 @@ The game's site is on Cloudflare, in two parts.
 | Part | What is in it | Where it comes from |
 | --- | --- | --- |
 | **Pages** project `rust4x4` | The home page, and under `/play/` the browser version: the viewer's program, the game's pages, its pictures. About 13 MB. | `dist/`, built by `scripts/build-game-web.sh --hosted` |
-| **R2** bucket `rust4x4-assets` | `scenes/NAME.solstice`, the five maps with only what is their own in them (the town 65 MB, the rest 189 to 245 MB each), and `scenes/shared.solstice`, what they are all read with (263 MB): the truck, and the bush's plants, stone and textures. The browser, Windows and Android versions all read these same six files, 1.2 GB in all. `scenes/maps.txt`, which says what version each is; and `download/`, the Windows version (about 39 MB) and the Android app. | `assets/*.solstice` (`bake.bat`), and `scripts/package-release.py` |
+| **R2** bucket `rust4x4-assets` | `scenes/NAME.solstice`, the five maps with only what is their own in them (the town 65 MB, the rest 189 to 245 MB each), and `scenes/shared.solstice`, what they are all read with (263 MB): the truck, and the bush's plants, stone and textures. The browser, Windows and Android versions all read these same six files, 1.2 GB in all. `scenes/maps.txt`, which says what version each is; `scenes/trucks/NAME.truck`, the game's fifty trucks, each a pack of about 3 MB that the browser version fetches when a map is to be read with it (146 MB in all); and `download/`, the Windows version (about 204 MB, the trucks among it) and the Android app. | `assets/*.solstice` (`bake.bat`), and `scripts/package-release.py` |
 
 A Pages site's files can be 25 MB at most, which is why the maps are not among them. They are
 served from the same address all the same: `site/functions/` are Pages Functions that answer
@@ -93,6 +93,15 @@ wrangler r2 object put rust4x4-assets/download/AussieOutback4x4.apk --file targe
 # has changed, put the page up again. This does it without building the browser version.
 bash scripts/build-home.sh
 cd site && ../target/tools/wrangler/node_modules/.bin/wrangler pages deploy --branch main --commit-dirty=true
+```
+
+The trucks' packs go up the same way, each to `scenes/trucks/`, whenever they are made again
+(`bake --kit`): the browser version reads them from there, and keeps each for a day.
+
+```bash
+for pack in ../assets/trucks/*.truck; do
+  wrangler r2 object put "rust4x4-assets/scenes/trucks/$(basename "$pack")" --file "$pack" --content-type application/octet-stream --remote
+done
 ```
 
 A map baked again has to go to R2 too, with the two lists that say what it is now: `maps.txt`,

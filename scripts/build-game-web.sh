@@ -48,7 +48,7 @@ import hashlib, pathlib
 play = pathlib.Path("dist/play")
 stamp = hashlib.sha256((play / "play/solstice_viewer_bg.wasm").read_bytes()).hexdigest()[:10]
 named = [
-    ("game.html", 'import("./game.js")', 2),
+    ("game.html", 'import("./game.js")', 3),
     ("game.html", '"./play/solstice_viewer.js"', 1),
     ("game.html", 'import("./loader.js")', 1),
     ("game.html", 'import("./auto-quality.js")', 1),

@@ -30,6 +30,190 @@ pub fn shared_file_start() -> f64 {
     crate::shared::WEB_AT as f64
 }
 
+/// The most games that a browser keeps, and where each is kept in its storage: the first
+/// where the one game there used to be was.
+#[cfg(feature = "gameplay")]
+const SLOTS: u32 = 3;
+#[cfg(feature = "gameplay")]
+fn slot_key(slot: u32) -> String {
+    if slot <= 1 {
+        "aussie-outback-4x4.profile".to_owned()
+    } else {
+        format!("aussie-outback-4x4.profile{slot}")
+    }
+}
+
+/// The browser's storage for this site, if it lets it be used.
+#[cfg(feature = "gameplay")]
+fn storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok().flatten()
+}
+
+/// The places there are for kept games: each its number, and what is kept in it, if a game
+/// is.
+#[cfg(feature = "gameplay")]
+fn kept_games() -> Vec<(u32, Option<String>)> {
+    let storage = storage();
+    (1..=SLOTS)
+        .map(|slot| {
+            let kept = storage
+                .as_ref()
+                .and_then(|storage| storage.get_item(&slot_key(slot)).ok().flatten());
+            (slot, kept)
+        })
+        .collect()
+}
+
+/// Keeps a game in its place.
+#[cfg(feature = "gameplay")]
+fn keep_game(slot: u32, kept: &str) {
+    if let (true, Some(storage)) = ((1..=SLOTS).contains(&slot), storage()) {
+        if storage.set_item(&slot_key(slot), kept).is_err() {
+            log::warn!(
+                "the game in place {slot} could not be kept: the browser's storage is full or shut"
+            );
+        }
+    }
+}
+
+/// One map of a game, before its scene is read: the game round the driving, taken up where
+/// the page before this one left it, and the packs of the trucks the scene is to be read
+/// with. A browser reads a page for each map. The page makes this first, fetches the packs
+/// it asks for, and gives it to [`WebViewer::create`] with them.
+#[cfg(feature = "gameplay")]
+#[wasm_bindgen]
+pub struct WebGame {
+    shell: crate::shell::Shell,
+    packs: Vec<(String, Vec<u8>)>,
+}
+
+#[cfg(feature = "gameplay")]
+#[wasm_bindgen]
+impl WebGame {
+    /// `world` is the game's maps (`shell::World`) and `carried` what the page before this
+    /// one wrote down as it left (`WebViewer::ui_carry`), or nothing. With nothing carried
+    /// the game is at its title, in its hub; or, if the address says so, `map` is being
+    /// driven for `mode`, as a free drive. Rejects with what is wrong in `world`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        world: &str,
+        carried: &str,
+        map: &str,
+        mode: &str,
+        driving: bool,
+    ) -> Result<WebGame, JsValue> {
+        use crate::shell::Shell;
+        let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
+        let mut shell = if carried.is_empty() {
+            let mut shell = Shell::new(world, "");
+            if !map.is_empty() {
+                shell.start_in(map);
+            }
+            if driving {
+                shell.resume(mode);
+            }
+            shell
+        } else {
+            // A kept game is as it was last kept, which may be since that page left; one
+            // that is kept nowhere is as that page had it.
+            let words = |line: &str| line.strip_prefix("save ").and_then(|n| n.parse().ok());
+            let save: u32 = carried.lines().find_map(words).unwrap_or(0);
+            let kept = kept_games()
+                .into_iter()
+                .find(|(slot, _)| *slot == save)
+                .and_then(|(_, kept)| kept)
+                .or_else(|| Shell::carried_kept(carried).map(str::to_owned))
+                .unwrap_or_default();
+            let mut shell = Shell::new(world, &kept);
+            shell.take_up(carried);
+            shell
+        };
+        shell.set_web();
+        let playing = shell.playing();
+        shell.set_saves(&kept_games(), playing);
+        Ok(WebGame {
+            shell,
+            packs: Vec::new(),
+        })
+    }
+
+    /// The trucks whose packs the scene is to be read with, by their names: each is
+    /// `trucks/NAME.truck` beside the maps.
+    pub fn packs_wanted(&self) -> Vec<String> {
+        self.shell.packs()
+    }
+
+    /// Gives one of those packs, as it was fetched.
+    pub fn give_pack(&mut self, name: &str, bytes: Vec<u8>) {
+        self.packs.push((name.to_owned(), bytes));
+    }
+}
+
+#[cfg(feature = "gameplay")]
+impl WebGame {
+    /// Puts in a scene the trucks it is to be played with, each put together from its pack
+    /// and kept in `memory`: as `put_trucks` does for a scene on a disk.
+    fn put_trucks(
+        &mut self,
+        scene: &mut solstice_asset::PagedScene,
+        memory: &mut crate::shared::Memory,
+    ) -> Result<(), String> {
+        use crate::shared::{self, Streamed};
+        let packs = std::mem::take(&mut self.packs);
+        let assemble = |name: &str, build: &str, pull: f32| {
+            let (_, bytes) = packs
+                .iter()
+                .find(|(named, _)| named == name)
+                .ok_or_else(|| format!("the pack of the truck {name} was not fetched"))?;
+            crate::kit::assemble(&mut std::io::Cursor::new(&bytes[..]), Some(build), pull)
+                .map_err(|error| format!("{name}: {error}"))
+        };
+        // What the truck that is driven is fitted with is said by its kit, which is in
+        // its pack.
+        if let Some(driven) = self.shell.driven() {
+            if let Some((_, bytes)) = packs.iter().find(|(named, _)| *named == driven) {
+                if let Ok(kit) = crate::kit::pack_kit(&mut std::io::Cursor::new(&bytes[..])) {
+                    self.shell.know_kit(&driven, kit);
+                }
+            }
+        }
+        let mut joins = Streamed { scene, memory };
+        let shown = self.shell.showing();
+        let pull = self.shell.power();
+        let wearing = self.shell.wearing();
+        if !shown.is_empty() {
+            let mut trucks = Vec::new();
+            for (truck, build) in &shown {
+                trucks.push(assemble(truck, build, 1.0)?);
+            }
+            shared::show_trucks(&mut joins, trucks, self.shell.stand())?;
+        } else if let Some((truck, fit)) = wearing {
+            shared::swap_truck(&mut joins, assemble(&truck, &fit, pull)?)?;
+        }
+        let spots = shared::lot(&joins.scene.gameplay);
+        let (parked, pulled) = self.shell.parked();
+        if !spots.is_empty() && !parked.is_empty() {
+            let mut trucks = Vec::new();
+            for sale in parked {
+                trucks.push(shared::Parked {
+                    place: sale.place,
+                    truck: assemble(&sale.truck, "stock", 1.0)?,
+                    paint: sale.paint,
+                    price: sale.price,
+                    km: sale.km,
+                });
+            }
+            shared::park_trucks(&mut joins, trucks, &spots, pulled)?;
+        }
+        Ok(())
+    }
+}
+
+/// A game, which the build that only looks at scenes knows nothing of: see the other.
+#[cfg(not(feature = "gameplay"))]
+#[wasm_bindgen]
+pub struct WebGame {}
+
 /// Sets up logging and panic messages. Runs once when the module loads.
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -72,6 +256,15 @@ pub struct WebViewer {
     /// last had to tell its pages, and what it has asked of the page that holds them.
     #[cfg(feature = "gameplay")]
     shell: Option<crate::shell::Shell>,
+    /// The game the scene was made for, until it is started (`ui_start`); which of the
+    /// kept games is being played; and the trucks that were joined onto the scene from
+    /// their packs, whose bytes are asked for as the scene's are and answered from here.
+    #[cfg(feature = "gameplay")]
+    game: Option<crate::shell::Shell>,
+    #[cfg(feature = "gameplay")]
+    playing: u32,
+    #[cfg(feature = "gameplay")]
+    memory: crate::shared::Memory,
     #[cfg(feature = "gameplay")]
     told: String,
     #[cfg(feature = "gameplay")]
@@ -120,6 +313,7 @@ impl WebViewer {
         default_limits: bool,
         shared: Option<Vec<u8>>,
         shared_data_offset: Option<f64>,
+        game: Option<WebGame>,
     ) -> Result<WebViewer, JsValue> {
         #[allow(unused_mut)]
         let mut scene =
@@ -143,8 +337,21 @@ impl WebViewer {
             // And what nuggets are shown with, which are made as they are found.
             crate::nugget::join_streamed(&mut scene).map_err(error_string)?;
         }
+        // A game's trucks, put together from their packs: the one that is driven, or
+        // those that stand to be looked at, and those parked in the used-truck yard.
+        #[cfg(feature = "gameplay")]
+        let mut memory = crate::shared::Memory::default();
+        #[cfg(feature = "gameplay")]
+        let game = match game {
+            Some(mut game) => {
+                game.put_trucks(&mut scene, &mut memory)
+                    .map_err(error_string)?;
+                Some(game.shell)
+            }
+            None => None,
+        };
         #[cfg(not(feature = "gameplay"))]
-        let _ = (shared, shared_data_offset);
+        let _ = (shared, shared_data_offset, game);
         let external_tables = scene
             .external
             .map(|tables| vec![tables.clusters as f64, tables.pinned_bytes as f64]);
@@ -258,6 +465,12 @@ impl WebViewer {
             #[cfg(feature = "gameplay")]
             shell: None,
             #[cfg(feature = "gameplay")]
+            playing: game.as_ref().map_or(0, crate::shell::Shell::playing),
+            #[cfg(feature = "gameplay")]
+            game,
+            #[cfg(feature = "gameplay")]
+            memory,
+            #[cfg(feature = "gameplay")]
             told: String::new(),
             #[cfg(feature = "gameplay")]
             orders: Vec::new(),
@@ -306,8 +519,29 @@ impl WebViewer {
     /// cluster records in their table, which is empty unless they must come too. Each request
     /// must later go to `deliver`, `deliver_page` or `request_failed`.
     pub fn stream_requests(&mut self, max_fetching: u32) -> Vec<f64> {
-        self.renderer
-            .stream_requests(max_fetching)
+        #[allow(unused_mut)]
+        let mut requests = self.renderer.stream_requests(max_fetching).to_vec();
+        // What is in memory is handed over at once: a truck put together from its pack has
+        // no file for the page to fetch from.
+        #[cfg(feature = "gameplay")]
+        requests.retain(|request| {
+            let Some(bytes) = self.memory.read(request.start, request.end) else {
+                return true;
+            };
+            let data = if request.deflated {
+                file::inflate(bytes).ok()
+            } else {
+                Some(bytes.to_vec())
+            };
+            match data {
+                Some(data) => {
+                    self.renderer.deliver_fetched(request.id, data);
+                }
+                None => self.renderer.request_failed(request.id),
+            }
+            false
+        });
+        requests
             .iter()
             .flat_map(|request| {
                 [
@@ -430,6 +664,8 @@ impl WebViewer {
         #[cfg(feature = "gameplay")]
         let environment = crate::night_eyes(environment, self.shell.is_some());
         #[cfg(feature = "gameplay")]
+        let mut saves = Vec::new();
+        #[cfg(feature = "gameplay")]
         if let Some(play) = &mut self.play {
             use crate::shell::{Order, Step};
             // By dark, measured before eyes are opened to it, the lamps are on.
@@ -480,6 +716,7 @@ impl WebViewer {
                     self.told = told;
                 }
                 let now = self.clock.time.hours;
+                shell.set_hour(now);
                 for order in shell.take_orders() {
                     self.orders.push(match order {
                         // The desktop's: in a browser the page takes hold of the mouse itself.
@@ -522,8 +759,12 @@ impl WebViewer {
                             let _ = play.set_damage(&damage);
                             continue;
                         }
-                        // A browser keeps one game.
-                        Order::Saves(_) | Order::Options => continue,
+                        Order::Saves(what) => {
+                            saves.push(what);
+                            continue;
+                        }
+                        // (A browser's page is as loud and as big as the browser has it.)
+                        Order::Options => continue,
                         Order::Show { index, paint } => {
                             play.display(&mut self.renderer, index, paint);
                             continue;
@@ -577,6 +818,10 @@ impl WebViewer {
                 .len()
                 .saturating_sub(solstice_game::play::MAX_MESSAGES);
             self.messages.drain(..excess);
+        }
+        #[cfg(feature = "gameplay")]
+        for what in saves {
+            self.change_game(what);
         }
         let texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture)
@@ -938,18 +1183,86 @@ impl WebViewer {
         mode: &str,
         driving: bool,
     ) -> Result<(), JsValue> {
-        let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
-        let mut shell = crate::shell::Shell::new(world, kept);
-        shell.set_web();
-        if !map.is_empty() {
-            shell.start_in(map);
-        }
-        if driving {
-            shell.resume(mode);
-        }
+        // The game the scene was made for, with its trucks, is the one that is played.
+        let mut shell = match self.game.take() {
+            Some(shell) => shell,
+            None => {
+                let world = crate::shell::World::parse(world).map_err(|e| JsValue::from_str(&e))?;
+                let mut shell = crate::shell::Shell::new(world, kept);
+                shell.set_web();
+                if !map.is_empty() {
+                    shell.start_in(map);
+                }
+                if driving {
+                    shell.resume(mode);
+                }
+                shell
+            }
+        };
         shell.enter(&self.gameplay);
         self.shell = Some(shell);
         Ok(())
+    }
+
+    /// What the game is doing, for the page to hand to the next page's [`WebGame`] when the
+    /// game has asked for another map (`ui_orders`): the game is kept in its place first.
+    pub fn ui_carry(&mut self) -> String {
+        let Some(shell) = &mut self.shell else {
+            return String::new();
+        };
+        let carried = shell.carry();
+        if let Some(kept) = crate::shell::Shell::carried_kept(&carried) {
+            keep_game(self.playing, kept);
+        }
+        carried
+    }
+
+    /// Does what was asked with the kept games: begins a new one in a place, goes back to
+    /// one, or deletes one. What is being played is kept first.
+    fn change_game(&mut self, what: crate::shell::Saves) {
+        use crate::shell::Saves;
+        let Some(shell) = &mut self.shell else {
+            return;
+        };
+        if self.playing != 0 {
+            keep_game(self.playing, &shell.keep_now());
+        }
+        let known = |slot: u32| (1..=SLOTS).contains(&slot);
+        let kept = |slot: u32| {
+            let mut games = kept_games().into_iter();
+            games
+                .find(|(number, _)| *number == slot)
+                .and_then(|(_, kept)| kept)
+        };
+        let play = match what {
+            Saves::Close => {
+                self.playing = 0;
+                shell.close();
+                None
+            }
+            Saves::New(slot) if known(slot) => {
+                keep_game(slot, "");
+                Some(slot)
+            }
+            Saves::Use(slot) if known(slot) && kept(slot).is_some() => Some(slot),
+            Saves::Delete(slot) if known(slot) => {
+                if let Some(storage) = storage() {
+                    let _ = storage.remove_item(&slot_key(slot));
+                }
+                if slot == self.playing {
+                    self.playing = 0;
+                }
+                None
+            }
+            _ => None,
+        };
+        if let Some(slot) = play {
+            self.playing = slot;
+            shell.set_saves(&kept_games(), slot);
+            shell.load(&kept(slot).unwrap_or_default());
+        } else {
+            shell.set_saves(&kept_games(), self.playing);
+        }
     }
 
     /// Takes in a line the game's pages said (docs/ui.md).
@@ -975,10 +1288,13 @@ impl WebViewer {
     /// What the game wants kept until it is next played, if that has changed; otherwise
     /// nothing.
     pub fn ui_keep(&mut self) -> String {
-        self.shell
-            .as_mut()
-            .and_then(|shell| shell.to_keep())
-            .unwrap_or_default()
+        let kept = self.shell.as_mut().and_then(|shell| shell.to_keep());
+        // It is kept here, in the place of the game that is being played: a free drive,
+        // and the main menu, are kept nowhere.
+        if let Some(kept) = &kept {
+            keep_game(self.playing, kept);
+        }
+        String::new()
     }
 
     /// From now on what should be heard is kept for the page to take with `sound_asks`: call

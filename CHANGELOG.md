@@ -3,8 +3,8 @@
 ## Alpha 0.2
 
 The first alpha. The game is now open source under the MIT licence:
-<https://github.com/SamG-Coder/aussie-outback-4x4>. The Windows download has the whole game;
-the browser and Android versions are still free driving only.
+<https://github.com/SamG-Coder/aussie-outback-4x4>. The browser version and the Windows
+download have the whole game; the Android app is still free driving only.
 
 ### A living to make
 
@@ -54,11 +54,20 @@ the browser and Android versions are still free driving only.
   Xbox buttons or PlayStation buttons, and they swap the moment you pick up another device.
 - **Controller look speed** is an option.
 
+### In the browser
+
+- **The whole game.** The story, the town, the fifty trucks and the used-truck yard now play
+  in the browser as they do on Windows. Each truck is fetched as it is needed, a few
+  megabytes each.
+- **Three kept games**, in the browser's own storage on the computer they were played on.
+
 ### Known rough edges
 
 - None of the new damage, mud or yard has had much play yet. Expect numbers to be retuned.
 - Fallen pieces are drawn but not solid. There is no crash sound, and paint does not scratch.
-- The browser and Android versions do not have the story, the trucks or the town.
+- The Android app does not have the story, the trucks or the town.
+- In the browser a kept game lives in that browser on that computer: clearing the site's
+  data deletes it, and it does not follow you to another machine.
 - Medal times on the timed runs are not tuned.
 
 ## Pre-alpha 0.1
