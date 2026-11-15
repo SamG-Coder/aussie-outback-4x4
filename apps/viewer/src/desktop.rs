@@ -1173,27 +1173,32 @@ mod native {
         scene: &mut impl solstice_viewer::shared::Joins,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // A truck built of pieces, in place of the map's own: put together now, of the
-        // pieces it is wearing. What is not fitted to it is not read.
+        // pieces it is wearing; and, if it is to be a monster truck (a build that begins
+        // `monster:`), stood on the monster kit, which is a pack beside the trucks'.
+        let mut pack = |truck: &str| {
+            let pack = truck_pack(path, truck);
+            std::fs::read(&pack).map_err(|error| format!("{}: {error}", pack.display()))
+        };
         if !options.shown.is_empty() {
             // Trucks stood here to be looked at: every one of the page, each put together
             // now, so that another is shown with nothing more read.
             let mut trucks = Vec::new();
             for (truck, build) in &options.shown {
-                let pack = truck_pack(path, truck);
-                let mut file = std::fs::File::open(&pack)
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
-                let truck = solstice_viewer::kit::assemble(&mut file, Some(build), 1.0)
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
-                trucks.push(truck);
+                trucks.push(solstice_viewer::kit::put_together(
+                    &mut pack,
+                    truck,
+                    Some(build),
+                    1.0,
+                )?);
             }
             solstice_viewer::shared::show_trucks(scene, trucks, options.stand.as_deref())?;
         } else if let Some(truck) = &options.truck {
-            let pack = truck_pack(path, truck);
-            let mut file = std::fs::File::open(&pack)
-                .map_err(|error| format!("{}: {error}", pack.display()))?;
-            let truck =
-                solstice_viewer::kit::assemble(&mut file, options.kit.as_deref(), options.pull)
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+            let truck = solstice_viewer::kit::put_together(
+                &mut pack,
+                truck,
+                options.kit.as_deref(),
+                options.pull,
+            )?;
             solstice_viewer::shared::swap_truck(scene, truck)?;
         }
         // A map with a used-truck yard has the day's trucks parked in it, as they
@@ -1202,11 +1207,8 @@ mod native {
         if !spots.is_empty() && !options.parked.is_empty() {
             let mut trucks = Vec::new();
             for sale in &options.parked {
-                let pack = truck_pack(path, &sale.truck);
-                let mut file = std::fs::File::open(&pack)
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
-                let truck = solstice_viewer::kit::assemble(&mut file, Some("stock"), 1.0)
-                    .map_err(|error| format!("{}: {error}", pack.display()))?;
+                let truck =
+                    solstice_viewer::kit::put_together(&mut pack, &sale.truck, Some("stock"), 1.0)?;
                 trucks.push(solstice_viewer::shared::Parked {
                     place: sale.place,
                     truck,
@@ -2852,6 +2854,7 @@ mod native {
                                     log::warn!("the truck's damage: {error}");
                                 }
                             }
+                            Order::Harm(harm) => play.set_harm(harm),
                             Order::Show { index, paint } => {
                                 play.display(&mut state.renderer, index, paint);
                             }

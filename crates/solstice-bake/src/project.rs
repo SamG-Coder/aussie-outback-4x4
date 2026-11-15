@@ -472,6 +472,9 @@ fn to_entity(scene: &mut Scene, command: Command, id: String) -> Result<Option<E
         Command::Proving => {
             return Err("a project has no `proving` yet: bake the scene's text instead".into());
         }
+        Command::Arena => {
+            return Err("a project has no `arena` yet: bake the scene's text instead".into());
+        }
         Command::Lends(..) => {
             return Err("a project lends nothing yet: bake the scene's text instead".into());
         }

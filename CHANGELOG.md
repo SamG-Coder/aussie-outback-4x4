@@ -1,5 +1,24 @@
 # What is new
 
+## Since Alpha 0.2
+
+On the site from 16 November 2026, in the browser version, the Windows download and the
+Android app. Not a tagged release.
+
+- **Monster trucks.** In a free drive any of the fifty trucks can be stood on a monster
+  truck's frame: a tube chassis, planetary axles on four links and twin shocks, and tyres
+  1.68 m high. The truck keeps its own body, its own chassis and whatever is bolted to it.
+  The axles, links, shocks and driveshafts move with the wheels.
+- **A free drive you set up.** Choose any truck, build it from its own kit and paint it,
+  make it a monster truck or not, then choose the map to start on, the time of day and the
+  weather.
+- **Bulldust Bowl.** A showground in red outback country, for a free drive: two mud pits,
+  five jumps from a hop to a big-air ramp over a row of wrecks, and a steel loop.
+- **Free drive: damage off, and start again.** Damage can be switched off for a free drive,
+  before it starts or from the pause menu, and the pause menu starts its map again.
+- **The Android app has the trucks.** Its download now carries the fifty truck packs, as the
+  Windows one does. It has still not been run on a real phone.
+
 ## Alpha 0.2
 
 The first alpha. The game is now open source under the MIT licence:

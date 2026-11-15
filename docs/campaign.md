@@ -153,6 +153,33 @@ screen leans, what its back is (tray, tub or wagon); and a choice from each list
 `blender -b --python tools/blender/truck/build.py -- all OUT_FOLDER KEEP_FOLDER` builds
 every one, each to a file of its own, with a picture.
 
+**A monster truck is any of them, on a frame.** As the first real ones were: a pickup,
+taken off its axles and stood on a frame of tube over axles and tyres from a much bigger
+machine. What it stands on is a kit of its own, made by `tools/blender/monster/build.py`
+and packed to `assets/trucks/monster.truck` (`bake --kit scenes/trucks/monster.actor`): a
+tube frame in three, an engine, two axles with planetary hubs, four links and two shock
+absorbers to a wheel, driveshafts, and four tyres 1.68 m high on bead-locked rims.
+
+The game puts one together as its scene is read (`kit::assemble_monster`), of whichever
+truck is asked for with a build that begins `monster:` (`monster:stock`,
+`monster:showroom`, `monster:bullbar=tube`): every piece of the truck is kept but its
+axles, its springs and its wheels, its own chassis among them and whatever of its kit is
+fitted, and lifted so that its chassis sits on the frame. The frame's two ends go where the
+truck's axles are, and its middle and its driveshafts are drawn out to reach them, so the
+one kit fits every wheelbase from the Licola's to the Kestrel's. Its numbers are the kit's
+(`scenes/trucks/monster.vehicle`), with the truck's wheelbase and body, and a weight,
+springs and brakes for what the truck weighs.
+
+Its axles move. What is on an axle is drawn where the axle's two wheels have it, up and
+down and leaning, and what runs between the frame and an axle (a link, a shock absorber's
+body and its rod, a driveshaft) turns to go on reaching it (`Fitted::rides`; the kit's
+`axle` and `link` lines say which pieces). A truck whose kit names none is drawn as it
+always was.
+
+In a free drive it is a switch on the page the truck is chosen on (`do monster:on`,
+`Shell::free_fit`). To look at one without the game: `viewer assets/hub.solstice --play
+--fly --truck licola --kit monster:showroom --camera ... --capture out.png`.
+
 **In pieces.** Every part that could be changed is an object of its own in the truck's
 file, named for what it is, so that the game can take one off and fit another:
 

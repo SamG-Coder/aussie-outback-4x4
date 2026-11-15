@@ -385,6 +385,24 @@ body.touch:not(.pad) .tilt { left: auto; right: 22rem; top: 2.4rem; bottom: auto
 .show-spec { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1.2rem; padding: 1rem 1.2rem; background: rgba(10, 10, 12, 0.62);
   border-top: 0.2rem solid var(--ochre); backdrop-filter: blur(6px); }
 .show-spec:empty { display: none; }
+/* A free drive's starting map: its picture and what it is, down the left; and the maps to
+   choose from, a row of small buttons under the trucks, the one chosen marked. */
+.show-start { position: absolute; left: 3.2rem; top: 13rem; width: 19rem; padding: 0.9rem 1.1rem 1rem; background: rgba(10, 10, 12, 0.62);
+  border-top: 0.2rem solid var(--ochre); backdrop-filter: blur(6px); }
+.show-start[hidden] { display: none; }
+.show-start img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; margin: 0.6rem 0 0.7rem; background: #2a2a2e; }
+.show-start img.none { display: none; }
+.show-start b { display: block; margin-top: 0.4rem; font: 700 1.6rem/1.05 var(--sign); font-stretch: 75%; text-transform: uppercase; letter-spacing: 0.02em; }
+.show-start small { display: block; margin-top: 0.25rem; font: 600 0.75rem/1 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ochre); }
+.show-start p:last-child { margin-top: 0.6rem; font-size: 0.92rem; line-height: 1.4; color: var(--dust); }
+.show-acts button.place { padding: 0.45rem 0.8rem 0.5rem; }
+.show-acts button.place span { font-size: 1.05rem; }
+.show-acts button.place small { margin-top: 0.2rem; font-size: 0.72rem; }
+.show-acts button.place.picked { border-bottom-color: var(--ochre); }
+.show-acts button.place.picked span { color: var(--ochre); }
+@media (max-height: 560px) {
+  .show-start { display: none; }
+}
 .show-spec dt { font: 600 0.75rem/1.5 var(--sign); letter-spacing: 0.16em; text-transform: uppercase; color: var(--dust); }
 .show-spec dd { font: 600 1.1rem/1.2 var(--sign); text-align: right; font-variant-numeric: tabular-nums; }
 .show-spec dd.big { font-size: 1.6rem; font-weight: 700; color: var(--gum); }

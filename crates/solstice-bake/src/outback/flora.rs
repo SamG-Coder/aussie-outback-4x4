@@ -393,6 +393,95 @@ pub fn stock(scene: &mut SceneAsset) -> Stock {
     }
 }
 
+/// What a plant is to a truck: a trunk this thick that stops it, or scrub that goes down
+/// under it within this reach.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Stood {
+    Trunk(f32),
+    Scrub(f32),
+    Nothing,
+}
+
+impl Stock {
+    /// Stands one plant of a kind where it is said to, for a design that places its own
+    /// (`super::arena`): `copy` picks which of the kind's copies, `scale` is its size as a
+    /// share of the species' own. Returns the first of its two instances and what it is to
+    /// a truck, or nothing if there is no such kind.
+    pub(super) fn stand(
+        &self,
+        scene: &mut SceneAsset,
+        name: &str,
+        copy: u32,
+        transform: Mat4,
+        scale: f32,
+    ) -> Option<(u32, Stood)> {
+        let which = KINDS.iter().position(|kind| kind.name == name)?;
+        let (kind, plant) = (&KINDS[which], &self.grown[which]);
+        let first = scene.instances.len() as u32;
+        let mesh = plant.first_mesh + (copy % plant.copies) * 2;
+        for (mesh, material) in [(mesh, plant.bark), (mesh + 1, plant.leaves)] {
+            scene.instances.push(Instance {
+                mesh,
+                material,
+                transform,
+            });
+        }
+        let flattened = kind
+            .gives
+            .filter(|&(_, snaps)| kind.trunk.is_none_or(|trunk| trunk * scale < snaps));
+        let stood = match (flattened, kind.trunk) {
+            (Some((reach, _)), _) => Stood::Scrub(reach * scale),
+            (None, Some(trunk)) => Stood::Trunk(trunk * scale),
+            (None, None) => Stood::Nothing,
+        };
+        Some((first, stood))
+    }
+
+    /// How big a kind grows, as a share of its species' own size: from, to.
+    pub(super) fn sizes(name: &str) -> (f32, f32) {
+        KINDS
+            .iter()
+            .find(|kind| kind.name == name)
+            .map_or((1.0, 1.0), |kind| kind.size)
+    }
+
+    /// Lays a patch of tussock with its corner where `transform` says, and says how wide a
+    /// patch is.
+    pub(super) fn tussock(&self, scene: &mut SceneAsset, copy: u32, transform: Mat4) -> f32 {
+        let (first, material) = self.grass[0];
+        scene.instances.push(Instance {
+            mesh: first + copy % GRASS_COPIES,
+            material,
+            transform,
+        });
+        self.patch
+    }
+
+    /// How wide a patch of grass is.
+    pub(super) fn patch(&self) -> f32 {
+        self.patch
+    }
+
+    /// Sets a boulder of one of the four sizes where `transform` says, of this stone, and
+    /// says how far out it reaches before it is grown.
+    pub(super) fn boulder(
+        &self,
+        scene: &mut SceneAsset,
+        size: usize,
+        copy: u32,
+        stone: u32,
+        transform: Mat4,
+    ) -> f32 {
+        let size = size.min(BOULDER_SIZES.len() - 1);
+        scene.instances.push(Instance {
+            mesh: self.boulders + size as u32 * BOULDER_EACH + copy % BOULDER_EACH,
+            material: stone,
+            transform,
+        });
+        BOULDER_SIZES[size]
+    }
+}
+
 /// Plants the square, and a way beyond it. `stone` is the material boulders are made of.
 /// Returns what a car is stopped by, each tree's trunk and each great boulder, and what it
 /// flattens instead: the scrub, the ferns and the thinnest saplings.

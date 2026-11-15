@@ -1,0 +1,23 @@
+# Bulldust Bowl: a monster-truck showground scraped out of red country. Mud pits, dirt jumps
+# from a hop to a tabletop, a double, a step-up and a big-air ramp, a row of wrecks to drive
+# over, and a steel loop to drive round, inside an earth bank with a gate in its south; and
+# open country outside it (docs/arena.md). A map of the game: free roam can start on it.
+#
+# Everything is built from the `arena` line (crates/solstice-bake/src/outback/arena): the
+# land, the jumps, the mud, the loop, the planting, and where each piece of the set dressing
+# stands. The set dressing itself is tools/blender/arena/build.py:
+#
+#   blender -b --python tools/blender/arena/build.py -- target/outback/arena.glb
+#   bake --scene scenes/arena.txt --output assets/arena.solstice
+#   viewer assets/arena.solstice --play --truck kestrel
+#
+# Baked beside assets/shared.solstice, which has the truck and the bush's stock. The truck
+# starts inside the gate, on the ring road, looking north up the arena.
+texture_size 1024
+camera 0 12 104 0 -0.2
+arena
+actor outback/raptor.actor 0.00 2.05 82.00 0.0 shared
+# The driver, who sits in the truck until they get out of it, and what the keys do.
+actor outback/driver.actor 0.00 2.05 82.00 0.0
+actor outback/detector.actor 0.00 2.05 82.00 0.0 shared
+input outback/game.input

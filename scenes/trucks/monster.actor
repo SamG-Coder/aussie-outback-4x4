@@ -1,0 +1,7 @@
+# What a monster truck stands on (tools/blender/monster/build.py). It is not driven as it is:
+# the game stands one of its trucks on it (`kit::assemble_monster`).
+name monster
+mesh ../../target/outback/trucks/monster.glb 1
+vehicle monster.vehicle
+kit monster.kit
+camera 0 2.4 0

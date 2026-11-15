@@ -529,6 +529,9 @@ pub struct Hud {
 pub struct HudWheel {
     /// Where its tyre touches, in the world.
     pub at: Vec3,
+    /// Where its middle is, in the car's own space, as its suspension has it: at rest it is
+    /// its radius above the car's origin.
+    pub hub: Vec3,
     pub on_ground: bool,
     pub surface: solstice_physics::vehicle::Surface,
     /// How fast its tread passes over the ground, in metres a second: above zero spinning

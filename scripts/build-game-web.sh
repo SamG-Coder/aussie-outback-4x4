@@ -46,7 +46,13 @@ cp apps/viewer/web/shell.html dist/play/index.html
 python - <<'STAMP'
 import hashlib, pathlib
 play = pathlib.Path("dist/play")
-stamp = hashlib.sha256((play / "play/solstice_viewer_bg.wasm").read_bytes()).hexdigest()[:10]
+# The build's name is of everything that is asked for by it: the program, and every script
+# and page beside it. (Of the program alone, a build that changed only a script or a page kept
+# the name it had, and what was kept under that name went on being used.)
+made = [play / "play/solstice_viewer_bg.wasm"]
+for pattern in ["*.js", "*.html", "ui/*.js", "ui/*.css", "ui/*.html", "ui/art/*.jpg"]:
+    made += sorted(play.glob(pattern))
+stamp = hashlib.sha256(b"".join(file.read_bytes() for file in made)).hexdigest()[:10]
 named = [
     ("game.html", 'import("./game.js")', 3),
     ("game.html", '"./play/solstice_viewer.js"', 1),
@@ -66,6 +72,17 @@ for name, old, times in named:
     cut = old.rindex(quote)
     page.write_text(text.replace(old, f"{old[:cut]}?v={stamp}{old[cut:]}"), encoding="utf-8", newline="\n")
 print(f"scripts named for build {stamp}")
+# The maps' pictures are kept for a day by browsers and by the site's own cache, under their
+# addresses: so those are named by what the pictures are, and a picture taken again is asked
+# for afresh. (Without this the loading screens went on showing the last pictures for a day.)
+art = hashlib.sha256(b"".join(file.read_bytes() for file in sorted((play / "ui/art").glob("*.jpg")))).hexdigest()[:10]
+page = play / "ui/ui.js"
+text = page.read_text(encoding="utf-8")
+old = "art/${name}.jpg"
+if text.count(old) != 1:
+    raise SystemExit(f"ui/ui.js: expected one {old}, found {text.count(old)}: see scripts/build-game-web.sh")
+page.write_text(text.replace(old, f"{old}?v={art}"), encoding="utf-8", newline="\n")
+print(f"pictures named for {art}")
 STAMP
 
 # The sounds, squeezed for the web: 33 MB of them as they are made come to about 6. The engine's

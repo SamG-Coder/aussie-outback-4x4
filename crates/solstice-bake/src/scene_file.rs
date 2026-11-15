@@ -138,6 +138,9 @@ pub(crate) enum Command {
     Outback(f32, crate::outback::Country, Vec<String>),
     /// A proving ground for mud, built as a square of bush is (`crate::outback::proving`).
     Proving,
+    /// A showground with jumps, mud and a loop, built as a square of bush is
+    /// (`crate::outback::arena`).
+    Arena,
     /// This scene lends every mesh and texture it has to the scenes read with it
     /// (`crate::lend`), and, if so, has in it as well what every square of bush is made of.
     Lends(bool),
@@ -355,6 +358,12 @@ pub(crate) fn parse_line(line: &str) -> Result<Option<Command>, String> {
         "proving" => {
             expect(0)?;
             Command::Proving
+        }
+        // A showground in red country: dirt jumps, mud pits and a loop to drive round
+        // (`outback::arena`).
+        "arena" => {
+            expect(0)?;
+            Command::Arena
         }
         "outback" => {
             let size = number(0)?;
@@ -1003,7 +1012,7 @@ pub(crate) fn build_commands(
     let mut water = None;
     let mut circuit = None;
     let mut outback = None;
-    let mut proving = false;
+    let (mut proving, mut arena) = (false, false);
     let mut lends = None;
     // Whether there has been a circuit, and a line of land, to refuse the two together.
     let (mut has_land, mut has_circuit) = (false, false);
@@ -1203,6 +1212,7 @@ pub(crate) fn build_commands(
             Some(Command::Circuit(size)) => circuit = Some(size),
             Some(Command::Outback(size, country, leads)) => outback = Some((size, country, leads)),
             Some(Command::Proving) => proving = true,
+            Some(Command::Arena) => arena = true,
             Some(Command::Lends(stock)) => lends = Some(stock),
         }
     }
@@ -1355,7 +1365,16 @@ pub(crate) fn build_commands(
     // A square of bush builds its own land, track and planting, and from the same design the
     // ground to drive on, the map of what it is made of, and the track's line.
     // A proving ground is built as a square of bush is, from a design of its own.
-    let outback = outback.map(Some).or(proving.then_some(None));
+    // So is a showground.
+    enum Design {
+        Bush(f32, crate::outback::Country, Vec<String>),
+        Proving,
+        Arena,
+    }
+    let outback = outback
+        .map(|(size, country, leads)| Design::Bush(size, country, leads))
+        .or(proving.then_some(Design::Proving))
+        .or(arena.then_some(Design::Arena));
     if let Some(design) = outback {
         if gameplay.game.track.is_some() {
             return Err("`outback` finds its own track: leave out the `track` line".into());
@@ -1363,10 +1382,11 @@ pub(crate) fn build_commands(
         scene.collide.resize(scene.instances.len(), Collide::Auto);
         let first = scene.instances.len() as u32;
         let built = match design {
-            Some((size, country, leads)) => {
+            Design::Bush(size, country, leads) => {
                 crate::outback::build(&mut scene, size, country, &leads, base)?
             }
-            None => crate::outback::proving::build(&mut scene)?,
+            Design::Proving => crate::outback::proving::build(&mut scene)?,
+            Design::Arena => crate::outback::arena::build(&mut scene, base)?,
         };
         scene.collide.resize(scene.instances.len(), Collide::None);
         if mapped {

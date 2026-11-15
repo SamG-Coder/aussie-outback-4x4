@@ -27,6 +27,11 @@ about blackwood Low, wet forest along a creek. Sixteen bog holes, deep ruts and 
 kind blackwood Mud run
 length blackwood 4.5 km
 
+# Not on the Crossroads' signs: no road leads to it. A free drive can start on it.
+map arena assets/arena.solstice Bulldust Bowl
+about arena A showground scraped out of the red country a long way from anywhere: mud pits, dirt jumps from a hop to a tabletop, a row of wrecks to flatten and a steel loop to drive round. Bring the biggest truck you have.
+kind arena Showground
+
 # How rich each map's ground is in gold: 1 is ordinary. The ground by home has been picked
 # over and the town's more so; the harder a track is to get round, the richer it is.
 gold crossroads 0.5
@@ -34,6 +39,7 @@ gold town 0.35
 gold wombat 1.0
 gold blackwood 1.2
 gold granite 1.4
+gold arena 0.2
 
 # The showroom: where a truck is stood to be looked at, behind the pages on which trucks are
 # chosen, bought, sold and worked on. It is the Crossroads, by the shed, in the bush. Nothing

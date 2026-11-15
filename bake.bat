@@ -31,6 +31,10 @@ rem And the town's buildings, which are built of the shed's pieces.
 if not exist target\outback\town.glb (
   "%BLENDER%" -b --python tools\blender\town\build.py -- target\outback\town.glb || exit /b 1
 )
+rem And the set dressing of Bulldust Bowl, the monster-truck showground.
+if not exist target\outback\arena.glb (
+  "%BLENDER%" -b --python tools\blender\arena\build.py -- target\outback\arena.glb || exit /b 1
+)
 cargo build --release -p bake -p viewer || exit /b 1
 if not exist assets mkdir assets
 rem What every map shares is in a file of its own beside the maps, which the game reads with
@@ -43,4 +47,5 @@ target\release\bake.exe --scene scenes\hub.txt --output assets\hub.solstice || e
 target\release\bake.exe --scene scenes\granite.txt --output assets\granite.solstice || exit /b 1
 target\release\bake.exe --scene scenes\blackwood.txt --output assets\blackwood.solstice || exit /b 1
 target\release\bake.exe --scene scenes\town.txt --output assets\town.solstice || exit /b 1
+target\release\bake.exe --scene scenes\arena.txt --output assets\arena.solstice || exit /b 1
 call postcards.bat

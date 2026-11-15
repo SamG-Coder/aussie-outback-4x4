@@ -160,13 +160,16 @@ impl WebGame {
     ) -> Result<(), String> {
         use crate::shared::{self, Streamed};
         let packs = std::mem::take(&mut self.packs);
+        // (A build that begins `monster:` is of a monster truck, stood on the monster kit,
+        // whose pack was fetched with the trucks'.)
         let assemble = |name: &str, build: &str, pull: f32| {
-            let (_, bytes) = packs
-                .iter()
-                .find(|(named, _)| named == name)
-                .ok_or_else(|| format!("the pack of the truck {name} was not fetched"))?;
-            crate::kit::assemble(&mut std::io::Cursor::new(&bytes[..]), Some(build), pull)
-                .map_err(|error| format!("{name}: {error}"))
+            let mut pack = |name: &str| {
+                let found = packs.iter().find(|(named, _)| named == name);
+                found
+                    .map(|(_, bytes)| bytes.clone())
+                    .ok_or_else(|| format!("the pack of the truck {name} was not fetched"))
+            };
+            crate::kit::put_together(&mut pack, name, Some(build), pull)
         };
         // What the truck that is driven is fitted with is said by its kit, which is in
         // its pack.
@@ -757,6 +760,10 @@ impl WebViewer {
                         }
                         Order::Damage(damage) => {
                             let _ = play.set_damage(&damage);
+                            continue;
+                        }
+                        Order::Harm(harm) => {
+                            play.set_harm(harm);
                             continue;
                         }
                         Order::Saves(what) => {

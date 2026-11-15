@@ -704,7 +704,8 @@ function yardActs() {
   if (!yard) return;
   const acts = el("yard-acts"), cards = yardCards();
   const own = (yard.trucks || []).find((truck) => truck.driving);
-  const card = yard.page === "colour" ? yard.chosen : cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
+  const setting = yard.page === "tune" || yard.page === "where";
+  const card = yard.page === "colour" ? yard.chosen : setting ? yard.free_truck : cards.length ? cards[Math.min(yardPick, cards.length - 1)] : own;
   acts.replaceChildren();
   let detail = "";
   const spec = (card && SPECS[card.name]) || {};
@@ -734,7 +735,9 @@ function yardActs() {
     detail = `${card.year}  ·  Grade ${card.grade}  ·  new, with nothing on the clock`;
     lines.push(`<dt>Price</dt><dd class="big">${cash(card.price)}</dd>`);
   } else if (card && yard.page === "free") {
-    detail = `${card.year}  ·  Grade ${card.grade}  ·  ${cash(card.price)}`;
+    detail = `${card.year}  ·  Grade ${card.grade}  ·  press to build it`;
+  } else if (card && setting) {
+    detail = `${card.year}  ·  Grade ${card.grade}${yard.monster ? "  ·  monster truck" : ""}`;
   } else if (card) {
     detail = `${card.year}  ·  ${far(card.km)}  ·  the one you drive`;
   }
@@ -744,9 +747,13 @@ function yardActs() {
   setText("yard-name", card ? `${card.title}${tint ? `  ·  ${tint.name}` : ""}` : "");
   // (In the shop and at the bank, what is in hand in the strip is what is named.)
   const inHand = el("yard-lot").children[yardPick];
-  if ((yard.page === "shop" || yard.page === "bank") && inHand) {
+  if ((yard.page === "shop" || yard.page === "bank" || setting) && inHand) {
     const words = [...inHand.querySelectorAll("b, small")].map((part) => part.textContent).filter(Boolean);
-    const section = yard.page === "bank" ? "Bank" : !shopOpen ? "Motor Spares" : shopOpen === "paint" ? `Respray  ·  ${cash(yard.respray)}` : PARTS[shopOpen] || shopOpen;
+    const wheres = { map: "Map", time: "Time of day", weather: "Weather" };
+    const section = yard.page === "bank" ? "Bank"
+      : yard.page === "where" ? (card ? card.title : "") + (shopOpen ? `  ·  ${wheres[shopOpen] || shopOpen}` : "")
+      : yard.page === "tune" ? (card ? card.title : "") + (!shopOpen ? "" : shopOpen === "paint" ? "  ·  Colour" : `  ·  ${PARTS[shopOpen] || shopOpen}`)
+      : !shopOpen ? "Motor Spares" : shopOpen === "paint" ? `Respray  ·  ${cash(yard.respray)}` : PARTS[shopOpen] || shopOpen;
     setText("yard-name", section);
     detail = words.join("  ·  ");
     setText("yard-detail", detail);
@@ -767,7 +774,21 @@ function swatches(nav, colours, worn) {
 }
 // Another truck is in hand: the page says what it is at once, and the game is told to stand
 // it in the showroom once the hand has stopped moving along the row.
+// A free drive's starting map, down the side: the one in hand in the row of maps, or else
+// the one that is chosen. Its picture is `art/NAME.jpg`, if it has one.
+function yardStart(inHand) {
+  const yard = state.yard || {}, panel = el("yard-start");
+  const maps = yard.page === "where" ? yard.maps || [] : [];
+  const map = maps.find((map) => map.name === inHand) || maps.find((map) => map.name === yard.start_map);
+  panel.hidden = !map || state.screen !== "yard";
+  if (!map) return;
+  art("yard-map", map.name);
+  setText("yard-map-title", map.title);
+  setText("yard-map-kind", map.name === yard.start_map ? map.kind || "" : `${map.kind || ""}  ·  press to start here`);
+  setText("yard-map-about", map.about || "");
+}
 function yardHeld(held) {
+  yardStart(held && held.dataset.map);
   if (!held || held.dataset.pick === undefined || state.screen !== "yard") return;
   const pick = Number(held.dataset.pick);
   // The row slides to put it in the middle.
@@ -812,7 +833,9 @@ function yard() {
   const driven = (yard.trucks || []).find((truck) => truck.driving);
   el("yard").classList.toggle("flat", !yard.showroom);
   const words = {
-    free: ["Free drive", "Choose a truck", "Any of the game's trucks, as it is sold. Nothing is owed, and nothing is kept."],
+    free: ["Free drive", "Choose a truck", "Any of the game's trucks. Next you build it, and choose where and when to drive it. Nothing is owed, and nothing is kept."],
+    tune: ["Free drive", "Build it", "Fit what you like from its kit, choose its colour, or stand it on a monster truck's frame and tyres. Nothing costs anything here."],
+    where: ["Free drive", "Where and when", "The map to start on, the hour, and the weather. It keeps that weather wherever it goes."],
     colour: ["Day one", "Choose its colour", "Any of these, at no cost. A respray later is paid for at Motor Spares."],
     start: ["Day one", "Choose your first truck", `You have bought a block in the high country with a shed on it, and you owe the bank ${cash(yard.block)} for it. You need a truck to work it. These three you can get on finance.`],
     garage: ["Your shed", "Garage", "The trucks you own. One is the one you drive."],
@@ -823,7 +846,7 @@ function yard() {
   }[yard.page] || ["", "", ""];
   setText("yard-kicker", words[0]); setText("yard-title", words[1]); setText("yard-about", words[2]);
   el("yard-facts").innerHTML = `<div><dt>In hand</dt><dd>${cash(yard.money)}</dd></div><div><dt>Owed</dt><dd class="owed">${cash(yard.page === "start" || yard.page === "colour" ? yard.block : yard.debt)}</dd></div>`
-    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div><div><dt>Interest</dt><dd>${yard.interest_year}%</dd></div>`);
+    + (yard.page === "start" || yard.page === "colour" || yard.page === "free" || yard.page === "tune" || yard.page === "where" ? "" : `<div><dt>Credit</dt><dd>${yard.credit}</dd></div><div><dt>Fridays</dt><dd>${cash(yard.repayment)}</dd></div><div><dt>Interest</dt><dd>${yard.interest_year}%</dd></div>`);
   // The strip of trucks.
   const lot = el("yard-lot");
   lot.replaceChildren();
@@ -839,11 +862,70 @@ function yard() {
   // The auto shop: its sections, each a group of parts, the respray and the oil; or, a
   // section opened, what is in it. What is in hand is seen on the truck before it is bought.
   const cart = yard.cart || {};
+  const add = (made, index, only) => { made.dataset.pick = String(index); if (only) made.dataset.only = ""; lot.append(made); };
+  // (The view goes to a part of the truck that is opened; a map or an hour is not one.)
+  const opens = (made, what, index, looks = true) => { made.ask = () => { shopOpen = what; yardBack = index; yardKey = ""; yardPick = 0; yardShown = -1; if (looks) say(`do focus:${what}`); show(); }; return made; };
+  // A free drive's truck is built: its kit's groups, its colour, and whether it is stood on
+  // a monster truck's frame and tyres. Nothing has a price.
+  if (yard.page === "tune") {
+    const groups = (yard.tune && yard.tune.groups) || [];
+    const open = groups.find((group) => group.group === shopOpen);
+    if (open) {
+      const choices = ALWAYS.includes(open.group) ? [] : [{ choice: "none", fitted: open.bare }];
+      choices.push(...open.choices);
+      for (const [index, choice] of choices.entries()) {
+        const made = tile(choice.choice === "none" ? "None" : KINDS[choice.choice] || choice.choice, choice.fitted ? "Fitted" : "", `fit:${open.group}:${choice.choice}`, choice.fitted ? "fitted" : "");
+        made.dataset.try = `${open.group}:${choice.choice}`;
+        add(made, index);
+      }
+    } else if (shopOpen === "paint") {
+      for (const [index, colour] of (yard.colours || []).entries()) {
+        const worn = yard.free_paint === colour.hex;
+        const made = button(`<i style="background:#${colour.hex}"></i><b>${colour.name}</b>`, `paint:${colour.hex}`, worn ? "colour fitted" : "colour");
+        made.dataset.tint = colour.hex;
+        add(made, index);
+      }
+    } else {
+      shopOpen = null;
+      let index = 0;
+      for (const group of groups) {
+        const fitted = group.choices.find((choice) => choice.fitted);
+        add(opens(tile(PARTS[group.group] || group.group, fitted ? KINDS[fitted.choice] || fitted.choice : "None"), group.group, index), index, true);
+        index += 1;
+      }
+      const named = (yard.colours || []).find((colour) => colour.hex === yard.free_paint);
+      add(opens(tile("Colour", named ? named.name : "As it was made"), "paint", index), index, true);
+      add(tile("Monster truck", yard.monster ? "On: on the frame and tyres" : "Off", `monster:${yard.monster ? "off" : "on"}`, yard.monster ? "fitted" : ""), index + 1, true);
+      add(tile("Where and when", "The map, the hour, the weather", "page:where", "counter"), index + 2, true);
+    }
+  }
+  // And where and when it is driven: the map it starts on, the hour, and the weather.
+  if (yard.page === "where") {
+    const maps = yard.maps || [], times = yard.times || [], weathers = yard.weathers || [];
+    const chosen = (is) => (is ? "fitted" : "");
+    if (shopOpen === "map") {
+      for (const [index, map] of maps.entries()) {
+        const made = tile(map.title, map.kind || "", `where:${map.name}`, chosen(map.name === yard.start_map));
+        made.dataset.map = map.name;
+        add(made, index, true);
+      }
+    } else if (shopOpen === "time") {
+      for (const [index, name] of times.entries()) add(tile(name, index === yard.time ? "Chosen" : "", `time:${index}`, chosen(index === yard.time)), index, true);
+    } else if (shopOpen === "weather") {
+      for (const [index, name] of weathers.entries()) add(tile(name, index === yard.weather ? "Chosen" : "", `weather:${index}`, chosen(index === yard.weather)), index, true);
+    } else {
+      shopOpen = null;
+      const map = maps.find((map) => map.name === yard.start_map);
+      add(opens(tile("Map", map ? map.title : ""), "map", 0, false), 0, true);
+      add(opens(tile("Time of day", times[yard.time] || ""), "time", 1, false), 1, true);
+      add(opens(tile("Weather", weathers[yard.weather] || ""), "weather", 2, false), 2, true);
+      add(tile("Damage", yard.damage === false ? "Off: nothing breaks" : "On", `damage:${yard.damage === false ? "on" : "off"}`, yard.damage === false ? "" : "fitted"), 3, true);
+      add(tile("Drive", "Start the free drive", "drive", "counter"), 4, true);
+    }
+  }
   if (yard.page === "shop") {
     const groups = (yard.shop && yard.shop.groups) || [];
     const open = groups.find((group) => group.group === shopOpen);
-    const add = (made, index, only) => { made.dataset.pick = String(index); if (only) made.dataset.only = ""; lot.append(made); };
-    const opens = (made, what, index) => { made.ask = () => { shopOpen = what; yardBack = index; yardKey = ""; yardPick = 0; yardShown = -1; say(`do focus:${what}`); show(); }; return made; };
     if (open) {
       const choices = ALWAYS.includes(open.group) ? [] : [{ choice: "none", fitted: open.bare, note: open.bare ? "As it is" : "Take it off" }];
       choices.push(...open.choices);
@@ -934,21 +1016,23 @@ function yard() {
   tabs.replaceChildren();
   if (yard.page === "free" || yard.page === "dealer") {
     for (const grade of [1, 2, 3, 4, 5]) if (grade !== yard.grade) tabs.append(button(`Grade ${grade}`, `grade:${grade}`));
+    // A free drive's truck can be stood on a monster truck's frame and tyres, whichever it is.
+    if (yard.page === "free") tabs.append(button(yard.monster ? "Monster truck: on" : "Monster truck: off", `monster:${yard.monster ? "off" : "on"}`));
   }
   // The yard sells used trucks and new ones: the one is a step from the other.
   if (yard.page === "used") tabs.append(button("New trucks", "page:dealer"));
   if (yard.page === "dealer") tabs.append(button("Used trucks", "page:used"));
-  if (yard.page === "shop" && shopOpen) {
+  if ((yard.page === "shop" || yard.page === "tune" || yard.page === "where") && shopOpen) {
     // Out of a section of the shop: back to its sections, the truck as it was.
     const out = button("Back", null);
     out.ask = shopLeave;
     tabs.append(out);
   } else {
-    tabs.append(button(yard.from === "title" ? "Back" : yard.page === "garage" ? "Back to the shed" : "Leave", "leave"));
+    tabs.append(button(yard.from === "title" || yard.page === "tune" || yard.page === "where" ? "Back" : yard.page === "garage" ? "Back to the shed" : "Leave", "leave"));
   }
   // What was in hand is in hand still, if it is still there: on a new page, the first thing.
   if (fresh) hold(0, 0);
-  else if (yard.page === "shop" && yardShown === -1) {
+  else if ((yard.page === "shop" || yard.page === "tune" || yard.page === "where") && yardShown === -1) {
     // A section just opened: what is on the truck is what is in hand.
     const worn = Math.max(0, [...lot.children].findIndex((made) => made.classList.contains("fitted")));
     yardPick = yardShown = worn;
@@ -1081,7 +1165,14 @@ function show() {
   const screen = screenShown();
   // Paused in a story, the yard is a button away.
   // Paused: a run is started again; a track is left for the Crossroads.
-  el("pause-restart").hidden = !(state.mode === "practice" || state.mode === "timed");
+  // (A free drive's map is started again too: where it starts, mended.)
+  const timedRun = state.mode === "practice" || state.mode === "timed";
+  const freeDrive = !(state.story && state.story.on);
+  el("pause-restart").hidden = !(timedRun || freeDrive);
+  setText("pause-restart-says", timedRun ? "From the start of this run." : "From the start of this map, with the truck as new.");
+  // And its damage can be switched off, and on again.
+  el("pause-damage").hidden = !freeDrive;
+  setText("pause-damage-says", state.harm === false ? "Off: nothing you hit hurts the truck. Press to turn it on." : "On: what you hit breaks the truck. Press to turn it off.");
   // (Only from a map with no trailhead home: where there is one, it is driven to.)
   el("pause-hub").hidden = state.way_home !== false;
   const kept = !!(state.story && state.story.on);

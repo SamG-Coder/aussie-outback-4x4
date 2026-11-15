@@ -88,7 +88,31 @@ try {
   const title = await until(["title"]);
   step("title", title);
   await picture("1-title");
-  if (!title.failed) {
+  // FREE=TRUCK sets up a free drive instead of a story: that truck, as a monster truck, in
+  // the arena at dusk in a storm, each step a page of the browser.
+  if (process.env.FREE && !title.failed) {
+    const say = (line) => run(`uiHost.say('do ${line}'); 1`);
+    await say("free_page");
+    await sleep(1500);
+    step("which truck", await until(["yard"]));
+    await say("monster:on");
+    await sleep(1500);
+    step("as monsters", await until(["yard"]));
+    await sleep(5000);
+    await picture("f1-trucks");
+    await say(`free:${process.env.FREE}`);
+    await sleep(1500);
+    step("build it", await until(["yard"]));
+    await sleep(5000);
+    await picture("f2-build");
+    for (const line of ["page:where", "where:arena", "time:2", "weather:3"]) { await say(line); await sleep(400); }
+    step("where and when", await told());
+    await say("drive");
+    await sleep(1500);
+    step("driving", await until(["drive"]));
+    await sleep(12000);
+    await picture("f3-arena");
+  } else if (!title.failed) {
     // A new game, in the first place: its first truck is chosen in the showroom.
     await run("uiHost.say('do save_new:1'); 1");
     await sleep(1500);
@@ -115,13 +139,15 @@ try {
     }
   }
   // The town, by its address: the day's used trucks are parked across the road.
-  const town = new URL(base);
-  town.search = "?scene=town&map=town&drive";
-  await send("Page.navigate", { url: town.toString() });
-  const there = await until(["drive"]);
-  step("the town", there);
-  await sleep(10000);
-  await picture("5-town");
+  if (!process.env.FREE) {
+    const town = new URL(base);
+    town.search = "?scene=town&map=town&drive";
+    await send("Page.navigate", { url: town.toString() });
+    const there = await until(["drive"]);
+    step("the town", there);
+    await sleep(10000);
+    await picture("5-town");
+  }
 } finally {
   await send("Browser.close").catch(() => {});
   spawn("taskkill", ["/PID", String(edge.pid), "/T", "/F"], { stdio: "ignore" });

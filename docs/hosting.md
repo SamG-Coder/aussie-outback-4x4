@@ -96,7 +96,8 @@ cd site && ../target/tools/wrangler/node_modules/.bin/wrangler pages deploy --br
 ```
 
 The trucks' packs go up the same way, each to `scenes/trucks/`, whenever they are made again
-(`bake --kit`): the browser version reads them from there, and keeps each for a day.
+(`bake --kit`): the browser version reads them from there, and keeps each for a day. What a
+monster truck stands on is one of them, `monster.truck`.
 
 ```bash
 for pack in ../assets/trucks/*.truck; do

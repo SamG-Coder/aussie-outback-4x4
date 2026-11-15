@@ -13,7 +13,7 @@
 //! where on (`hinge`), and where gold can be put (`hold`). Its **pieces** (written by the
 //! bake, `solstice_game::actor::pieces_file`) say which of its instances draw each piece.
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use solstice_asset::{pack, GameFile, LoadedScene};
 use solstice_game::actor::pieces_file;
 use solstice_game::scene::ActorLine;
@@ -32,6 +32,36 @@ pub struct Hinge {
     pub upright: bool,
     /// How far it opens, in degrees.
     pub opens: f32,
+}
+
+/// A piece that runs between two places, and turns to go on reaching from one to the other
+/// as its axle moves: a suspension link, held on the truck and reaching to the axle; the
+/// body of a shock absorber, the same; its shaft, held on the axle and reaching up to the
+/// truck.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Link {
+    pub piece: String,
+    /// Whether it is the rear axle's, or the front's.
+    pub rear: bool,
+    /// Where it is held, and where it reaches to, in the truck's own space with the truck
+    /// at rest; and of each, whether it is on the axle, and moves with it.
+    pub held: (Vec3, bool),
+    pub reaches: (Vec3, bool),
+}
+
+/// How an axle lies when the wheels at its two ends have moved so far up from where they
+/// rest: from where it lies at rest, in the truck's own space. It goes up with them, and
+/// leans as one is higher than the other.
+pub fn axle_lies(hubs: (Vec3, Vec3), travel: (f32, f32)) -> Mat4 {
+    let middle = (hubs.0 + hubs.1) * 0.5;
+    let across = hubs.1.x - hubs.0.x;
+    if across.abs() < 1.0e-3 {
+        return Mat4::IDENTITY;
+    }
+    let lean = ((travel.1 - travel.0) / across).clamp(-0.9, 0.9).asin();
+    Mat4::from_translation(middle + Vec3::Y * (travel.0 + travel.1) * 0.5)
+        * Mat4::from_rotation_z(lean)
+        * Mat4::from_translation(-middle)
 }
 
 /// A place gold can be put: a seat, a boot, a tray.
@@ -63,6 +93,15 @@ pub struct Kit {
     /// What rides on a door and swings with it, as a spare wheel does: the piece, and the
     /// piece it is on.
     pub rides: Vec<(String, String)>,
+    /// What is on an axle and goes where it goes, up and down and leaning, as its wheels
+    /// move: the piece, and whether the axle is the rear one. And what runs between the
+    /// truck and an axle. A truck whose kit names none is drawn with its axles still.
+    pub axles: Vec<(String, bool)>,
+    pub links: Vec<Link>,
+    /// For a kit that is not a truck's own but what another truck is stood on (a monster
+    /// truck's frame, axles and wheels): the wheelbase it was made at, how high a truck's
+    /// own chassis sits on it, and how long its frame's middle is, in metres.
+    pub fits: Option<[f32; 3]>,
     /// The colour its paint was made in, as light: what a respray is told from.
     pub paint: Option<Vec3>,
 }
@@ -187,6 +226,27 @@ impl Kit {
                 ("rides", [piece, on]) => {
                     kit.rides.push(((*piece).to_owned(), (*on).to_owned()));
                 }
+                ("fits", [wheelbase, sits, middle]) => {
+                    kit.fits = Some([number_of(wheelbase)?, number_of(sits)?, number_of(middle)?]);
+                }
+                ("axle", [piece, end @ ("front" | "rear")]) => {
+                    kit.axles.push(((*piece).to_owned(), *end == "rear"));
+                }
+                (
+                    "link",
+                    [piece, end @ ("front" | "rear"), held @ ("frame" | "axle" | "truck"), ax, ay, az, reaches @ ("frame" | "axle" | "truck"), bx, by, bz],
+                ) => kit.links.push(Link {
+                    piece: (*piece).to_owned(),
+                    rear: *end == "rear",
+                    held: (
+                        Vec3::new(number_of(ax)?, number_of(ay)?, number_of(az)?),
+                        *held == "axle",
+                    ),
+                    reaches: (
+                        Vec3::new(number_of(bx)?, number_of(by)?, number_of(bz)?),
+                        *reaches == "axle",
+                    ),
+                }),
                 _ => return Err(wrong(&format!("`{keyword}` is not a line of a kit"))),
             }
         }
@@ -536,6 +596,425 @@ pub fn assemble(
     build: Option<&str>,
     power: f32,
 ) -> Result<Assembled, String> {
+    assemble_but(file, build, power, &[])
+}
+
+/// What a truck stood on a monster kit leaves behind: its own axles, springs and wheels.
+const UNDER: [&str; 4] = ["axle_", "susp_", "tyre_", "rim_"];
+
+/// The pack of what a monster truck stands on, by its name (`tools/blender/monster/build.py`).
+pub const MONSTER: &str = "monster";
+
+/// A build that is asked for with this before it is of a monster truck: `monster:stock` is
+/// the truck as it is sold, stood on the monster kit.
+pub const MONSTER_BUILD: &str = "monster:";
+
+/// Puts a truck together, as [`assemble`] does or, for a build that begins
+/// [`MONSTER_BUILD`], as [`assemble_monster`] does. `pack` gives a truck's pack by its
+/// name, all of it.
+pub fn put_together(
+    pack: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    truck: &str,
+    build: Option<&str>,
+    power: f32,
+) -> Result<Assembled, String> {
+    let named = |error: String| format!("{truck}: {error}");
+    let mut own = std::io::Cursor::new(pack(truck)?);
+    match build.and_then(|build| build.strip_prefix(MONSTER_BUILD)) {
+        Some(build) => {
+            let mut under = std::io::Cursor::new(pack(MONSTER)?);
+            assemble_monster(&mut own, &mut under, Some(build), power).map_err(named)
+        }
+        None => assemble(&mut own, build, power).map_err(named),
+    }
+}
+
+/// A number said in a line of a truck's numbers as `KEY=NUMBER` (or `KEY=NUMBER,NUMBER`:
+/// the first).
+fn said(line: &str, key: &str) -> Option<f32> {
+    let words = line.split_whitespace();
+    let found = words
+        .filter_map(|word| word.split_once('='))
+        .find(|(named, _)| *named == key);
+    found.and_then(|(_, value)| value.split(',').next()?.parse().ok())
+}
+
+/// A line of numbers with one of them raised: the word `at` words along is that much more.
+fn raised(line: &str, at: usize, by: f32) -> String {
+    let words = line.split_whitespace().enumerate();
+    let each = words.map(|(index, word)| match word.parse::<f32>() {
+        Ok(number) if index == at => format!("{:.3}", number + by),
+        _ => word.to_owned(),
+    });
+    each.collect::<Vec<_>>().join(" ")
+}
+
+/// Where a piece that runs from `held` to `reaches` is put so that it runs from `held_now`
+/// to `reaches_now`: moved, turned, and drawn out along its length to reach.
+fn refit(held: Vec3, reaches: Vec3, held_now: Vec3, reaches_now: Vec3) -> Mat4 {
+    let (was, now) = (reaches - held, reaches_now - held_now);
+    let (Some(along), Some(towards)) = (was.try_normalize(), now.try_normalize()) else {
+        return Mat4::from_translation(held_now - held);
+    };
+    let grow = now.length() / was.length() - 1.0;
+    let drawn = glam::Mat3::from_cols(
+        Vec3::X + along * (along.x * grow),
+        Vec3::Y + along * (along.y * grow),
+        Vec3::Z + along * (along.z * grow),
+    );
+    Mat4::from_translation(held_now)
+        * Mat4::from_quat(Quat::from_rotation_arc(along, towards))
+        * Mat4::from_mat3(drawn)
+        * Mat4::from_translation(-held)
+}
+
+/// Puts a monster truck together: a truck from its pack (`file`), as [`assemble`] would
+/// but for its axles, its springs and its wheels, stood on the monster kit from its pack
+/// (`under`). Every other piece of the truck is kept, its own chassis among them and
+/// whatever of its kit its build has fitted, and lifted so that its chassis sits on the
+/// kit's frame. The frame's ends go where the truck's axles are, and its middle and its
+/// driveshafts are drawn out to reach them: so one kit fits any truck. The truck's numbers
+/// are the kit's, with the truck's wheelbase and body and a weight and springs for it.
+///
+/// What comes of it is a truck like any other: one scene, and the files that say what it
+/// is, by the truck's own names.
+pub fn assemble_monster(
+    file: &mut (impl std::io::Read + std::io::Seek),
+    under: &mut (impl std::io::Read + std::io::Seek),
+    build: Option<&str>,
+    power: f32,
+) -> Result<Assembled, String> {
+    let mut truck = assemble_but(file, build, power, &UNDER)?;
+    let kit = assemble_but(under, Some("stock"), 1.0, &[])?;
+    let text = |files: &[GameFile], ending: &str| {
+        let found = files.iter().find(|file| file.name.ends_with(ending));
+        found
+            .map(|file| file.text.clone())
+            .ok_or_else(|| format!("it has no {ending} file"))
+    };
+    let on = Kit::parse(&text(&kit.files, ".kit")?)?;
+    let [made_at, sits, middle] = on
+        .fits
+        .ok_or("the kit it is to stand on does not say what it fits")?;
+    let (numbers, under_numbers) = (
+        text(&truck.files, ".vehicle")?,
+        text(&kit.files, ".vehicle")?,
+    );
+    let line_of = |text: &str, first: &str| {
+        let lines = text.lines();
+        let mut found = lines.filter(|line| line.split_whitespace().next() == Some(first));
+        found.next().map(str::to_owned)
+    };
+    let axle_at = |text: &str, end: &str| {
+        let lines = text
+            .lines()
+            .filter(|line| line.split_whitespace().next() == Some(end));
+        lines.filter_map(|line| said(line, "at")).next()
+    };
+    let (Some(front), Some(rear)) = (axle_at(&numbers, "front"), axle_at(&numbers, "rear")) else {
+        return Err("its numbers do not say where its axles are".to_owned());
+    };
+    let (Some(front_made), Some(rear_made)) = (
+        axle_at(&under_numbers, "front"),
+        axle_at(&under_numbers, "rear"),
+    ) else {
+        return Err("the kit's numbers do not say where its axles are".to_owned());
+    };
+    let _ = made_at;
+    // How far out each end of the kit goes, to be where the truck's axle is: -z is ahead.
+    let shift = |rear_end: bool| {
+        if rear_end {
+            Vec3::Z * (rear - rear_made)
+        } else {
+            Vec3::NEG_Z * (front - front_made)
+        }
+    };
+    // Its own chassis sits on the frame: it is lifted by as much as that takes.
+    let boxes = read_boxes(&text(&truck.files, ".boxes").unwrap_or_default());
+    let chassis = boxes.iter().find(|(name, ..)| name == "chassis");
+    let low = match chassis {
+        Some((_, low, _)) => low.y,
+        None => {
+            let each = boxes.iter().filter(|(name, ..)| !name.starts_with("acc_"));
+            each.map(|(_, low, _)| low.y).fold(f32::MAX, f32::min)
+        }
+    };
+    if low == f32::MAX {
+        return Err(
+            "it has not been measured: its pack has no pieces to stand on the kit".to_owned(),
+        );
+    }
+    let lift = sits - low;
+    let up = Mat4::from_translation(Vec3::Y * lift);
+    for instance in &mut truck.scene.scene.instances {
+        instance.transform = up * instance.transform;
+    }
+
+    // ---- The kit goes under it, each piece of it where this truck has it.
+    let pieces = Pieces::parse(&text(&kit.files, ".pieces")?)?;
+    let joined = truck
+        .scene
+        .join(kit.scene)
+        .map_err(|error| error.to_string())?;
+    // Which end of the truck a piece is at, by the end of its name: `_FL`, `_front`, `_R`.
+    let end_of = |name: &str| {
+        let ending = name.rsplit('_').next().unwrap_or("");
+        match ending {
+            "front" => Some(false),
+            "rear" => Some(true),
+            _ if ending.starts_with('F') => Some(false),
+            _ if ending.starts_with('R') => Some(true),
+            _ => None,
+        }
+    };
+    let drawn_out = ((middle + (front - front_made) + (rear - rear_made)) / middle).max(0.05);
+    // The middle of the frame is not in the middle of a truck whose axles moved unevenly.
+    let centre = Vec3::Z * ((rear - rear_made) - (front - front_made)) * 0.5;
+    let mut placed: Vec<(String, Mat4)> = pieces
+        .0
+        .iter()
+        .map(|(name, ..)| {
+            let place = match end_of(name) {
+                Some(rear_end) => Mat4::from_translation(shift(rear_end)),
+                None if name.ends_with("_M") => {
+                    Mat4::from_translation(centre)
+                        * Mat4::from_scale(Vec3::new(1.0, 1.0, drawn_out))
+                }
+                None => Mat4::from_translation(centre),
+            };
+            (name.clone(), place)
+        })
+        .collect();
+    // What runs between two places goes on reaching both: a driveshaft is held in the
+    // middle of the truck and reaches an axle that has moved.
+    let mut links = Vec::new();
+    for link in &on.links {
+        links.push(link.clone());
+    }
+    let kit_text = text(&kit.files, ".kit")?;
+    let mut link_lines = Vec::new();
+    for line in kit_text.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let ["link", piece, end, held_on, ax, ay, az, reaches_on, bx, by, bz] = words[..] else {
+            continue;
+        };
+        let point = |x: &str, y: &str, z: &str| {
+            let number = |word: &str| {
+                word.parse::<f32>()
+                    .map_err(|_| format!("`{word}` is not a number"))
+            };
+            Ok::<Vec3, String>(Vec3::new(number(x)?, number(y)?, number(z)?))
+        };
+        let (held, reaches) = (point(ax, ay, az)?, point(bx, by, bz)?);
+        let moved = |at: Vec3, on: &str| {
+            if on == "truck" {
+                at + centre
+            } else {
+                at + shift(end == "rear")
+            }
+        };
+        let (held_now, reaches_now) = (moved(held, held_on), moved(reaches, reaches_on));
+        if let Some((_, place)) = placed.iter_mut().find(|(name, _)| name == piece) {
+            *place = refit(held, reaches, held_now, reaches_now);
+        }
+        let word = |on: &str| if on == "axle" { "axle" } else { "frame" };
+        let at = |at: Vec3| format!("{:.3} {:.3} {:.3}", at.x, at.y, at.z);
+        link_lines.push(format!(
+            "link {piece} {end} {} {} {} {}",
+            word(held_on),
+            at(held_now),
+            word(reaches_on),
+            at(reaches_now)
+        ));
+    }
+    let _ = links;
+    for (name, first, count) in &pieces.0 {
+        let Some((_, place)) = placed.iter().find(|(named, _)| named == name) else {
+            continue;
+        };
+        for id in joined.instances + first..joined.instances + first + count {
+            let instance = &mut truck.scene.scene.instances[id as usize];
+            instance.transform = *place * instance.transform;
+        }
+    }
+
+    // ---- Its files: the truck's own, with what the kit changes of each.
+    let left = |piece: &str| UNDER.iter().any(|start| piece.starts_with(start));
+    let mut kit_lines = Vec::new();
+    for line in text(&truck.files, ".kit")?.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        match words[..] {
+            ["base", piece] if left(piece) => {}
+            ["choice" | "stock" | "showroom", "suspension" | "tyres" | "rims", ..] => {}
+            ["lift", ..] => {}
+            // Its doors hang, and its gold is put, as much higher as it stands.
+            ["hinge", ..] => kit_lines.push(raised(line, 3, lift)),
+            ["hold", ..] => kit_lines.push(raised(line, 7, lift)),
+            _ => kit_lines.push(line.to_owned()),
+        }
+    }
+    for line in kit_text.lines() {
+        let first = line.split_whitespace().next().unwrap_or("#");
+        if !first.starts_with('#') && !matches!(first, "paint" | "fits" | "link") {
+            kit_lines.push(line.to_owned());
+        }
+    }
+    kit_lines.extend(link_lines);
+
+    let mut piece_lines = text(&truck.files, ".pieces")?;
+    for (name, first, count) in &pieces.0 {
+        piece_lines.push_str(&format!("{name} {} {count}\n", joined.instances + first));
+    }
+    let mut box_lines = String::new();
+    for (name, low, high) in &boxes {
+        box_lines.push_str(&box_line(
+            name,
+            (*low + Vec3::Y * lift, *high + Vec3::Y * lift),
+        ));
+    }
+    for (name, low, high) in read_boxes(&text(&kit.files, ".boxes").unwrap_or_default()) {
+        let by = end_of(&name).map_or(centre, shift);
+        box_lines.push_str(&box_line(&name, (low + by, high + by)));
+    }
+    // What it wears: what it wore, on the kit's springs, tyres and rims.
+    let mut wears = Build::parse(&text(&truck.files, ".build")?)?;
+    for group in ["suspension", "tyres", "rims"] {
+        wears.set(group, on.stock.fitted(group));
+    }
+
+    // Its numbers: the kit's, with this truck on it.
+    let mass = |text: &str| {
+        line_of(text, "mass").and_then(|line| line.split_whitespace().nth(1)?.parse::<f32>().ok())
+    };
+    let (Some(own_mass), Some(kit_mass)) = (mass(&numbers), mass(&under_numbers)) else {
+        return Err("its numbers do not say what it weighs".to_owned());
+    };
+    // The kit weighs what it weighs, and the truck on it its own weight less the axles,
+    // the springs and the wheels it left behind.
+    let share = (2600.0 + 0.65 * own_mass) / kit_mass;
+    let longer = ((front + rear) / (front_made + rear_made)).powi(2);
+    let scaled = |line: &str, keys: &[&str], by: f32| {
+        let words = line.split_whitespace();
+        let each = words.map(|word| match word.split_once('=') {
+            Some((key, value)) if keys.contains(&key) => {
+                let values = value.split(',').map(|value| match value.parse::<f32>() {
+                    Ok(number) => format!("{:.0}", number * by),
+                    Err(_) => value.to_owned(),
+                });
+                format!("{key}={}", values.collect::<Vec<_>>().join(","))
+            }
+            _ => word.to_owned(),
+        });
+        each.collect::<Vec<_>>().join(" ")
+    };
+    let at_axle = |line: &str, at: f32| {
+        let words = line.split_whitespace();
+        let each = words.map(|word| match word.split_once('=') {
+            Some(("at", _)) => format!("at={at:.3}"),
+            _ => word.to_owned(),
+        });
+        each.collect::<Vec<_>>().join(" ")
+    };
+    let mut vehicle = String::new();
+    for line in under_numbers.lines() {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        let written = match words[..] {
+            ["mass", _] => format!("mass {:.0}", kit_mass * share),
+            ["inertia", pitch, yaw, roll] => {
+                let number = |word: &str, by: f32| word.parse::<f32>().map_or(0.0, |n| n * by);
+                format!(
+                    "inertia {:.0} {:.0} {:.0}",
+                    number(pitch, share * longer),
+                    number(yaw, share * longer),
+                    number(roll, share)
+                )
+            }
+            // Its body: the truck's own, as much higher as it stands, down to the kit's belly.
+            ["body", _, high, _, "at", _, y, _] => {
+                let belly =
+                    y.parse::<f32>().unwrap_or(2.0) - high.parse::<f32>().unwrap_or(2.0) * 0.5;
+                let own: Vec<f32> = line_numbers(&line_of(&numbers, "body").unwrap_or_default());
+                match own[..] {
+                    [wide, tall, long, _, y, z] => {
+                        let top = y + tall * 0.5 + lift;
+                        format!(
+                            "body {wide:.2} {:.2} {long:.2} at 0 {:.2} {z:.2}",
+                            top - belly,
+                            (top + belly) * 0.5
+                        )
+                    }
+                    _ => line.to_owned(),
+                }
+            }
+            ["driver", ..] => line_of(&numbers, "driver").unwrap_or_else(|| line.to_owned()),
+            ["front", ..] => scaled(
+                &at_axle(line, front),
+                &["spring", "bump", "rebound", "bar", "brake"],
+                share,
+            ),
+            ["rear", ..] => scaled(
+                &at_axle(line, rear),
+                &["spring", "bump", "rebound", "bar", "brake"],
+                share,
+            ),
+            ["tyre", ..] => scaled(line, &["load"], share),
+            _ => line.to_owned(),
+        };
+        vehicle.push_str(&written);
+        vehicle.push('\n');
+    }
+    // Its tray, and the places in its cab that gold can be put, are as much higher.
+    for own in numbers.lines() {
+        match own.split_whitespace().next() {
+            Some("tray" | "hold") => {
+                vehicle.push_str(&raised(own, 6, lift));
+                vehicle.push('\n');
+            }
+            _ => {}
+        }
+    }
+
+    let actor = truck.actor.clone();
+    for file in &mut truck.files {
+        if file.name.ends_with(".kit") {
+            file.text = kit_lines.join("\n") + "\n";
+        } else if file.name.ends_with(".vehicle") {
+            file.text.clone_from(&vehicle);
+        } else if file.name.ends_with(".pieces") {
+            file.text.clone_from(&piece_lines);
+        } else if file.name.ends_with(".boxes") {
+            file.text.clone_from(&box_lines);
+        } else if file.name.ends_with(".build") {
+            file.text = wears.to_text();
+        } else if file.name == actor {
+            // Whoever drives it sits as much higher.
+            let lines = file
+                .text
+                .lines()
+                .map(|line| match line.split_whitespace().next() {
+                    Some("camera") => raised(line, 2, lift),
+                    _ => line.to_owned(),
+                });
+            file.text = lines.collect::<Vec<_>>().join("\n") + "\n";
+        }
+    }
+    Ok(truck)
+}
+
+/// The numbers in a line, in their order: words that are not numbers are passed over.
+fn line_numbers(line: &str) -> Vec<f32> {
+    let words = line.split_whitespace();
+    words.filter_map(|word| word.parse().ok()).collect()
+}
+
+/// As [`assemble`], but for the pieces whose names begin with any of `leave`, which are
+/// left out as if the truck had none of them.
+fn assemble_but(
+    file: &mut (impl std::io::Read + std::io::Seek),
+    build: Option<&str>,
+    power: f32,
+    leave: &[&str],
+) -> Result<Assembled, String> {
     let said = |error: std::io::Error| error.to_string();
     let list = pack::read_list(file).map_err(said)?;
     let mut texts = Vec::new();
@@ -573,6 +1052,9 @@ pub fn assemble(
     let mut boxes = String::new();
     for entry in list.iter().filter(|entry| entry.kind == "piece") {
         if !all && !shown.contains(entry.name.as_str()) {
+            continue;
+        }
+        if leave.iter().any(|start| entry.name.starts_with(start)) {
             continue;
         }
         let bytes = pack::read(file, entry).map_err(said)?;
@@ -694,6 +1176,10 @@ pub struct Fitted {
     open: Vec<f32>,
     swung: Vec<f32>,
     aim: Vec<f32>,
+    /// How each axle is drawn to lie, the front and the rear, and how each of the kit's
+    /// links is: from where they are at rest.
+    rode: [Mat4; 2],
+    linked: Vec<Mat4>,
     /// The box round each piece, in the truck's own space, where it is known
     /// ([`boxes_file`], [`Fitted::measure`]).
     boxes: Vec<(String, Vec3, Vec3)>,
@@ -709,6 +1195,8 @@ impl Fitted {
             open: vec![0.0; kit.hinges.len()],
             swung: vec![0.0; kit.hinges.len()],
             aim: vec![0.0; kit.hinges.len()],
+            rode: [Mat4::IDENTITY; 2],
+            linked: vec![Mat4::IDENTITY; kit.links.len()],
             kit,
             pieces,
             first,
@@ -792,6 +1280,74 @@ impl Fitted {
             .iter()
             .position(|hinge| hinge.piece == piece);
         found.map(|index| self.open[index])
+    }
+
+    /// What has moved with the axles since this was last asked: each instance that moved,
+    /// and what to move it by, in the truck's own space. `hubs` is where the middle of each
+    /// wheel now is, as its suspension has it: front left, front right, rear left, rear
+    /// right; at rest each is its `radius` above the truck's origin.
+    ///
+    /// What is on an axle goes up and down with its two wheels and leans as they differ.
+    /// What runs between the truck and an axle stays held where it is held and turns to go
+    /// on reaching to where it reaches. Nothing, for a truck whose kit names neither.
+    pub fn rides(&mut self, hubs: [Vec3; 4], radius: [f32; 4]) -> Vec<(u32, Mat4)> {
+        if self.kit.axles.is_empty() && self.kit.links.is_empty() {
+            return Vec::new();
+        }
+        let lies = [0, 2].map(|left| {
+            let rest = |wheel: usize| Vec3::new(hubs[wheel].x, radius[wheel], hubs[wheel].z);
+            let travel = |wheel: usize| hubs[wheel].y - radius[wheel];
+            axle_lies(
+                (rest(left), rest(left + 1)),
+                (travel(left), travel(left + 1)),
+            )
+        });
+        let mut moves = Vec::new();
+        let first = self.first;
+        let pieces = &self.pieces.0;
+        let mut moved = |piece: &str, by: Mat4| {
+            for (name, start, count) in pieces {
+                if name == piece {
+                    moves.extend((*start..start + count).map(|i| (first + i, by)));
+                }
+            }
+        };
+        for (end, lie) in lies.iter().enumerate() {
+            if lie.abs_diff_eq(self.rode[end], 1.0e-5) {
+                continue;
+            }
+            let by = *lie * self.rode[end].inverse();
+            for (piece, rear) in &self.kit.axles {
+                if usize::from(*rear) == end {
+                    moved(piece, by);
+                }
+            }
+        }
+        for (link, was) in self.kit.links.iter().zip(&mut self.linked) {
+            let axle = lies[usize::from(link.rear)];
+            let now = |(at, on_axle): (Vec3, bool)| {
+                if on_axle {
+                    axle.transform_point3(at)
+                } else {
+                    at
+                }
+            };
+            let (held, reaches) = (now(link.held), now(link.reaches));
+            let rested = (link.reaches.0 - link.held.0).normalize_or_zero();
+            let turned = (reaches - held).normalize_or_zero();
+            if rested == Vec3::ZERO || turned == Vec3::ZERO {
+                continue;
+            }
+            let lie = Mat4::from_translation(held)
+                * Mat4::from_quat(Quat::from_rotation_arc(rested, turned))
+                * Mat4::from_translation(-link.held.0);
+            if !lie.abs_diff_eq(*was, 1.0e-5) {
+                moved(&link.piece, lie * was.inverse());
+                *was = lie;
+            }
+        }
+        self.rode = lies;
+        moves
     }
 
     /// What has swung since this was last asked: each instance that moved, and what to move
@@ -893,6 +1449,9 @@ impl Fitted {
     /// Fits a build: `stock` or `showroom` for what the kit calls those, or choices to put
     /// over what it wears as it is sold.
     pub fn fit(&mut self, text: &str) -> Result<(), String> {
+        // (A monster truck's build is said with `monster:` before it: it is one already,
+        // and what it wears on its frame is the rest.)
+        let text = text.strip_prefix(MONSTER_BUILD).unwrap_or(text);
         let build = self.kit.built(text)?;
         self.changed |= build != self.build;
         self.build = build;
@@ -1139,5 +1698,117 @@ torque 1000 100
         assert!(fitted.fit("tyres=slick").is_err());
         fitted.fit("showroom").unwrap();
         assert_eq!(fitted.build().fitted("bullbar"), Some("plate"));
+    }
+
+    #[test]
+    fn an_axle_rides_with_its_wheels_and_its_links_go_on_reaching_it() {
+        let kit = Kit::parse(
+            "base cab
+base axle_front
+base link
+base rod
+             axle axle_front front
+             link link front frame -0.5 1 -1 axle -0.8 0.8 -2
+             link rod front axle -0.9 0.9 -2 frame -0.7 2.2 -2
+",
+        )
+        .unwrap();
+        assert_eq!(kit.axles, [("axle_front".to_owned(), false)]);
+        assert_eq!(kit.links.len(), 2);
+        assert!(Kit::parse(
+            "base cab
+axle axle_front middle
+"
+        )
+        .is_err());
+        let pieces = Pieces::parse(
+            "cab 0 1
+axle_front 1 1
+link 2 1
+rod 3 1
+",
+        )
+        .unwrap();
+        let mut fitted = Fitted::new(kit, pieces, 10);
+        // Its wheels, each 0.84 m in radius and 2.8 m apart: at rest nothing moves.
+        let radius = [0.84; 4];
+        let rest = [
+            Vec3::new(-1.4, 0.84, -2.0),
+            Vec3::new(1.4, 0.84, -2.0),
+            Vec3::new(-1.4, 0.84, 2.0),
+            Vec3::new(1.4, 0.84, 2.0),
+        ];
+        assert!(fitted.rides(rest, radius).is_empty());
+        // The left front wheel goes up 0.4 m: the axle's left end goes up with it, its
+        // right end stays, and its middle is half way.
+        let mut up = rest;
+        up[0].y += 0.4;
+        let moves = fitted.rides(up, radius);
+        let by = |instance: u32| moves.iter().find(|(id, _)| *id == instance).unwrap().1;
+        let axle = by(11);
+        assert!((axle.transform_point3(rest[0]) - up[0]).length() < 0.03);
+        assert!((axle.transform_point3(rest[1]) - rest[1]).length() < 0.03);
+        assert!((axle.transform_point3(Vec3::new(0.0, 0.84, -2.0)).y - 1.04).abs() < 1.0e-3);
+        // A link stays held on the frame, and still points at where it is held on the axle.
+        let (held, reached) = (Vec3::new(-0.5, 1.0, -1.0), Vec3::new(-0.8, 0.8, -2.0));
+        let link = by(12);
+        assert!((link.transform_point3(held) - held).length() < 1.0e-4);
+        let now = axle.transform_point3(reached) - held;
+        let drawn = link.transform_point3(reached) - held;
+        assert!(drawn.normalize().dot(now.normalize()) > 0.9999);
+        // A rod is held on the axle, and goes with it.
+        let foot = Vec3::new(-0.9, 0.9, -2.0);
+        assert!((by(13).transform_point3(foot) - axle.transform_point3(foot)).length() < 1.0e-4);
+        // Asked again with nothing changed, nothing moves; back at rest, it all goes back.
+        assert!(fitted.rides(up, radius).is_empty());
+        let back = fitted.rides(rest, radius);
+        let undone = back.iter().find(|(id, _)| *id == 11).unwrap().1 * axle;
+        assert!(undone.abs_diff_eq(Mat4::IDENTITY, 1.0e-4));
+    }
+
+    #[test]
+    fn what_runs_between_two_places_is_refitted_to_reach_them_where_they_now_are() {
+        // Moved bodily, it is only moved.
+        let (held, reaches) = (Vec3::new(0.25, 1.08, -0.62), Vec3::new(0.25, 0.84, -1.5));
+        let by = Vec3::new(0.0, 0.0, -0.4);
+        let moved = refit(held, reaches, held + by, reaches + by);
+        assert!(moved.abs_diff_eq(Mat4::from_translation(by), 1.0e-5));
+        // Held where it was and reaching further, it is turned and drawn out: both its ends
+        // are where they are to be, and it is no fatter.
+        let further = reaches + by;
+        let drawn = refit(held, reaches, held, further);
+        assert!((drawn.transform_point3(held) - held).length() < 1.0e-4);
+        assert!((drawn.transform_point3(reaches) - further).length() < 1.0e-4);
+        let across = Vec3::X * 0.045;
+        assert!(((drawn.transform_point3(held + across) - held).length() - 0.045).abs() < 1.0e-4);
+        // A line of a truck's numbers, read and raised.
+        assert_eq!(
+            said("front at=1.485 track=1.56 travel=0.11,0.10", "at"),
+            Some(1.485)
+        );
+        assert_eq!(
+            said("front at=1.485 travel=0.11,0.10", "travel"),
+            Some(0.11)
+        );
+        assert_eq!(raised("camera 0 1.54 0", 2, 1.2), "camera 0 2.740 0");
+        assert_eq!(
+            raised(
+                "hold seat 0.9 0.4 0.4 at -0.5 0.86 -0.2 door door_FL",
+                7,
+                1.0
+            ),
+            "hold seat 0.9 0.4 0.4 at -0.5 1.860 -0.2 door door_FL"
+        );
+        // A kit says what it fits, and a link may be held in the middle of the truck.
+        let kit = Kit::parse(
+            "base chassis_frame_M
+fits 3.69 1.745 1.69
+             link susp_drive_F front truck 0.25 1.08 -0.62 axle 0.25 0.84 -1.5
+",
+        )
+        .unwrap();
+        assert_eq!(kit.fits, Some([3.69, 1.745, 1.69]));
+        assert_eq!(kit.links[0].held, (Vec3::new(0.25, 1.08, -0.62), false));
+        assert!(kit.links[0].reaches.1);
     }
 }

@@ -100,6 +100,8 @@ pub struct Wrecks {
     /// Damage to put on the truck once its pieces are listed: as words say it, and blows.
     staged: Option<String>,
     struck: Vec<Hit>,
+    /// Whether blows do nothing to the truck: a free drive may be driven so.
+    unhurt: bool,
 }
 
 impl Wrecks {
@@ -143,6 +145,7 @@ impl Wrecks {
             last: (String::new(), f32::MAX),
             staged: None,
             struck: Vec::new(),
+            unhurt: false,
         }
     }
 
@@ -166,6 +169,15 @@ impl Wrecks {
     /// Hits the truck, as the game would have measured it: the next frame.
     pub fn strike(&mut self, hit: Hit) {
         self.struck.push(hit);
+    }
+
+    /// Says whether blows hurt the truck. One that is not to be hurt is mended as it is
+    /// said, and what it hits after does nothing to it.
+    pub fn set_harm(&mut self, harm: bool) {
+        if !harm && !self.unhurt {
+            self.repair();
+        }
+        self.unhurt = !harm;
     }
 
     /// Mends every piece: what hangs is straight, and what fell off is back on.
@@ -322,7 +334,11 @@ impl Wrecks {
             }
         }
         let hits = blows.iter().map(Hit::from).chain(self.struck.drain(..));
-        for hit in hits.collect::<Vec<_>>() {
+        let mut hits: Vec<Hit> = hits.collect();
+        if self.unhurt {
+            hits.clear();
+        }
+        for hit in hits {
             let before = self.damage.hurts.len();
             let changes = self.damage.strike(&self.table, &self.placed, &hit);
             // A piece's stage may be as it was and its dent deeper: it is drawn again.

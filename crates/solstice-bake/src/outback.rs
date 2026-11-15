@@ -13,6 +13,7 @@
 //! the track's line, for timing a lap of it and for putting a car back on it; and walls at
 //! the square's edge. So what is drawn and what is driven on agree.
 
+pub mod arena;
 mod chart;
 mod draw;
 mod flora;

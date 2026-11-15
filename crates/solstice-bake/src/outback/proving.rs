@@ -252,7 +252,7 @@ impl Ground {
 /// A grid of points from `low` to `high`, `spacing` apart, as a mesh: each point's height
 /// and facing from `height`, and its two shares from `shares`. Squares `skip` says to
 /// leave out are left out.
-fn grid(
+pub(super) fn grid(
     low: Vec2,
     high: Vec2,
     spacing: f32,

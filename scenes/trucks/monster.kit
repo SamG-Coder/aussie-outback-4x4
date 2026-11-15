@@ -1,0 +1,47 @@
+# What a monster truck stands on. Written by tools/blender/monster/build.py.
+base axle_front
+base axle_rear
+base chassis_engine
+base chassis_frame_F
+base chassis_frame_M
+base chassis_frame_R
+choice suspension stock susp_link_low_FL susp_link_top_FL susp_shock_FL1 susp_rod_FL1 susp_shock_FL2 susp_rod_FL2 susp_link_low_FR susp_link_top_FR susp_shock_FR1 susp_rod_FR1 susp_shock_FR2 susp_rod_FR2 susp_drive_F susp_link_low_RL susp_link_top_RL susp_shock_RL1 susp_rod_RL1 susp_shock_RL2 susp_rod_RL2 susp_link_low_RR susp_link_top_RR susp_shock_RR1 susp_rod_RR1 susp_shock_RR2 susp_rod_RR2 susp_drive_R
+choice tyres mud tyre_mud_FL tyre_mud_FR tyre_mud_RL tyre_mud_RR
+choice rims beadlock rim_beadlock_FL rim_beadlock_FR rim_beadlock_RL rim_beadlock_RR
+stock suspension stock
+stock tyres mud
+stock rims beadlock
+showroom suspension stock
+showroom tyres mud
+showroom rims beadlock
+lift stock 0
+paint 0.0300 0.3000 0.0850
+fits 3.69 1.745 1.690
+axle axle_front front
+axle axle_rear rear
+link susp_link_low_FL front frame -0.480 0.970 -0.845 axle -0.780 0.770 -1.845
+link susp_link_top_FL front frame -0.300 1.420 -0.795 axle -0.340 1.110 -1.845
+link susp_shock_FL1 front frame -0.720 2.160 -1.685 axle -0.950 0.900 -1.685
+link susp_rod_FL1 front axle -0.950 0.900 -1.685 frame -0.720 2.160 -1.685
+link susp_shock_FL2 front frame -0.720 2.160 -2.005 axle -0.950 0.900 -2.005
+link susp_rod_FL2 front axle -0.950 0.900 -2.005 frame -0.720 2.160 -2.005
+link susp_link_low_FR front frame 0.480 0.970 -0.845 axle 0.780 0.770 -1.845
+link susp_link_top_FR front frame 0.300 1.420 -0.795 axle 0.340 1.110 -1.845
+link susp_shock_FR1 front frame 0.720 2.160 -1.685 axle 0.950 0.900 -1.685
+link susp_rod_FR1 front axle 0.950 0.900 -1.685 frame 0.720 2.160 -1.685
+link susp_shock_FR2 front frame 0.720 2.160 -2.005 axle 0.950 0.900 -2.005
+link susp_rod_FR2 front axle 0.950 0.900 -2.005 frame 0.720 2.160 -2.005
+link susp_drive_F front truck 0.250 1.080 -0.620 axle 0.250 0.840 -1.515
+link susp_link_low_RL rear frame -0.480 0.970 0.845 axle -0.780 0.770 1.845
+link susp_link_top_RL rear frame -0.300 1.420 0.795 axle -0.340 1.110 1.845
+link susp_shock_RL1 rear frame -0.720 2.160 2.005 axle -0.950 0.900 2.005
+link susp_rod_RL1 rear axle -0.950 0.900 2.005 frame -0.720 2.160 2.005
+link susp_shock_RL2 rear frame -0.720 2.160 1.685 axle -0.950 0.900 1.685
+link susp_rod_RL2 rear axle -0.950 0.900 1.685 frame -0.720 2.160 1.685
+link susp_link_low_RR rear frame 0.480 0.970 0.845 axle 0.780 0.770 1.845
+link susp_link_top_RR rear frame 0.300 1.420 0.795 axle 0.340 1.110 1.845
+link susp_shock_RR1 rear frame 0.720 2.160 2.005 axle 0.950 0.900 2.005
+link susp_rod_RR1 rear axle 0.950 0.900 2.005 frame 0.720 2.160 2.005
+link susp_shock_RR2 rear frame 0.720 2.160 1.685 axle 0.950 0.900 1.685
+link susp_rod_RR2 rear axle 0.950 0.900 1.685 frame 0.720 2.160 1.685
+link susp_drive_R rear truck -0.250 1.080 -0.300 axle -0.250 0.840 1.515

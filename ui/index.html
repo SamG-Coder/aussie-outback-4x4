@@ -234,7 +234,8 @@
     </header>
     <nav class="menu main" data-menu="pause">
       <button data-do="resume"><span>Resume</span><small>Back to the driving.</small></button>
-      <button data-do="restart" id="pause-restart"><span>Restart</span><small>From the start of this run.</small></button>
+      <button data-do="restart" id="pause-restart"><span>Restart</span><small id="pause-restart-says">From the start of this run.</small></button>
+      <button data-do="damage" id="pause-damage" hidden><span>Damage</span><small id="pause-damage-says"></small></button>
       <button data-open="map" id="pause-chart"><span>Map</span><small>Where you are, and the way to everything.</small></button>
       <button data-do="hub" id="pause-hub"><span>Back to the Crossroads</span><small>Leave this track and go home.</small></button>
       <button data-open="controls"><span>Options</span><small>Controls, sound and display.</small></button>
@@ -350,6 +351,15 @@
     </div>
     <dl class="show-money" id="yard-facts"></dl>
   </header>
+  <!-- A free drive: the map it starts on, with its picture. It is chosen in the row of maps
+       under the trucks. -->
+  <aside class="show-start" id="yard-start" hidden>
+    <p class="kicker">Starts at</p>
+    <img id="yard-map" alt="">
+    <b id="yard-map-title"></b>
+    <small id="yard-map-kind"></small>
+    <p id="yard-map-about"></p>
+  </aside>
   <aside class="show-side">
     <dl class="show-spec" id="yard-spec"></dl>
     <div class="show-rows" id="yard-rows"></div>

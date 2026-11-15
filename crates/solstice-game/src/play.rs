@@ -1362,6 +1362,7 @@ impl Play {
                 let (hub, _) = car.vehicle.wheel_pose(index);
                 *shown = drive::HudWheel {
                     at: origin + rotation * (hub - Vec3::Y * axle.radius),
+                    hub,
                     on_ground: wheel.on_ground,
                     surface: wheel.surface,
                     slip: wheel.speed * axle.radius - telemetry.speed,

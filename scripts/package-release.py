@@ -36,6 +36,7 @@ MAPS = [
     ("outback", "Wombat Creek Track"),
     ("granite", "Granite Ridge"),
     ("blackwood", "Blackwood Gully"),
+    ("arena", "Bulldust Bowl"),
 ]
 
 GAME = """# Aussie Outback 4x4: what AussieOutback4x4.exe does when it is opened. It reads this as it

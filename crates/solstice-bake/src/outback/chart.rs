@@ -23,9 +23,9 @@ pub struct Chart {
     pub half: f32,
 }
 
-type Colour = [f32; 3];
+pub(super) type Colour = [f32; 3];
 
-fn mix(a: Colour, b: Colour, t: f32) -> Colour {
+pub(super) fn mix(a: Colour, b: Colour, t: f32) -> Colour {
     let t = t.clamp(0.0, 1.0);
     [
         a[0] + (b[0] - a[0]) * t,
@@ -34,19 +34,19 @@ fn mix(a: Colour, b: Colour, t: f32) -> Colour {
     ]
 }
 
-const PAPER: Colour = [0.925, 0.89, 0.78];
-const FOREST: Colour = [0.80, 0.85, 0.70];
-const OPEN: Colour = [0.93, 0.90, 0.75];
-const ROCK: Colour = [0.80, 0.77, 0.72];
-const WATER: Colour = [0.55, 0.72, 0.83];
-const SHORE: Colour = [0.30, 0.48, 0.62];
-const LINE: Colour = [0.55, 0.40, 0.26];
-const ROAD: Colour = [0.93, 0.70, 0.42];
-const CASING: Colour = [0.30, 0.20, 0.13];
-const TRACK: Colour = [0.66, 0.20, 0.13];
-const BUILT: Colour = [0.16, 0.14, 0.13];
-const RING_OF: Colour = [0.86, 0.45, 0.10];
-const INK: Colour = [0.12, 0.10, 0.09];
+pub(super) const PAPER: Colour = [0.925, 0.89, 0.78];
+pub(super) const FOREST: Colour = [0.80, 0.85, 0.70];
+pub(super) const OPEN: Colour = [0.93, 0.90, 0.75];
+pub(super) const ROCK: Colour = [0.80, 0.77, 0.72];
+pub(super) const WATER: Colour = [0.55, 0.72, 0.83];
+pub(super) const SHORE: Colour = [0.30, 0.48, 0.62];
+pub(super) const LINE: Colour = [0.55, 0.40, 0.26];
+pub(super) const ROAD: Colour = [0.93, 0.70, 0.42];
+pub(super) const CASING: Colour = [0.30, 0.20, 0.13];
+pub(super) const TRACK: Colour = [0.66, 0.20, 0.13];
+pub(super) const BUILT: Colour = [0.16, 0.14, 0.13];
+pub(super) const RING_OF: Colour = [0.86, 0.45, 0.10];
+pub(super) const INK: Colour = [0.12, 0.10, 0.09];
 
 /// Draws the design as a map.
 pub fn draw(plan: &Plan) -> Chart {
@@ -178,6 +178,34 @@ pub fn draw(plan: &Plan) -> Chart {
                 if out.abs() < pace * 0.9 {
                     colour = mix(colour, INK, 0.7);
                 }
+                for (channel, value) in colour.iter().enumerate() {
+                    line[column * 3 + channel] =
+                        (value.clamp(0.0, 1.0).powf(1.0 / 1.05) * 255.0 + 0.5) as u8;
+                }
+            }
+        });
+    furniture(&mut dots, pace);
+    Chart {
+        png: png(EDGE as u32, EDGE as u32, &dots),
+        half,
+    }
+}
+
+/// A map of a design that is not a square of bush's (`super::arena`), drawn dot by dot: `dot`
+/// is given the middle of each dot on the ground and how wide a dot is, in metres, and says
+/// its colour. It is finished as any map is, with a bar for its scale and an arrow north.
+pub(super) fn paint(half: f32, dot: &(dyn Fn(f32, f32, f32) -> Colour + Sync)) -> Chart {
+    let pace = 2.0 * half / EDGE as f32;
+    let mut dots = vec![0_u8; EDGE * EDGE * 3];
+    dots.par_chunks_mut(EDGE * 3)
+        .enumerate()
+        .for_each(|(row, line)| {
+            for column in 0..EDGE {
+                let (x, z) = (
+                    (column as f32 + 0.5) * pace - half,
+                    (row as f32 + 0.5) * pace - half,
+                );
+                let colour = dot(x, z, pace);
                 for (channel, value) in colour.iter().enumerate() {
                     line[column * 3 + channel] =
                         (value.clamp(0.0, 1.0).powf(1.0 / 1.05) * 255.0 + 0.5) as u8;

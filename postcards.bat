@@ -9,6 +9,7 @@ call :card wombat assets\outback.solstice 17:10 fair 230 jamieson_troop
 call :card granite assets\granite.solstice 9:20 clear 620 bogong
 call :card blackwood assets\blackwood.solstice 15:30 overcast 210 ovens_tourer
 call :card town assets\town.solstice 16:10 fair 250 licola
+call :card arena assets\arena.solstice 16:40 fair 160 kestrel
 exit /b 0
 
 :card

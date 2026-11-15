@@ -1258,6 +1258,14 @@ impl PlayMode {
             for (instance, by) in kit.swings() {
                 self.play.move_within(instance, by);
             }
+            // Its axles go with its wheels, and what links them to the truck turns to.
+            if let Some(hud) = self.play.hud() {
+                let hubs = hud.wheels.map(|wheel| wheel.hub);
+                let radius = hud.wheels.map(|wheel| wheel.radius);
+                for (instance, by) in kit.rides(hubs, radius) {
+                    self.play.move_within(instance, by);
+                }
+            }
         }
         // What the truck hit this frame, and what that has done to it.
         self.wrecks
@@ -1334,6 +1342,11 @@ impl PlayMode {
     /// Hits the truck, as if the game had measured the blow: for a picture, or a trial.
     pub fn strike(&mut self, hit: crate::damage::Hit) {
         self.wrecks.strike(hit);
+    }
+
+    /// Says whether what the truck hits hurts it: see [`crate::wreck::Wrecks::set_harm`].
+    pub fn set_harm(&mut self, harm: bool) {
+        self.wrecks.set_harm(harm);
     }
 
     /// Mends the whole truck, or one piece of it. Whether that piece was hurt.

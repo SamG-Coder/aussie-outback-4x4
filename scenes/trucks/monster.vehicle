@@ -1,0 +1,41 @@
+# What a monster truck stands on: its numbers, with a full-size truck on it.
+# Written by tools/blender/monster/build.py: to be driven, and put right.
+
+mass 4600
+inertia 11000 12500 5200
+centre 0 1.25 0.00
+body 2.20 2.13 5.89 at 0 2.06 0.15
+driver right
+
+front at=1.845 track=2.780 radius=0.8400 inertia=95 driven=yes
+front spring=62000 bump=5200 rebound=10500 bar=9000 travel=0.40,0.33 roll_centre=0.75
+front brake=13000 grip=1
+rear at=1.845 track=2.780 radius=0.8400 inertia=105 driven=yes
+rear spring=58000 bump=4900 rebound=9800 bar=5000 travel=0.40,0.33 roll_centre=0.80
+rear brake=8000 grip=1
+
+tyre grip=1.05,0.95 peak=0.15,9 along=1.5,0.3 across=1.3,0.1
+tyre load=11300 sensitivity=0.1 relaxation=0.9
+
+engine idle=1100 limit=8200 inertia=0.6 friction=60,0.012
+torque 2000 1250
+torque 3000 1500
+torque 4000 1750
+torque 5000 1900
+torque 6000 1880
+torque 7000 1750
+torque 8000 1500
+torque 8200 1300
+
+gears 1.8 1
+final 22
+reverse 2
+gearbox shift=0.2 efficiency=0.88 clutch=4000 cruise=0.42
+diff preload=400 power=0.6 coast=0.4
+front_diff preload=400 power=0.6 coast=0.4
+transfer low=1.6 front=0.5 lock=60000 locker=60000
+
+aero drag=2.9 downforce=0 balance=0.5
+steering lock=28 ackermann=0.6 quick=0.6
+geometry anti_dive=0.2 anti_squat=0.25
+assists abs=no traction=no stability=no descent=no

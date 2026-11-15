@@ -102,6 +102,11 @@ def main():
         # its name is a take: neither is played.
         if not sound.name.startswith("_") and sound.stem.count(".") == 0:
             shutil.copy(sound, game / "assets" / "sounds")
+    # The game's own trucks, each a pack that is put together as a map is read; and what a
+    # monster truck stands on, which is one of them.
+    (game / "assets" / "trucks").mkdir(parents=True)
+    for truck in sorted((ROOT / "assets" / "trucks").glob("*.truck")):
+        shutil.copy(truck, game / "assets" / "trucks")
 
     # ---- The app: the manifest and the files, then the code and the libraries.
     bare = work / "bare.apk"

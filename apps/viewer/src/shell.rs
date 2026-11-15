@@ -565,6 +565,8 @@ pub enum Order {
     /// What the truck has hit is on it: its damage, as text (`Damage::to_text`), or
     /// nothing, for a truck that is sound or has been mended.
     Damage(String),
+    /// Whether what the truck hits hurts it: a free drive may be driven with damage off.
+    Harm(bool),
     /// In the showroom: show another of the trucks that stand there, by its place among
     /// them, in its colour; or fit the one that is shown, where it stands.
     Show {
@@ -728,6 +730,9 @@ pub struct Shell {
     /// what the scene that is being played was read with.
     drives: Option<String>,
     built: bool,
+    /// Whether a free drive's truck is stood on the monster kit: any of the game's trucks,
+    /// put together as a monster truck as its scene is read (`kit::assemble_monster`).
+    monster: bool,
     worn: Option<(String, String)>,
     /// Money and trucks, in a story; whether it is a story that is being played, or a free
     /// drive; the page of the yard that is shown, the screen it was opened from, and what
@@ -766,6 +771,20 @@ pub struct Shell {
     /// The grade of trucks a free drive is being chosen from, from 1; and whether, when the
     /// map that is being read has been, the game is at its title and not being driven.
     free_grade: u32,
+    /// The map a free drive starts on, if one has been chosen: else the hub.
+    free_map: Option<String>,
+    /// How a free drive's truck is built: of each group of its kit that is not as it is
+    /// sold, the choice (or `none`). And its colour, if it is not the one it was made in.
+    /// They are chosen on the page `tune`, with the truck stood there with every piece.
+    free_build: Vec<(String, String)>,
+    free_paint: Option<u32>,
+    /// Whether the hour and the weather chosen for a free drive are yet to be the sky of
+    /// the map it starts on; and whether a weather was chosen for it, which is then the
+    /// weather wherever it goes.
+    free_sky: bool,
+    free_weather: bool,
+    /// Whether what a free drive's truck hits hurts it. (A story's always does.)
+    free_damage: bool,
     /// The colour a first truck is taken in, if one has been chosen: else as it was made.
     start_paint: Option<u32>,
     /// Whether the game is in a browser, which reads one scene a page: what is being done
@@ -914,6 +933,7 @@ impl Shell {
             class,
             drives,
             built,
+            monster: kept.lines().any(|line| line.trim() == "monster"),
             worn: None,
             yard: crate::yard::Yard::read(kept),
             // A story that has begun is what is played, until a free drive is asked for.
@@ -936,6 +956,12 @@ impl Shell {
             slept_till: SLEEPS[0].0,
             save: 0,
             free_grade: 1,
+            free_map: None,
+            free_build: Vec::new(),
+            free_paint: None,
+            free_sky: false,
+            free_weather: false,
+            free_damage: true,
             start_paint: None,
             start_truck: None,
             web: false,
@@ -1258,6 +1284,12 @@ impl Shell {
         self.web = true;
     }
 
+    /// Whether what the truck hits hurts it: always, in a story; in a free drive, unless
+    /// damage was switched off.
+    fn harm(&self) -> bool {
+        self.story || self.free_damage
+    }
+
     /// Which of the kept games is being played: none, at the main menu and in a free drive.
     pub fn playing(&self) -> u32 {
         self.save
@@ -1303,6 +1335,25 @@ impl Shell {
         if let Some(from) = &self.came_from {
             out += &format!("came {from}\n");
         }
+        if let Some(map) = &self.free_map {
+            out += &format!("free_map {map}\n");
+        }
+        if !self.free_build.is_empty() {
+            // (All of it: what a monster truck does not wear is its own again when it is
+            // not one.)
+            let each = self.free_build.iter();
+            let words: Vec<String> = each.map(|(g, c)| format!("{g}={c}")).collect();
+            out += &format!("free_build {}\n", words.join(","));
+        }
+        if let Some(paint) = self.free_paint {
+            out += &format!("free_paint {paint:06x}\n");
+        }
+        if self.free_weather {
+            out += "free_weather\n";
+        }
+        if !self.free_damage {
+            out += "free_unhurt\n";
+        }
         if let Some(truck) = &self.start_truck {
             out += &format!("start {truck}\n");
         }
@@ -1311,6 +1362,9 @@ impl Shell {
         }
         if let Some(truck) = &self.drives {
             out += &format!("drives {truck}\n");
+        }
+        if self.monster {
+            out += "monster\n";
         }
         let [dust, mud, rust] = self.free_dirt;
         out += &format!(
@@ -1358,8 +1412,9 @@ impl Shell {
                 }
                 ["save", save] => self.save = save.parse().unwrap_or(0),
                 ["yard", page, from, index, grade] => {
-                    const PAGES: [&str; 8] = [
+                    const PAGES: [&str; 10] = [
                         "start", "colour", "used", "garage", "free", "dealer", "shop", "bank",
+                        "tune", "where",
                     ];
                     if let Some(page) = PAGES.into_iter().find(|known| *known == page) {
                         self.yard_page = page;
@@ -1378,9 +1433,18 @@ impl Shell {
                     }
                 }
                 ["came", map] => self.came_from = Some(map.to_owned()),
+                ["free_map", map] => self.free_map = Some(map.to_owned()),
+                ["free_build", build] => {
+                    let each = build.split(',').filter_map(|word| word.split_once('='));
+                    self.free_build = each.map(|(g, c)| (g.to_owned(), c.to_owned())).collect();
+                }
+                ["free_paint", paint] => self.free_paint = colour(paint),
+                ["free_weather"] => self.free_weather = true,
+                ["free_unhurt"] => self.free_damage = false,
                 ["start", truck] => self.start_truck = Some(truck.to_owned()),
                 ["start_paint", paint] => self.start_paint = colour(paint),
                 ["drives", truck] => self.drives = Some(truck.to_owned()),
+                ["monster"] => self.monster = true,
                 ["chance", chance] => self.chance = chance.parse().unwrap_or(self.chance),
                 ["options", volume, look] => {
                     self.volume = volume.parse().unwrap_or(self.volume).min(10);
@@ -1404,13 +1468,23 @@ impl Shell {
     /// used-truck yard, if the map is the one the yard is in. For whoever has to fetch them
     /// before the scene can be read.
     pub fn packs(&self) -> Vec<String> {
-        let mut names: Vec<String> = if self.in_showroom() {
+        let wanted: Vec<(String, String)> = if self.in_showroom() {
             let page = self.page_trucks().into_iter();
-            page.map(|(truck, ..)| truck).collect()
+            page.map(|(truck, build, _)| (truck, build)).collect()
         } else {
-            let worn = self.would_wear().into_iter();
-            worn.map(|(truck, _)| truck).collect()
+            self.would_wear().into_iter().collect()
         };
+        // (A monster truck stands on the monster kit, which is a pack like a truck's.)
+        let monster = |(_, build): &(String, String)| build.starts_with(crate::kit::MONSTER_BUILD);
+        let kit = wanted
+            .iter()
+            .any(monster)
+            .then(|| crate::kit::MONSTER.to_owned());
+        let mut names: Vec<String> = wanted
+            .into_iter()
+            .map(|(truck, _)| truck)
+            .chain(kit)
+            .collect();
         // (The yard is in the town, which is the map its showroom is too.)
         let scene = |map: &str| self.world.map(map).map(|map| map.scene.clone());
         if scene(SHOWROOM_TOWN).is_some() && scene(SHOWROOM_TOWN) == scene(&self.map) {
@@ -1533,6 +1607,7 @@ impl Shell {
             self.orders.push(Order::Damage(
                 damage.map_or(String::new(), |owned| owned.damage.clone()),
             ));
+            self.orders.push(Order::Harm(self.harm()));
         }
         if self.in_showroom() {
             // The trucks that stand there, and the one of them that is shown: with the kit
@@ -1554,6 +1629,15 @@ impl Shell {
             if let Some((_, kit)) = &self.kit {
                 self.yard.stocked(kit);
             }
+            // A free drive's truck, being built: its kit is the one that is chosen from, and
+            // it is fitted and painted as it has been built so far.
+            if matches!(self.yard_page, "tune" | "where") {
+                let stood = crate::kit::displayed(files).into_iter().next();
+                self.kit = self.drives.clone().zip(stood.map(|fitted| fitted.kit));
+                if self.kit.is_some() {
+                    self.orders.push(Order::Fit(self.free_worn()));
+                }
+            }
             // In the auto shop it stands with every piece of it: it is fitted as it is.
             if self.yard_page == "shop" {
                 if let (Some(owned), Some((_, kit))) = (self.yard.driven(), &self.kit) {
@@ -1568,6 +1652,9 @@ impl Shell {
             self.orders.push(Order::Paint(
                 self.yard.driven().and_then(|owned| owned.paint),
             ));
+        } else if self.free_paint.is_some() {
+            // A free drive's truck is in the colour it was built in.
+            self.orders.push(Order::Paint(self.free_paint));
         }
         // Its map, if it was baked with one: `chart FILE HALF` in its `.chart` file.
         self.chart = files
@@ -1665,6 +1752,9 @@ impl Shell {
         if let Some(truck) = &self.drives {
             kept += &format!("truck {truck}{}\n", if self.built { " built" } else { "" });
         }
+        if self.monster {
+            kept += "monster\n";
+        }
         self.gold.keep(&mut kept);
         // (The showroom is not a place a game is left in: the map it was come to from is.)
         let map = match (&self.show_back, self.in_showroom()) {
@@ -1721,10 +1811,53 @@ impl Shell {
         }
         // A free drive is in the truck chosen at the title: the first of the game's trucks,
         // if none has been.
-        let fit = if self.built { "showroom" } else { "stock" };
+        let fit = self.free_fit(&self.free_worn());
         let free = self.drives.clone().filter(|name| known(name));
         let free = free.or_else(|| self.world.trucks.first().map(|truck| truck.name.clone()));
-        free.map(|truck| (truck, fit.to_owned()))
+        free.map(|truck| (truck, fit))
+    }
+
+    /// How a free drive's truck is fitted, said so that whoever puts it together knows
+    /// whether it is to be a monster truck: `monster:` before it, if it is.
+    fn free_fit(&self, fit: &str) -> String {
+        let monster = if self.monster {
+            crate::kit::MONSTER_BUILD
+        } else {
+            ""
+        };
+        format!("{monster}{fit}")
+    }
+
+    /// How a free drive's truck was built on the page `tune`, as a build is written:
+    /// `bullbar=tube,rack=none`. A monster truck stands on the monster kit's own springs,
+    /// tyres and rims, so what was chosen of those for the truck is left out.
+    fn free_text(&self) -> String {
+        let under = |group: &str| self.monster && matches!(group, "suspension" | "tyres" | "rims");
+        let each = self.free_build.iter().filter(|(group, _)| !under(group));
+        let words: Vec<String> = each
+            .map(|(group, choice)| format!("{group}={choice}"))
+            .collect();
+        words.join(",")
+    }
+
+    /// What a free drive's truck wears: as it was built, if it was; else as it is in its
+    /// pictures, or as it is sold.
+    fn free_worn(&self) -> String {
+        match self.free_text() {
+            built if !built.is_empty() => built,
+            _ if self.built => "showroom".to_owned(),
+            _ => "stock".to_owned(),
+        }
+    }
+
+    /// What a free drive's truck has fitted of a group of its kit, as it is built: what was
+    /// chosen, or else what it is sold with. Nothing, for a group with nothing on it.
+    fn free_fitted<'a>(&'a self, kit: &'a crate::kit::Kit, group: &str) -> Option<&'a str> {
+        let chosen = self.free_build.iter().find(|(named, _)| named == group);
+        match chosen {
+            Some((_, choice)) => Some(choice.as_str()).filter(|choice| *choice != "none"),
+            None => kit.stock.fitted(group),
+        }
     }
 
     /// Opens a page of the yard, from the screen that is shown.
@@ -1778,9 +1911,15 @@ impl Shell {
                 .map(|truck| owned(truck, false))
                 .collect(),
             "free" | "dealer" => {
+                // (A free drive's are looked at as they would be driven: as monster trucks,
+                // if that is what is being chosen.)
+                let fit = match self.yard_page {
+                    "free" => self.free_fit("stock"),
+                    _ => "stock".to_owned(),
+                };
                 let grade = trucks.iter().filter(|truck| truck.grade == self.free_grade);
                 grade
-                    .map(|truck| (truck.name.clone(), "stock".to_owned(), None))
+                    .map(|truck| (truck.name.clone(), fit.clone(), None))
                     .collect()
             }
             "shop" => self
@@ -1789,6 +1928,14 @@ impl Shell {
                 .map(|truck| owned(truck, true))
                 .into_iter()
                 .collect(),
+            // A free drive's truck being built, and where and when it is to be driven being
+            // chosen: it stands there by itself, with every piece of it.
+            "tune" | "where" => {
+                let truck = self.drives.clone().into_iter();
+                truck
+                    .map(|truck| (truck, self.free_fit("all"), self.free_paint))
+                    .collect()
+            }
             _ => self
                 .yard
                 .driven()
@@ -1996,7 +2143,16 @@ impl Shell {
             .collect();
         // The same trucks stand there already: the one asked for is shown.
         let fitted = |stood: &(String, String), wanted: &(String, String)| {
-            stood.0 == wanted.0 && (stood.1 == wanted.1 || stood.1 == "all")
+            // (One that stands with every piece of it can be fitted any way where it
+            // stands; but a monster truck is another truck than the one it is made of.)
+            let monster = |build: &str| build.starts_with(crate::kit::MONSTER_BUILD);
+            let every = stood
+                .1
+                .strip_prefix(crate::kit::MONSTER_BUILD)
+                .unwrap_or(&stood.1)
+                == "all";
+            stood.0 == wanted.0
+                && (stood.1 == wanted.1 || (every && monster(&stood.1) == monster(&wanted.1)))
         };
         let same = self.map == room
             && self.stood.len() == stand.len()
@@ -2022,6 +2178,24 @@ impl Shell {
             scene,
             sky: Some((KEEP_HOUR, "fair", 0.0)),
         });
+    }
+
+    /// The maps a free drive can start on: every map of the game that is driven on, the hub
+    /// first. (A showroom is a map too, and is not one of them.)
+    fn free_maps(&self) -> Vec<&Map> {
+        let driven = |map: &&Map| map.name != SHOWROOM && map.name != SHOWROOM_TOWN;
+        let mut maps: Vec<&Map> = self.world.maps.iter().filter(driven).collect();
+        maps.sort_by_key(|map| map.name != self.world.hub);
+        maps
+    }
+
+    /// The map a free drive starts on: the one that was chosen, or the hub.
+    fn free_start(&self) -> String {
+        let chosen = self.free_map.as_ref();
+        chosen
+            .filter(|name| self.free_maps().iter().any(|map| map.name == **name))
+            .cloned()
+            .unwrap_or_else(|| self.world.hub.clone())
     }
 
     /// Leaves the showroom for the map it was come to from, in the truck that is driven.
@@ -2076,16 +2250,101 @@ impl Shell {
                     self.show_card(0);
                 }
             }
-            ["free", name] => {
-                if trucks.iter().any(|truck| truck.name == name) {
-                    self.drives = Some(name.to_owned());
-                    (self.built, self.story) = (false, false);
-                    self.unwind = -std::mem::take(&mut self.orbited);
-                    self.leave_showroom();
+            // A free drive's truck as a monster truck, or as it is.
+            ["monster", on @ ("on" | "off")] if matches!(self.yard_page, "free" | "tune") => {
+                self.monster = on == "on";
+                self.show_card(self.show_index);
+            }
+            // The map a free drive starts on: any of the game's that is driven on.
+            ["where", map] if matches!(self.yard_page, "free" | "where") => {
+                if self.free_maps().iter().any(|known| known.name == map) {
+                    self.free_map = Some(map.to_owned());
                 }
             }
+            // The hour it starts at, and the weather it is driven in: which of each.
+            ["time", index] if self.yard_page == "where" => {
+                if let Some(index) = number(index).filter(|index| *index < TIMES.len()) {
+                    self.time = index;
+                }
+            }
+            ["damage", on @ ("on" | "off")] if self.yard_page == "where" => {
+                self.free_damage = on == "on";
+            }
+            ["weather", index] if self.yard_page == "where" => {
+                if let Some(index) = number(index).filter(|index| *index < WEATHERS.len()) {
+                    self.weather = index;
+                }
+            }
+            // A free drive's truck is chosen: it is built next, where it stands by itself
+            // with every piece of its kit. (Another truck than the last is as it is sold.)
+            ["free", name] => {
+                if trucks.iter().any(|truck| truck.name == name) {
+                    if self.drives.as_deref() != Some(name) {
+                        self.free_build.clear();
+                        self.free_paint = None;
+                    }
+                    self.drives = Some(name.to_owned());
+                    (self.built, self.story) = (false, false);
+                    self.yard_page = "tune";
+                    self.show_card(0);
+                }
+            }
+            // It is driven: from the map that was chosen (the hub, if none was), at the
+            // hour and in the weather that were.
+            ["drive"] if self.yard_page == "where" && self.drives.is_some() => {
+                self.story = false;
+                (self.free_sky, self.free_weather) = (true, true);
+                self.unwind = -std::mem::take(&mut self.orbited);
+                self.show_back = Some(self.free_start());
+                self.leave_showroom();
+            }
+            // Built on the page `tune`: a part is fitted (or, `none`, taken off), tried
+            // where the truck stands, and a colour chosen. Nothing is paid for.
+            ["fit", group, choice] if self.yard_page == "tune" => {
+                self.free_build.retain(|(named, _)| named != group);
+                let stock = self
+                    .kit
+                    .as_ref()
+                    .and_then(|(_, kit)| kit.stock.fitted(group));
+                if stock != Some(choice).filter(|choice| *choice != "none") {
+                    self.free_build.push((group.to_owned(), choice.to_owned()));
+                }
+                self.orders.push(Order::Fit(self.free_worn()));
+            }
+            ["try", group, choice] if self.yard_page == "tune" => {
+                let kept = self.free_build.clone();
+                self.free_build.retain(|(named, _)| named != group);
+                self.free_build.push((group.to_owned(), choice.to_owned()));
+                self.orders.push(Order::Fit(self.free_worn()));
+                self.free_build = kept;
+            }
+            ["untry"] if matches!(self.yard_page, "tune" | "where") => {
+                if self.yard_page == "tune" {
+                    self.orders.push(Order::Fit(self.free_worn()));
+                    self.orders.push(Order::Paint(self.free_paint));
+                }
+            }
+            ["paint", colour] if self.yard_page == "tune" => {
+                if let Ok(colour) = u32::from_str_radix(colour, 16) {
+                    self.free_paint =
+                        Some(colour).filter(|colour| self.free_paint != Some(*colour));
+                    self.orders.push(Order::Paint(self.free_paint));
+                }
+            }
+            // (Back from where and when is back to its build, and from that to which truck.)
+            ["leave"] if self.yard_page == "where" => {
+                self.yard_page = "tune";
+                self.show_card(0);
+            }
+            ["leave"] if self.yard_page == "tune" => {
+                self.yard_page = "free";
+                self.focus = None;
+                self.show_card(0);
+            }
             ["page", page] => {
-                for known in ["start", "garage", "bank", "shop", "used", "dealer", "free"] {
+                for known in [
+                    "start", "garage", "bank", "shop", "used", "dealer", "free", "tune", "where",
+                ] {
                     if page == known {
                         self.yard_page = known;
                         self.show_card(0);
@@ -2503,7 +2762,7 @@ impl Shell {
             }
             _ => json!(null),
         };
-        json!({
+        let mut told = json!({
             "page": self.yard_page,
             "from": self.yard_from.name(),
             // Whether the truck stands in the showroom behind the page, to be seen.
@@ -2525,6 +2784,9 @@ impl Shell {
             "start": crate::yard::starters(trucks).into_iter().map(card).collect::<Vec<_>>(),
             "free": trucks.iter().filter(|truck| truck.grade == self.free_grade).map(card).collect::<Vec<_>>(),
             "grade": self.free_grade,
+            // The maps a free drive can start on, and the one it will.
+            "maps": self.free_maps().iter().map(|map| json!({ "name": map.name, "title": map.title, "kind": map.kind, "about": map.about })).collect::<Vec<_>>(),
+            "start_map": self.free_start(),
             "trucks": owned,
             "used": used,
             "shop": shop,
@@ -2534,7 +2796,32 @@ impl Shell {
             "chosen": self.start_truck.as_deref().and_then(of).map(card),
             "oil_change": crate::yard::OIL_CHANGE,
             "repairs": json!({ "hurt": self.repairs().0, "cost": self.repairs().1 }),
-        })
+        });
+        // A free drive, as it is being set up: told with the rest, and written apart.
+        let free = json!({
+            "monster": self.monster,
+            "free_truck": self.drives.as_deref().and_then(of).map(card),
+            "free_paint": self.free_paint.map(|paint| format!("{paint:06x}")),
+            // A free drive's truck being built: each group of its kit, and its choices,
+            // with the one that is on it. (Told as the auto shop's is: nothing has a price.)
+            "tune": match (&self.kit, self.yard_page) {
+                (Some((_, kit)), "tune") => json!({ "groups": kit.groups().into_iter().map(|(group, choices)| {
+                    let fitted = self.free_fitted(kit, group);
+                    let choices: Vec<_> = choices.into_iter().map(|choice| json!({ "choice": choice, "fitted": fitted == Some(choice) })).collect();
+                    json!({ "group": group, "choices": choices, "bare": fitted.is_none() })
+                }).collect::<Vec<_>>() }),
+                _ => json!(null),
+            },
+            "damage": self.free_damage,
+            "times": TIMES.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+            "weathers": WEATHERS.iter().map(|(name, ..)| *name).collect::<Vec<_>>(),
+            "time": self.time,
+            "weather": self.weather,
+        });
+        if let (Some(told), Some(free)) = (told.as_object_mut(), free.as_object()) {
+            told.extend(free.clone());
+        }
+        told
     }
 
     /// Drives this truck, fitted so, whatever was kept: for a trial, or a picture.
@@ -2790,11 +3077,18 @@ impl Shell {
         // (the hub, a town) it is whatever hour it has got to, and the weather is the day's
         // own, as the calendar has it: what was forecast is what falls. The showroom is fair.
         let timed = found.name != self.world.hub && !found.length.is_empty();
-        let sky = Some(if timed {
+        let room = found.name == SHOWROOM || found.name == SHOWROOM_TOWN;
+        // A free drive starts at the hour and in the weather that were chosen for it,
+        // wherever it starts; and goes on in that weather wherever it goes.
+        let starts = !room && std::mem::take(&mut self.free_sky);
+        let sky = Some(if timed || starts {
             let (_, name, soaked) = WEATHERS[self.weather];
             (TIMES[self.time].1, name, soaked)
-        } else if found.name == SHOWROOM || found.name == SHOWROOM_TOWN {
+        } else if room {
             (KEEP_HOUR, "fair", 0.0)
+        } else if self.free_weather && !self.story {
+            let (_, name, soaked) = WEATHERS[self.weather];
+            (KEEP_HOUR, name, soaked)
         } else {
             let (name, soaked) = self.today_sky();
             (KEEP_HOUR, name, soaked)
@@ -2977,7 +3271,19 @@ impl Shell {
             }
             (Screen::Pause, "restart") => {
                 let (map, mode) = (self.map.clone(), self.mode);
+                // A free drive starts its map again: where the map starts and not where
+                // the truck was left, at the hour that was chosen for it, and mended.
+                if !self.story && mode == Mode::Roam {
+                    self.poses.remove(&map);
+                    self.free_sky = self.free_weather;
+                }
                 self.go(&map, mode);
+            }
+            // A free drive's damage, on or off, as it is driven.
+            (Screen::Pause, "damage") if !self.story => {
+                self.free_damage = !self.free_damage;
+                self.orders.push(Order::Harm(self.harm()));
+                self.told_screen = None;
             }
             // At the line: away, or one of the others watched first; and after a run, again.
             (Screen::Lineup, "go") | (Screen::Result, "again") => self.start_run(),
@@ -3623,6 +3929,8 @@ impl Shell {
                 None if self.at_truck().is_some() => Some("truck_look"),
                 None => self.afoot.then(|| self.gold.can(&self.stands()).map(crate::gold::Use::name)).flatten(),
             },
+            // Whether what it hits hurts it.
+            "harm": self.harm(),
             // What the truck's last blow did to it, for a few seconds after.
             "blow": (self.blow.1 < BLOW_SAID).then(|| self.blow.0.clone()),
             // The used truck the driver stands by, in the yard: what its board says, and
@@ -5086,6 +5394,118 @@ truck mitta 2 16000 1995 Mitta
         last.go("town", Mode::Roam);
         let town = taken_up(&last.carry());
         assert!(town.packs().len() > 1);
+        // A free drive's truck as a monster truck: its build says so, the monster kit's pack
+        // is wanted with its own, and the next page knows.
+        let mut free = Shell::new(world(), "");
+        free.open_yard("free");
+        free.yard_act("monster:on");
+        assert!(free
+            .page_trucks()
+            .iter()
+            .all(|(_, build, _)| build == "monster:stock"));
+        assert!(free.packs().contains(&crate::kit::MONSTER.to_owned()));
+        free.enter(&[]);
+        // The truck is chosen: it is built next, standing by itself with every piece of it
+        // and of the monster kit; and then where and when it is driven are chosen.
+        free.yard_act("free:dargo");
+        assert_eq!(free.yard_page, "tune");
+        assert_eq!(
+            free.page_trucks(),
+            [("dargo".to_owned(), "monster:all".to_owned(), None)]
+        );
+        let mut building = taken_up(&free.carry());
+        assert_eq!(building.yard_page, "tune");
+        assert_eq!(building.packs(), ["dargo", "monster"]);
+        // A part is fitted and a colour chosen, and its own tyres too: but a monster truck
+        // stands on the kit's tyres, and those are not said of it.
+        building.yard_act("fit:bullbar:tube");
+        building.yard_act("fit:tyres:mud");
+        building.yard_act("paint:b01818");
+        assert_eq!(building.free_worn(), "bullbar=tube");
+        building.yard_act("page:where");
+        assert_eq!(building.yard_page, "where");
+        // At dusk, in a storm.
+        building.yard_act("time:2");
+        building.yard_act("weather:3");
+        building.take_orders();
+        building.yard_act("drive");
+        let asked = building.take_orders();
+        let sky = asked.iter().find_map(|order| match order {
+            Order::Load { map, sky, .. } if map == "crossroads" => *sky,
+            _ => None,
+        });
+        assert_eq!(sky, Some((TIMES[2].1, "storm", WEATHERS[3].2)));
+        let mut driven = taken_up(&building.carry());
+        assert_eq!(
+            driven.wearing(),
+            Some(("dargo".to_owned(), "monster:bullbar=tube".to_owned()))
+        );
+        assert_eq!(driven.packs(), ["dargo", "monster"]);
+        assert_eq!(driven.free_paint, Some(0xb01818));
+        // As it is, and not a monster truck, it has the tyres that were chosen for it.
+        driven.monster = false;
+        assert_eq!(
+            driven.would_wear(),
+            Some(("dargo".to_owned(), "bullbar=tube,tyres=mud".to_owned()))
+        );
+        // It goes on in the weather that was chosen, at whatever hour it has got to.
+        driven.enter(&[]);
+        driven.take_orders();
+        driven.go("town", Mode::Roam);
+        let on = driven.take_orders();
+        let sky = on.iter().find_map(|order| match order {
+            Order::Load { sky, .. } => *sky,
+            _ => None,
+        });
+        assert_eq!(sky, Some((KEEP_HOUR, "storm", WEATHERS[3].2)));
+        // Paused, its damage is switched off, which whoever runs the game is told; and its
+        // map is started again, where the map starts and at the hour that was chosen.
+        driven.enter(&[]);
+        driven.take_orders();
+        driven.poses.insert("town".to_owned(), (Vec3::ONE, 0.0));
+        driven.screen = Screen::Pause;
+        driven.act("damage");
+        let told = driven.take_orders();
+        assert!(told.iter().any(|order| matches!(order, Order::Harm(false))));
+        driven.act("restart");
+        let again = driven.take_orders();
+        assert!(again.iter().any(|order| matches!(
+            order,
+            Order::Load { map, sky: Some((hour, ..)), .. } if map == "town" && *hour == TIMES[2].1
+        )));
+        assert!(!driven.poses.contains_key("town"));
+        // It is still off on the map that is read next, a page later.
+        let mut after = taken_up(&driven.carry());
+        after.enter(&[]);
+        let told = after.take_orders();
+        assert!(told.iter().any(|order| matches!(order, Order::Harm(false))));
+        // A free drive that is to start on another map than the hub: the map chosen is
+        // known a page later, while the truck is still being chosen, and is the map that
+        // is read when one is.
+        let mut free = Shell::new(world(), "");
+        free.open_yard("free");
+        assert_eq!(free.yard_told()["start_map"], "crossroads");
+        let offered: Vec<String> = free
+            .free_maps()
+            .iter()
+            .map(|map| map.name.clone())
+            .collect();
+        assert_eq!(offered, ["crossroads", "town"]);
+        free.yard_act("where:showroom");
+        free.yard_act("where:town");
+        let mut choosing = taken_up(&free.carry());
+        assert_eq!(choosing.yard_told()["start_map"], "town");
+        choosing.enter(&[]);
+        choosing.take_orders();
+        choosing.yard_act("free:dargo");
+        choosing.yard_act("page:where");
+        choosing.yard_act("drive");
+        assert!(choosing
+            .take_orders()
+            .iter()
+            .any(|order| matches!(order, Order::Load { map, .. } if map == "town")));
+        let there = taken_up(&choosing.carry());
+        assert_eq!((there.map.as_str(), there.story), ("town", false));
         // A door gone in at is come out of, on foot, a page later.
         let mut inside = taken_up(&last.carry());
         inside.door_from = Some(("town".to_owned(), Vec3::new(1.0, 2.0, 3.0)));

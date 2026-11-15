@@ -196,14 +196,48 @@ is New game, Free drive, Load game, Options and Quit.
   `desktop.rs`); what is done with them is
   `Order::Saves` (`Use`, `New`, `Delete`, and `Close` when the main menu is gone back to,
   which keeps the game and stops playing it).
-- **Free drive** is any of the game's trucks, chosen in the showroom by its grade, with
-  nothing owed and nothing kept.
+- **Free drive** is set up in three steps, each a page of the showroom, with nothing owed
+  and nothing kept. A page's way back is the page before it.
+  1. **Which truck** (`free`): any of the game's, by its grade. A tab stands them all on a
+     monster truck's frame and tyres, to be seen so (`do monster:on`). Pressing one
+     (`do free:NAME`) chooses it and goes on.
+  2. **How it is built** (`tune`): the truck stands by itself with every piece of its kit,
+     as it does in the auto shop, and the strip is the shop's without its prices: a tile a
+     group of its kit, which opens to its choices (`do fit:GROUP:CHOICE`, tried on the
+     truck as they are held, `do try:`), a tile for its colour (`do paint:HEX`), a tile
+     that makes it a monster truck or not (docs/campaign.md), and a tile that goes on
+     (`do page:where`). What is chosen is `Shell::free_build` and `free_paint`, and is
+     said to whoever reads the scene as a build is written (`Shell::free_worn`:
+     `bullbar=tube,rack=fitted`, with `monster:` before it). A monster truck stands on the
+     kit's own springs, tyres and rims, so its build leaves the truck's out.
+  3. **Where and when** (`where`): three tiles that open, the map it starts on (the hub,
+     the town, any track, or Bulldust Bowl, `docs/arena.md`: `do where:NAME`), the time of
+     day (`do time:N`, of `TIMES`) and the weather (`do weather:N`, of `WEATHERS`), and a
+     tile that drives (`do drive`). The map in hand, or else the one chosen, is shown down
+     the left (`#yard-start`, `yardStart`): its picture, its title, its kind and its
+     `about` line. It starts there at that hour and in that weather, whatever the map, and
+     keeps the weather wherever it is driven to after (`Shell::free_sky`, `free_weather`).
+  - **Damage can be off.** A tile of `where` (`do damage:off`), and a button of the pause
+    menu while it is driven (`do damage`), say whether what the truck hits hurts it
+    (`Shell::free_damage`, `Order::Harm`, `Wrecks::set_harm`). Switched off, the truck is
+    mended as it is, and nothing it hits after does anything to it. A story's truck is
+    always hurt.
+  - **Its map can be started again.** The pause menu's Restart, which in a timed run goes
+    back to the line, in a free drive reads the map again: the truck where the map starts
+    and not where it was left, as new, at the hour that was chosen.
+  - The shell tells the pages `yard.free_truck`, `yard.tune` (the kit's groups and what is
+    fitted of each), `yard.free_paint`, `yard.monster`, `yard.maps`, `yard.start_map`,
+    `yard.times`, `yard.weathers`, `yard.time` and `yard.weather`.
+  - In a browser all of it crosses the page loads in what `Shell::carry` writes
+    (`free_map`, `free_build`, `free_paint`, `free_weather`, `monster`, and the hour and
+    the weather with the mode). A story is not touched by any of it: it starts where it
+    was left.
 - **Options** (`controls`) is in tabs: Keyboard, Controller, Sound (how loud) and Display
   (a window, or the whole screen). They are the player's, not a game's, and are kept in
   `save/options.txt`.
 
 **The showroom** (`yard`) is one page with a truck standing behind it: the first truck of a
-story (`start`, and then its colour, `colour`), a free drive's (`free`), the garage
+story (`start`, and then its colour, `colour`), a free drive's (`free`, `tune`, `where`), the garage
 (`garage`), the auto shop (`shop`), the used trucks (`used`) and the bank (`bank`). Each
 page is come to from its own place in the game and has one way out.
 

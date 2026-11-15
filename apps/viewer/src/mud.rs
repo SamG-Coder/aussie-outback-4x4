@@ -448,6 +448,7 @@ mod tests {
     fn wheel(surface: Surface, slip: f32, sink: f32) -> HudWheel {
         HudWheel {
             at: Vec3::ZERO,
+            hub: Vec3::ZERO,
             on_ground: true,
             surface,
             slip,
