@@ -104,8 +104,9 @@ Review: find gold by the beeps alone, carry it to town in the tray, sell it, and
 
 ## 5. Maps, gates and the town
 
-The Crossroads is the hub. The town is reached from a gate beside the shed, down its own
-670 m main road with a ford; its gate is the way back.
+The Crossroads is the hub. A main road runs from beside the shed to the edge of the map, and
+driving down it is driving into the town's map, on a 400 m main road in from its own edge;
+driving back out is the way back. Nothing is asked either way.
 
 - **Fault, fixed: the town was offered as a timed track.** Giving the town a length made the
   trailhead card offer Practice and Timed run on a track that is not a loop. The town is now
@@ -122,11 +123,17 @@ The Crossroads is the hub. The town is reached from a gate beside the shed, down
 - Was open, done: Wombat Creek, Granite Ridge and Blackwood Gully each have a gate beside
   their start, back to the Crossroads. The pause menu's "Back to the Crossroads" now shows
   nowhere, and is kept only for a map baked without a gate.
-- The way to the town is a graded main road, two trucks wide, not a four-wheel-drive track.
+- The way to the town is a main road to drive fast, not a four-wheel-drive track: two
+  trucks wide, smooth, its bends opened out, with no creek crossing, logs, humps or ledges.
+  No road in the game has a log across it now.
+- Third pass: the gate beside the shed and the town's own gate are gone. The maps join at
+  their edges, as zones do: `place edge:MAP`, `Place::edge`, tested in
+  `driving_off_the_edge_of_a_map_by_its_road_is_driving_into_the_next`.
 - Open: picking an hour for a timed track moves the day's clock to it.
 
-Review: drive from the shed's gate to the town and back; sleep, and check the weather matches
-the calendar's square for the new day.
+Review: from the shed take the road to the edge of the map; the town loads, and the truck is
+on its road facing in. Drive to the town at speed, then back out the same road to the
+Crossroads. Sleep, and check the weather matches the calendar's square for the new day.
 
 ## 6. Timed runs
 

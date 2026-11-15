@@ -208,9 +208,23 @@ pub struct Place {
     pub map: String,
     pub at: Vec3,
     pub radius: f32,
+    /// Where a truck that comes in by it is put, and the way it faces, as a yaw in degrees:
+    /// a way out at the edge of a map (`edge:MAP`) has one, a little way in along its road.
+    pub arrive: Option<(Vec3, f32)>,
 }
 
 impl Place {
+    /// The map it is the way out to, if it is one at the edge of the map (`edge:MAP`): a
+    /// main road runs off the map there, and whoever drives down it is in that map.
+    pub fn edge(&self) -> Option<&str> {
+        self.map.strip_prefix("edge:")
+    }
+
+    /// Whether it is a ring a truck stops in: not a door, nor a way out at the map's edge.
+    fn ring(&self) -> bool {
+        self.door().is_none() && self.edge().is_none()
+    }
+
     /// What is behind it, if it is a door that is walked up to (`door:shop`, `door:used`,
     /// `door:bank`): the page of the yard that is opened there.
     pub fn door(&self) -> Option<&'static str> {
@@ -259,16 +273,22 @@ pub fn places(files: &[GameFile]) -> Vec<Place> {
                 .unwrap_or("")
                 .split_whitespace()
                 .collect();
-            if let ["place", map, x, y, z, radius] = words[..] {
-                let numbers: Vec<f32> = [x, y, z, radius]
+            if let ["place", map, numbers @ ..] = &words[..] {
+                let numbers: Vec<f32> = numbers
                     .iter()
                     .filter_map(|word| word.parse().ok())
                     .collect();
-                if let [x, y, z, radius] = numbers[..] {
+                // `X Y Z RADIUS`, and for a way out `X Y Z YAW` after: where it is come in by.
+                let arrive = match numbers[..] {
+                    [.., x, y, z, yaw] if numbers.len() == 8 => Some((Vec3::new(x, y, z), yaw)),
+                    _ => None,
+                };
+                if let [x, y, z, radius, ..] = numbers[..] {
                     places.push(Place {
-                        map: map.to_owned(),
+                        map: (*map).to_owned(),
                         at: Vec3::new(x, y, z),
                         radius,
+                        arrive,
                     });
                 }
             }
@@ -594,6 +614,11 @@ pub struct Shell {
     /// Whether the game is in a browser, which reads one scene a page and has no trucks of
     /// the game's own to stand in a showroom: there it is a free drive, and no more.
     web: bool,
+    /// The map that was driven out of by its edge, while the next is read: it is come into
+    /// by the way that leads back there. And whether the truck has been clear of every way
+    /// out since it came into this map: only then does one take it.
+    came_from: Option<String>,
+    clear_of_edge: bool,
     /// Where the driver stood when they went in at a door: they come out there, on foot.
     door_from: Option<(String, Vec3)>,
     /// The first truck that has been chosen, while its colour is: the second step.
@@ -733,6 +758,8 @@ impl Shell {
             start_paint: None,
             start_truck: None,
             web: false,
+            came_from: None,
+            clear_of_edge: false,
             door_from: None,
             to_title: false,
             records: crate::timed::Records::read(kept),
@@ -955,7 +982,12 @@ impl Shell {
 
     /// Whether the map has a trailhead that leads back to the hub: a way home to drive.
     fn way_home(&self) -> bool {
-        self.map == self.world.hub || self.places.iter().any(|place| place.map == self.world.hub)
+        let hub = self.world.hub.as_str();
+        self.map == hub
+            || self
+                .places
+                .iter()
+                .any(|place| place.map == hub || place.edge() == Some(hub))
     }
 
     /// The door the driver stands before, on foot, in a story: what is behind it.
@@ -1150,8 +1182,18 @@ impl Shell {
             }
             self.pars.insert(self.map.clone(), golds);
         }
-        // Roaming, a map is come back to where it was left.
-        if self.mode == Mode::Roam {
+        // A map come into by its edge is come into there, on its road, facing in. Otherwise,
+        // roaming, it is come back to where it was left.
+        self.clear_of_edge = false;
+        let from = self.came_from.take();
+        let by_edge = self
+            .places
+            .iter()
+            .find(|place| place.edge().is_some() && place.edge() == from.as_deref())
+            .and_then(|place| place.arrive);
+        if let Some((position, yaw)) = by_edge {
+            self.orders.push(Order::Place { position, yaw });
+        } else if self.mode == Mode::Roam {
             if let Some(&(position, yaw)) = self.poses.get(&self.map) {
                 self.orders.push(Order::Place { position, yaw });
             }
@@ -2424,8 +2466,27 @@ impl Shell {
         self.inside = self
             .places
             .iter()
-            .position(|place| place.door().is_none() && flat_distance(place.at, at) < place.radius)
+            .position(|place| place.ring() && flat_distance(place.at, at) < place.radius)
             .filter(|_| !self.afoot);
+        // A way out at the edge of the map: a truck driven down it is in the next map, with
+        // nothing asked. (One that has just come in by it is not sent straight back: not
+        // until it has been clear of it.)
+        let out = self
+            .places
+            .iter()
+            .find(|place| place.edge().is_some() && flat_distance(place.at, at) < place.radius)
+            .and_then(|place| place.edge())
+            .map(str::to_owned);
+        match out {
+            Some(map) if self.clear_of_edge && !self.afoot && self.mode == Mode::Roam => {
+                log::info!("edge: out of {} to {map}", self.map);
+                self.came_from = Some(self.map.clone());
+                self.go(&map, Mode::Roam);
+                return;
+            }
+            Some(_) => {}
+            None => self.clear_of_edge = true,
+        }
         // The gold. Nuggets are things in the world: where each has got to is taken from
         // where the world says its body is; a nugget in the hand of a driver who has got back
         // in is let go into the tray; the world is asked for the bodies there should be; and
@@ -2712,7 +2773,9 @@ impl Shell {
                 .places
                 .iter()
                 .map(|place| {
-                    let (title, kind) = match self.world.map(&place.map) {
+                    let named = place.edge().unwrap_or(&place.map);
+                    let (title, kind) = match self.world.map(named) {
+                        Some(map) if place.edge().is_some() => (map.title.as_str(), "edge"),
                         Some(map) => (map.title.as_str(), "trailhead"),
                         None if place.map == SHED => ("The Shed", "shed"),
                         None if place.map == BUYER => ("Gold Buyer", "buyer"),
@@ -2820,7 +2883,7 @@ impl Shell {
         }) else {
             return Value::Null;
         };
-        let title = match self.world.map(&place.map) {
+        let title = match self.world.map(place.edge().unwrap_or(&place.map)) {
             Some(map) => map.title.as_str(),
             None if place.map == SHED => "The Shed",
             None if place.map == BUYER => "Gold Buyer",
@@ -3069,6 +3132,7 @@ length wombat 2.4 km
             map: BUYER.to_owned(),
             at: moved,
             radius: 8.0,
+            arrive: None,
         });
         shell.stop_at(shell.places.len() - 1);
         assert_eq!(shell.screen(), Screen::Buyer);
@@ -3207,6 +3271,55 @@ length wombat 2.4 km
         assert_eq!(shell.screen(), Screen::Pause);
         shell.hear("do resume", &mut devices);
         assert_eq!(shell.screen(), Screen::Drive);
+    }
+
+    #[test]
+    fn driving_off_the_edge_of_a_map_by_its_road_is_driving_into_the_next() {
+        let mut shell = shell();
+        let mut devices = Devices::new();
+        shell.hear("do start", &mut devices);
+        // The hub has a way out to the track at its edge: a truck that comes in by it is
+        // put thirty metres in, facing back.
+        shell.places.push(Place {
+            map: "edge:wombat".to_owned(),
+            at: Vec3::new(-488.0, 5.0, 100.0),
+            radius: 8.0,
+            arrive: Some((Vec3::new(-460.0, 5.0, 100.0), 90.0)),
+        });
+        // A truck that is in it when the map is come into is not sent on: not until it has
+        // been clear of it.
+        shell.after(Some(&hud_at(Vec3::new(-487.0, 5.0, 100.0), 6.0)));
+        assert_eq!(shell.screen(), Screen::Drive);
+        shell.after(Some(&hud_at(Vec3::new(-440.0, 5.0, 100.0), 6.0)));
+        assert_eq!(shell.screen(), Screen::Drive);
+        // Driven down the road to it, the next map is read, with nothing asked.
+        shell.after(Some(&hud_at(Vec3::new(-486.0, 5.0, 101.0), 12.0)));
+        assert_eq!(shell.screen(), Screen::Loading);
+        let loads: Vec<Order> = shell
+            .take_orders()
+            .into_iter()
+            .filter(|order| matches!(order, Order::Load { .. }))
+            .collect();
+        assert!(matches!(&loads[..], [Order::Load { map, .. }] if map == "wombat"));
+        // And that map is come into by its own way out to here: on its road, facing in,
+        // wherever a truck was last left in it.
+        let files = [GameFile {
+            name: "outback.places".to_owned(),
+            text: "place edge:crossroads 300 7 -340 8 270 7.5 -330 -120\n".to_owned(),
+        }];
+        shell.enter(&files);
+        let placed = shell
+            .take_orders()
+            .into_iter()
+            .find_map(|order| match order {
+                Order::Place { position, yaw } => Some((position, yaw)),
+                _ => None,
+            });
+        assert_eq!(placed, Some((Vec3::new(270.0, 7.5, -330.0), -120.0)));
+        // There it is in nothing that is stopped in, and the way home is that road.
+        shell.after(Some(&hud_at(Vec3::new(300.0, 7.0, -340.0), 0.0)));
+        assert_eq!(shell.screen(), Screen::Drive);
+        assert!(shell.inside.is_none() && shell.way_home());
     }
 
     #[test]

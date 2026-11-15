@@ -9,7 +9,7 @@ kind crossroads Main road
 length crossroads 3.0 km
 
 map town assets/town.solstice Ironbark Flat
-about town What is left of a gold town, down the road from the gate by your shed: over the creek to a hotel, a motor spares store, a bank, and a man who buys gold by weight.
+about town What is left of a gold town, down the main road from your shed: a hotel, a motor spares store, a bank, and a man who buys gold by weight.
 kind town Township
 
 map wombat assets/outback.solstice Wombat Creek Track

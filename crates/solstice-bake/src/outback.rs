@@ -293,14 +293,23 @@ pub fn build(
     base: &std::path::Path,
 ) -> Result<Built, String> {
     println!("outback: {size:.0} m of bush: {}", country.name);
-    // A hub's last map may be `+NAME`: its trailhead is a gate beside the shed, off the road.
+    // The last map may be `+NAME`, a gate: a trailhead off the road, beside a hub's shed or a
+    // track's start. Or `>NAME`, a way out: a main road to the edge of the map, which whoever
+    // drives down is in that map; from a hub's shed, or from a town.
     let gate = leads.last().is_some_and(|last| last.starts_with('+'));
+    let edge = leads.last().is_some_and(|last| last.starts_with('>'));
     let leads: Vec<String> = leads
         .iter()
-        .map(|lead| lead.trim_start_matches('+').to_owned())
+        .map(|lead| lead.trim_start_matches(['+', '>']).to_owned())
         .collect();
     let leads = &leads[..];
-    let plan = Plan::new(size, country, leads.len() - usize::from(gate), gate);
+    let plan = Plan::new(
+        size,
+        country,
+        leads.len() - usize::from(gate || edge),
+        gate,
+        edge,
+    );
     let half = size * 0.5;
     let drawn = half + BEYOND;
 
@@ -360,6 +369,33 @@ pub fn build(
     } else {
         trailheads(scene, &plan, leads)
     };
+    // A way out at the edge of the map: where a truck is as good as gone, how near, and
+    // where one that comes in by it is put, and facing which way.
+    if let (Some(way), Some(to)) = (&plan.way_out, leads.last()) {
+        use std::fmt::Write as _;
+        let high = |at: glam::Vec2| plan.height(at.x, at.y);
+        let _ = writeln!(
+            places,
+            "place edge:{to} {:.2} {:.2} {:.2} {:.1} {:.2} {:.2} {:.2} {:.1}",
+            way.at.x,
+            high(way.at),
+            way.at.y,
+            way.radius,
+            way.arrive.x,
+            high(way.arrive),
+            way.arrive.y,
+            way.yaw_degrees
+        );
+        println!(
+            "  the way out to {to} is at {:.0} {:.0}; coming in, a truck is put at {:.2} {:.2} {:.2} facing {:.1}",
+            way.at.x,
+            way.at.y,
+            way.arrive.x,
+            high(way.arrive),
+            way.arrive.y,
+            way.yaw_degrees
+        );
+    }
     // A hub's shed: the model, what of it stops a truck, and its bay as a place to stop in.
     if let Some(shed) = &plan.shed {
         use std::fmt::Write as _;
@@ -480,7 +516,7 @@ pub fn build(
     // The track's line: every other point of the design's is plenty.
     let samples: Vec<Sample> = plan
         .trail
-        .points
+        .main_points()
         .iter()
         .step_by(2)
         .map(|point| Sample {
@@ -554,14 +590,13 @@ mod tests {
             .and_then(|size| size.parse().ok())
             .unwrap_or(1000.0);
         let trailheads = match (country.hub, country.town) {
-            (_, true) => 1,
             (true, false) => 3,
             _ => 0,
         };
-        // (`OUTBACK_GATE=1` gives a track its gate.)
-        let gate = (country.hub && !country.town) || std::env::var("OUTBACK_GATE").is_ok();
-        let plan = Plan::new(size, country, trailheads, gate);
-        println!("trailheads {:?}", plan.places);
+        // (`OUTBACK_GATE=1` gives a track its gate; a hub and a town have a way out.)
+        let gate = !country.hub && std::env::var("OUTBACK_GATE").is_ok();
+        let plan = Plan::new(size, country, trailheads, gate, country.hub);
+        println!("trailheads {:?}, way out {:?}", plan.places, plan.way_out);
         let (start, yaw) = plan.start();
         println!("start {start} yaw {yaw}");
         let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/outback");
