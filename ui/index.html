@@ -9,6 +9,63 @@
      which screen there is and what the instruments read (ui.js, docs/ui.md). -->
 <body data-screen="boot">
 
+<!-- The icons, drawn once and used by name (`<use href="#class-3">`): a truck of each class
+     from the side, a medal, and each weather. Each is one colour, the colour of what it is
+     used in. -->
+<svg class="sprite" aria-hidden="true" width="0" height="0">
+  <!-- Class 1, paddock bashers: a short tray-back ute. -->
+  <symbol id="class-1" viewBox="0 0 64 32">
+    <path fill-rule="evenodd" d="M4 15 H29 V8 H31 V7 H42 L46 14 H57 Q59 14 59 16 V21 H4 Z M33 9 H41 L44 14 H33 Z"/>
+    <circle cx="15" cy="23" r="5"/><circle cx="49" cy="23" r="5"/>
+  </symbol>
+  <!-- Class 2, old tourers: a square wagon with a spare on its back door. -->
+  <symbol id="class-2" viewBox="0 0 64 32">
+    <path fill-rule="evenodd" d="M7 6 H44 L47 13 H57 Q59 13 59 15 V21 H7 Z M10 8 H24 V13 H10 Z M26 8 H43 L45 13 H26 Z"/>
+    <circle cx="4" cy="14" r="3.6"/><circle cx="17" cy="23" r="5"/><circle cx="49" cy="23" r="5"/>
+  </symbol>
+  <!-- Class 3, workhorses: a dual-cab ute. -->
+  <symbol id="class-3" viewBox="0 0 64 32">
+    <path fill-rule="evenodd" d="M4 13 H22 L25 6 H40 L47 13 L57 14 Q60 14.5 60 17 V21 H4 Z M26.2 8 H32 V13 H24.2 Z M34 8 H39.4 L44.4 13 H34 Z"/>
+    <circle cx="15" cy="23" r="5"/><circle cx="50" cy="23" r="5"/>
+  </symbol>
+  <!-- Class 4, built tourers: a lifted wagon with a rack and a bar. -->
+  <symbol id="class-4" viewBox="0 0 64 32">
+    <path fill-rule="evenodd" d="M6 5 H42 L47 12 H56 Q58 12 58 14 V19 H6 Z M9 7 H22 V12 H9 Z M24 7 H41 L44.5 12 H24 Z"/>
+    <path d="M8 1.6 H41 V3 H38 V5 H36.6 V3 H12.4 V5 H11 V3 H8 Z M59.4 10 H61.4 V19.5 H57 V17.5 H59.4 Z M45.2 3 H46.6 V11 H45.2 Z"/>
+    <circle cx="17" cy="23" r="6.2"/><circle cx="48" cy="23" r="6.2"/>
+  </symbol>
+  <!-- Class 5, the top end: a long, wide desert truck. -->
+  <symbol id="class-5" viewBox="0 0 64 32">
+    <path fill-rule="evenodd" d="M1 12 H24 L28 5 H42 L49 12 L60 13 Q63 13.5 63 16 V20 H1 Z M29.6 7 H35 V12 H26.8 Z M37 7 H41 L46 12 H37 Z"/>
+    <path d="M30 2.6 H40 V4 H30 Z"/>
+    <circle cx="13" cy="23" r="6.8"/><circle cx="51" cy="23" r="6.8"/>
+  </symbol>
+  <symbol id="medal" viewBox="0 0 24 24">
+    <path d="M6.5 1.5 H10.5 L12 6 L13.5 1.5 H17.5 L14.6 10 H9.4 Z"/>
+    <path fill-rule="evenodd" d="M12 9 A6.8 6.8 0 1 0 12 22.6 A6.8 6.8 0 1 0 12 9 Z M12 11.4 A4.4 4.4 0 1 1 12 20.2 A4.4 4.4 0 1 1 12 11.4 Z"/>
+    <circle cx="12" cy="15.8" r="2.6"/>
+  </symbol>
+  <symbol id="sky-clear" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="4.6"/>
+    <path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" d="M12 2 V4.6 M12 19.4 V22 M2 12 H4.6 M19.4 12 H22 M4.9 4.9 L6.8 6.8 M17.2 17.2 L19.1 19.1 M4.9 19.1 L6.8 17.2 M17.2 6.8 L19.1 4.9"/>
+  </symbol>
+  <symbol id="sky-fair" viewBox="0 0 24 24">
+    <circle cx="8.4" cy="8.2" r="3.6"/>
+    <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8.4 1.6 V2.8 M1.8 8.2 H3 M3.7 3.5 L4.6 4.4 M13.1 3.5 L12.2 4.4"/>
+    <path d="M8.2 21 A4.3 4.3 0 0 1 8.6 12.4 A5.6 5.6 0 0 1 19.2 13.8 A3.7 3.7 0 0 1 18.6 21 Z"/>
+  </symbol>
+  <symbol id="sky-overcast" viewBox="0 0 24 24">
+    <path d="M6.4 19.5 A5 5 0 0 1 6.9 9.5 A6.6 6.6 0 0 1 19.4 11.2 A4.2 4.2 0 0 1 18.7 19.5 Z"/>
+  </symbol>
+  <symbol id="sky-storm" viewBox="0 0 24 24">
+    <path d="M6.4 15 A5 5 0 0 1 6.9 5 A6.6 6.6 0 0 1 19.4 6.7 A4.2 4.2 0 0 1 18.7 15 Z"/>
+    <path fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" d="M8 17.6 L6.6 21.6 M12.4 17.6 L11 21.6 M16.8 17.6 L15.4 21.6"/>
+  </symbol>
+  <symbol id="moon" viewBox="0 0 24 24">
+    <path d="M14.5 2.5 A9.6 9.6 0 1 0 21.5 16.2 A7.6 7.6 0 0 1 14.5 2.5 Z"/>
+  </symbol>
+</svg>
+
 <!-- Along the top, over every screen: what is being downloaded, in a browser, where a map
      comes a part at a time. A line across the page that fills, and what it is of. -->
 <div id="stream" hidden>
@@ -16,16 +73,20 @@
   <p><span class="dot"></span><b id="stream-what"></b><span id="stream-much"></span></p>
 </div>
 
-<!-- The title: the game's name and its first menu, down the left, the truck behind. -->
+<!-- The title: the game's name and its first menu, down a rail on the left, the bush behind. -->
 <section class="screen" id="title">
-  <div class="scrim scrim-left"></div>
-  <div class="column">
-    <p class="kicker"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 26 L11 10 L16 18 L20 12 L30 26 Z"/><circle cx="24" cy="7" r="3"/></svg>Victorian High Country</p>
-    <h1 class="wordmark"><span>Aussie</span><span>Outback</span><b>4x4</b></h1>
-    <nav class="menu" data-menu="title">
-      <button data-do="start"><span>Drive</span><small>Take the truck out from the crossroads</small></button>
-      <button data-open="controls"><span>Controls</span><small>Keys, mouse and controller</small></button>
-      <button data-do="quit"><span>Quit</span><small>Back to the desktop</small></button>
+  <div class="scrim scrim-title"></div>
+  <div class="rail">
+    <header>
+      <p class="kicker"><svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 26 L11 10 L16 18 L20 12 L30 26 Z"/><circle cx="24" cy="7" r="3"/></svg>Victorian High Country</p>
+      <h1 class="wordmark"><span>Aussie</span><span>Outback</span><b>4x4</b></h1>
+    </header>
+    <nav class="menu main" data-menu="title">
+      <button data-open="newgame"><span>New game</span><small>Start out owing on the block, and choose a first truck.</small></button>
+      <button data-do="free_page"><span>Free drive</span><small>Any truck, anywhere. Nothing is owed and nothing is kept.</small></button>
+      <button data-open="loadgame"><span>Load game</span><small>Go on with a game you have begun.</small></button>
+      <button data-open="controls"><span>Options</span><small>Controls, sound and display.</small></button>
+      <button data-do="quit"><span>Quit</span><small>Back to the desktop.</small></button>
     </nav>
   </div>
   <footer class="hints"><span data-hint="accept">Select</span><span class="build">Pre-alpha</span></footer>
@@ -38,10 +99,16 @@
     <h2 id="where-title"></h2>
     <dl id="laps" hidden>
       <dt>Lap</dt><dd id="lap-count">1</dd>
-      <dt>Time</dt><dd id="lap-time" class="big">-:--.---</dd>
+      <dt class="keep">Time</dt><dd id="lap-time" class="big keep">-:--.---</dd>
       <dt>Last</dt><dd id="lap-last">-:--.---</dd>
       <dt>Best</dt><dd id="lap-best">-:--.---</dd>
     </dl>
+    <!-- Against the clock: each medal's time, and how far ahead of it or behind the lap is. -->
+    <ul class="targets" id="targets" hidden>
+      <li class="gold" data-medal="gold"><svg aria-hidden="true"><use href="#medal"/></svg><b>-:--.-</b><span>-</span></li>
+      <li class="silver" data-medal="silver"><svg aria-hidden="true"><use href="#medal"/></svg><b>-:--.-</b><span>-</span></li>
+      <li class="bronze" data-medal="bronze"><svg aria-hidden="true"><use href="#medal"/></svg><b>-:--.-</b><span>-</span></li>
+    </ul>
     <!-- What has been found and is in the truck, to be taken back to the shed. -->
     <p class="haul" id="haul" hidden><i></i><b id="haul-count">0</b><span id="haul-words">in the tray</span></p>
   </aside>
@@ -92,6 +159,7 @@
   <aside class="detector" id="detector" hidden>
     <p><span>Detector</span><b id="detector-hand"></b></p>
     <div class="meter"><i id="detector-bar"></i></div>
+    <p class="detector-tip" id="detector-tip"></p>
   </aside>
 
   <!-- Out of the truck, on foot: what the button does. -->
@@ -105,6 +173,7 @@
   <!-- The map, small, about where the truck is: north up, the truck's arrow in its middle. -->
   <aside class="minimap" id="minimap" hidden>
     <div class="minimap-chart" id="minimap-chart"></div>
+    <i class="ghost bronze" data-medal="bronze" hidden></i><i class="ghost silver" data-medal="silver" hidden></i><i class="ghost gold" data-medal="gold" hidden></i>
     <svg class="minimap-arrow" id="minimap-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 L20 21 L12 16 L4 21 Z"/></svg>
     <b>N</b>
   </aside>
@@ -135,19 +204,22 @@
   </div>
 </section>
 
-<!-- Paused. -->
+<!-- Paused: a short menu down the same rail as the main menu's. What the game is made of
+     (the garage, the calendar, the shops) is out in it, not here. -->
 <section class="screen" id="pause">
-  <div class="scrim scrim-full"></div>
-  <div class="column">
-    <p class="kicker" id="pause-map"></p>
-    <h1 class="heading">Paused</h1>
-    <nav class="menu" data-menu="pause">
-      <button data-do="resume"><span>Resume</span></button>
-      <button data-do="restart"><span>Restart</span><small>Back to where this map starts</small></button>
-      <button data-do="hub" id="pause-hub"><span>Back to the crossroads</span><small>Leave this map</small></button>
-      <button data-open="map" id="pause-chart"><span>Map</span><small>Where you are, and the way to everything</small></button>
-      <button data-open="controls"><span>Controls</span></button>
-      <button data-do="title"><span>Quit to title</span></button>
+  <div class="scrim scrim-title"></div>
+  <div class="rail">
+    <header>
+      <p class="kicker" id="pause-map"></p>
+      <h1 class="heading">Paused</h1>
+    </header>
+    <nav class="menu main" data-menu="pause">
+      <button data-do="resume"><span>Resume</span><small>Back to the driving.</small></button>
+      <button data-do="restart" id="pause-restart"><span>Restart</span><small>From the start of this run.</small></button>
+      <button data-open="map" id="pause-chart"><span>Map</span><small>Where you are, and the way to everything.</small></button>
+      <button data-do="hub" id="pause-hub"><span>Back to the Crossroads</span><small>Leave this track and go home.</small></button>
+      <button data-open="controls"><span>Options</span><small>Controls, sound and display.</small></button>
+      <button data-do="title" id="pause-title"><span>Quit to main menu</span><small>The game is kept as you play.</small></button>
     </nav>
   </div>
   <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Resume</span></footer>
@@ -158,20 +230,30 @@
   <div class="scrim scrim-full"></div>
   <article class="card">
     <img class="art" id="offer-art" alt="">
-    <p class="kicker">Trailhead</p>
+    <p class="kicker" id="offer-kicker">Trailhead</p>
     <h1 class="heading" id="offer-title"></h1>
     <p class="about" id="offer-about"></p>
     <dl class="facts">
       <div><dt>Track</dt><dd id="offer-kind">-</dd></div>
       <div><dt>Length</dt><dd id="offer-length">-</dd></div>
-      <div><dt>Best lap</dt><dd id="offer-best">-:--.---</dd></div>
+      <div id="offer-best-fact"><dt>Best lap</dt><dd id="offer-best">-:--.---</dd></div>
     </dl>
     <div id="offer-built">
-      <div class="choice"><span>Time</span><nav class="chips" data-row id="offer-times"></nav></div>
-      <div class="choice"><span>Weather</span><nav class="chips" data-row id="offer-weathers"></nav></div>
-      <nav class="tiles" data-row data-first>
+      <div id="offer-timed">
+        <div class="choice"><span id="offer-class-label">Class</span><nav class="chips classes" data-row id="offer-classes"></nav><b class="chosen" id="offer-class"></b></div>
+        <div class="medals" id="offer-medals">
+          <div class="bronze" data-medal="bronze"><svg aria-hidden="true"><use href="#medal"/></svg><p><b>-:--.-</b><span></span></p></div>
+          <div class="silver" data-medal="silver"><svg aria-hidden="true"><use href="#medal"/></svg><p><b>-:--.-</b><span></span></p></div>
+          <div class="gold" data-medal="gold"><svg aria-hidden="true"><use href="#medal"/></svg><p><b>-:--.-</b><span></span></p></div>
+          <small id="offer-medals-note"></small>
+        </div>
+      </div>
+      <div class="choice" id="offer-time-row"><span>Time</span><nav class="chips" data-row id="offer-times"></nav></div>
+      <div class="choice" id="offer-weather-row"><span>Weather</span><nav class="chips" data-row id="offer-weathers"></nav></div>
+      <nav class="tiles three" data-row data-first>
         <button data-do="roam"><span>Free roam</span><small>No clock. The track, and the bush round it, at your own pace.</small></button>
-        <button data-do="laps"><span>Timed laps</span><small>From the start line, against your best.</small></button>
+        <button data-do="practice"><span>Practice</span><small>Against the clock, lap after lap. Nothing at stake.</small></button>
+        <button data-do="timed"><span>Timed run</span><small>One lap that counts: a medal, and its purse in gold.</small></button>
       </nav>
     </div>
     <p class="unbuilt" id="offer-unbuilt" hidden>This track is still being cut. Check back soon.</p>
@@ -193,15 +275,19 @@
     <dl class="facts">
       <div><dt>In the tray</dt><dd id="shed-tray">-</dd></div>
       <div><dt>In the chest</dt><dd id="shed-chest">-</dd></div>
-      <div><dt>In the bank</dt><dd id="shed-money">$0</dd></div>
+      <div><dt>In hand</dt><dd id="shed-money">$0</dd></div>
       <div><dt>Day</dt><dd id="shed-day-2">1</dd></div>
     </dl>
     <nav class="tiles" data-row data-first>
-      <button data-do="sleep"><span>Sleep till morning</span><small>The day ends. The game is saved, and it is half past six tomorrow.</small></button>
+      <button data-do="sleep" id="shed-sleep"><span>Sleep till morning</span><small>The day ends. The game is saved, and it is half past six tomorrow.</small></button>
       <button data-do="walk"><span>Get out</span><small>On foot. Hold the same button beside the truck to get back in.</small></button>
     </nav>
-    <nav class="menu small" data-menu="shed-leave">
+    <nav class="menu small row" data-row id="shed-yard" hidden>
+      <button data-do="garage"><span>Garage</span><small>Your trucks: take one out, or sell one</small></button>
+    </nav>
+    <nav class="menu small row" data-menu="shed-leave" data-row>
       <button data-do="leave"><span>Drive on</span></button>
+      <button data-open="calendar"><span>Calendar</span></button>
     </nav>
   </article>
   <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Drive on</span></footer>
@@ -219,7 +305,7 @@
       <div><dt>In the tray</dt><dd id="buyer-tray">-</dd></div>
       <div><dt>Paying</dt><dd id="buyer-rate">-</dd></div>
       <div><dt>For the lot</dt><dd id="buyer-pays">-</dd></div>
-      <div><dt>In the bank</dt><dd id="buyer-money">$0</dd></div>
+      <div><dt>In hand</dt><dd id="buyer-money">$0</dd></div>
     </dl>
     <nav class="tiles" data-row data-first>
       <button data-do="sell" id="buyer-sell"><span>Sell the lot</span><small id="buyer-sell-words">Everything in the tray, weighed and paid for.</small></button>
@@ -233,6 +319,36 @@
 </section>
 
 <!-- Asleep: the night goes by. -->
+<!-- Money and trucks: the start of a story, the trucks owned, the auto shop, the used yard
+     and the bank. The truck in hand stands in the showroom behind the page, and is seen:
+     the page is its edges. What it is is down the side, the trucks to choose from are a
+     strip along the bottom, and under them is the name of the one in hand. -->
+<section class="screen" id="yard">
+  <div class="show-shade"></div>
+  <img class="show-flat" id="yard-car" alt="">
+  <header class="show-top">
+    <div>
+      <p class="kicker" id="yard-kicker"></p>
+      <h1 class="show-title" id="yard-title"></h1>
+      <p class="show-about" id="yard-about"></p>
+    </div>
+    <dl class="show-money" id="yard-facts"></dl>
+  </header>
+  <aside class="show-side">
+    <dl class="show-spec" id="yard-spec"></dl>
+    <div class="show-rows" id="yard-rows"></div>
+  </aside>
+  <div class="show-foot">
+    <p class="yard-said" id="yard-said"></p>
+    <nav class="lot" data-row id="yard-lot"></nav>
+    <p class="show-name"><b id="yard-name"></b><span id="yard-detail"></span></p>
+    <div class="show-bar">
+      <nav class="show-acts" data-row id="yard-acts"></nav>
+      <nav class="show-tabs" data-row id="yard-tabs"></nav>
+    </div>
+  </div>
+</section>
+
 <section class="screen" id="sleep">
   <div class="night">
     <p class="kicker">Night at the Crossroads</p>
@@ -241,39 +357,227 @@
   </div>
 </section>
 
+<!-- On a track, before a timed run or practice: the class, the times to beat and who set them.
+     Down the left; the truck stands at the line behind it, the view going round it. -->
+<section class="screen" id="lineup">
+  <div class="scrim scrim-left"></div>
+  <div class="column lineup">
+    <p class="kicker"><svg class="mark class-mark" aria-hidden="true"><use id="lineup-icon" href="#class-1"/></svg><span id="lineup-kicker"></span></p>
+    <h1 class="heading" id="lineup-title"></h1>
+    <p class="facts-line" id="lineup-sky"></p>
+    <p class="about" id="lineup-about"></p>
+    <p class="label">The times to beat &nbsp;·&nbsp; choose a driver to watch their run</p>
+    <nav class="rivals" data-menu="lineup-rivals">
+      <button class="gold" data-do="watch2" data-medal="gold"><svg aria-hidden="true"><use href="#medal"/></svg><i></i><span><b></b><small></small></span><em></em><strong></strong></button>
+      <button class="silver" data-do="watch1" data-medal="silver"><svg aria-hidden="true"><use href="#medal"/></svg><i></i><span><b></b><small></small></span><em></em><strong></strong></button>
+      <button class="bronze" data-do="watch0" data-medal="bronze"><svg aria-hidden="true"><use href="#medal"/></svg><i></i><span><b></b><small></small></span><em></em><strong></strong></button>
+    </nav>
+    <nav class="tiles" data-row data-first>
+      <button data-do="go"><span>Start</span><small id="lineup-go"></small></button>
+      <button data-do="roam"><span>Free roam</span><small>Leave the clock. Drive on from here at your own pace.</small></button>
+    </nav>
+    <nav class="menu small" data-menu="lineup-leave">
+      <button data-do="hub"><span>Back to the crossroads</span></button>
+    </nav>
+  </div>
+  <footer class="hints"><span data-hint="accept">Select</span></footer>
+</section>
+
+<!-- Another driver's run, watched: bars above and below, who it is, and their clock. -->
+<section class="screen" id="watch">
+  <div class="bars"><i></i><i></i></div>
+  <aside class="watching">
+    <p class="kicker" id="watch-kicker">Watching</p>
+    <h2 id="watch-name"></h2>
+    <p class="facts-line" id="watch-truck"></p>
+    <p class="clock"><b id="watch-clock">0:00.0</b><span id="watch-time"></span></p>
+  </aside>
+  <nav class="skipper" data-menu="watch">
+    <button data-do="skip"><kbd id="watch-key">Enter</kbd><span>Skip</span></button>
+  </nav>
+</section>
+
+<!-- A timed run is over: its time, its medal, and what it paid. -->
+<section class="screen" id="result">
+  <div class="scrim scrim-full"></div>
+  <article class="card">
+    <p class="kicker"><svg class="mark class-mark" aria-hidden="true"><use id="result-icon" href="#class-1"/></svg><span id="result-kicker"></span></p>
+    <div class="outcome" id="result-outcome">
+      <svg aria-hidden="true"><use href="#medal"/></svg>
+      <div><h1 class="heading" id="result-time"></h1><p class="facts-line" id="result-words"></p></div>
+    </div>
+    <dl class="facts" id="result-medals">
+      <div class="gold" data-medal="gold"><dt>Gold</dt><dd></dd><small></small></div>
+      <div class="silver" data-medal="silver"><dt>Silver</dt><dd></dd><small></small></div>
+      <div class="bronze" data-medal="bronze"><dt>Bronze</dt><dd></dd><small></small></div>
+      <div><dt>Your best</dt><dd id="result-best"></dd><small></small></div>
+    </dl>
+    <table class="purse"><tbody id="result-purse"></tbody></table>
+    <p class="about" id="result-paid"></p>
+    <nav class="tiles three" data-row data-first>
+      <button data-do="again"><span>Again</span><small>Back to the line.</small></button>
+      <button data-do="roam"><span>Free roam</span><small>Drive on from here, with no clock.</small></button>
+      <button data-do="hub"><span>Crossroads</span><small>Leave this map.</small></button>
+    </nav>
+  </article>
+  <footer class="hints"><span data-hint="accept">Select</span></footer>
+</section>
+
+<!-- The calendar: four weeks, the weather of each day as far as it is known, and what falls
+     due. Opened from the pause menu and from the shed. -->
+<section class="screen" id="calendar">
+  <div class="scrim scrim-full"></div>
+  <article class="card wide calendar-card">
+    <div class="calendar-main">
+      <p class="kicker">Calendar &nbsp;·&nbsp; Day <span id="calendar-day">1</span></p>
+      <h1 class="heading" id="calendar-title"></h1>
+      <div class="weekdays"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+      <div class="days" id="calendar-days"></div>
+    </div>
+    <div class="calendar-side">
+      <p class="label">Today</p>
+      <h2 id="calendar-today"></h2>
+      <p class="sky-line" id="calendar-sky"><svg aria-hidden="true"><use id="calendar-sky-icon" href="#sky-clear"/></svg><span></span></p>
+      <p class="label">Due next</p>
+      <h2 id="calendar-next"></h2>
+      <p class="facts-line" id="calendar-in"></p>
+      <ul class="dues" id="calendar-dues"></ul>
+      <ul class="legend">
+        <li><i class="key-forecast"></i>Forecast: tomorrow and the day after</li>
+        <li><i class="key-outlook"></i>Outlook: less sure</li>
+        <li><i class="key-due"></i>Repayments come out</li>
+      </ul>
+      <nav class="menu small" data-menu="calendar">
+        <button data-close="calendar"><span>Back</span></button>
+      </nav>
+    </div>
+  </article>
+  <footer class="hints"><span data-hint="back">Back</span></footer>
+</section>
+
 <!-- Keys and buttons: opened from the title and from the pause menu. -->
+<!-- A new game: which of the three slots it is kept in. -->
+<section class="screen" id="newgame">
+  <div class="scrim scrim-full"></div>
+  <article class="card slots-card">
+    <p class="kicker">New game</p>
+    <h1 class="heading">Choose a slot</h1>
+    <p class="about">A game is kept in one of three slots, as you play. Starting in a slot that has a game replaces it.</p>
+    <nav class="slots" data-row id="newgame-list"></nav>
+    <nav class="menu small row" data-row><button data-close="newgame"><span>Back</span></button></nav>
+  </article>
+  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Back</span></footer>
+</section>
+
+<!-- The kept games: one is gone on with, or deleted. -->
+<section class="screen" id="loadgame">
+  <div class="scrim scrim-full"></div>
+  <article class="card slots-card">
+    <p class="kicker">Load game</p>
+    <h1 class="heading">Your games</h1>
+    <p class="about">Each game is kept apart: its story, its trucks, its money and its gold.</p>
+    <nav class="slots" data-row id="loadgame-list"></nav>
+    <nav class="slot-acts" data-row id="loadgame-acts"></nav>
+    <nav class="menu small row" data-row><button data-close="loadgame"><span>Back</span></button></nav>
+  </article>
+  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Back</span></footer>
+</section>
+
+<!-- The options, in tabs: the keys, the controller, the sound and the display. Opened from
+     the title and from the pause menu. -->
 <section class="screen" id="controls">
   <div class="scrim scrim-full"></div>
-  <article class="card wide">
-    <p class="kicker">How to drive it</p>
-    <h1 class="heading">Controls</h1>
-    <table>
-      <thead><tr><th></th><th>Keyboard and mouse</th><th>Controller</th></tr></thead>
-      <tbody>
-        <tr><td>Throttle, brake</td><td><kbd>W</kbd> <kbd>S</kbd></td><td><kbd>R2</kbd> <kbd>L2</kbd></td></tr>
-        <tr><td>Steer</td><td><kbd>A</kbd> <kbd>D</kbd></td><td>Left stick</td></tr>
-        <tr><td>Handbrake</td><td><kbd>Space</kbd></td><td><kbd>○</kbd></td></tr>
-        <tr><td>Gear up, down</td><td><kbd>E</kbd> <kbd>Q</kbd></td><td><kbd>R1</kbd> <kbd>L1</kbd></td></tr>
-        <tr><td>2H, 4H, 4L</td><td><kbd>T</kbd></td><td><kbd>□</kbd></td></tr>
-        <tr><td>Diff locks</td><td><kbd>G</kbd></td><td><kbd>✕</kbd></td></tr>
-        <tr><td>Air the tyres down, up</td><td><kbd>Y</kbd></td><td>D-pad up</td></tr>
-        <tr><td>Look round</td><td>Click, then the mouse</td><td>Right stick</td></tr>
-        <tr><td>Change view</td><td><kbd>C</kbd></td><td><kbd>Share</kbd></td></tr>
-        <tr><td>Back on the track</td><td><kbd>R</kbd></td><td><kbd>△</kbd></td></tr>
-        <tr><td>Pause, and the map</td><td><kbd>Esc</kbd></td><td><kbd>Options</kbd></td></tr>
-        <tr><td>Get out, get in</td><td>Hold <kbd>E</kbd></td><td>Hold <kbd>✕</kbd></td></tr>
-        <tr><td>On foot: walk, run</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, <kbd>Shift</kbd></td><td>Left stick, press it to run</td></tr>
-        <tr><td>On foot: jump</td><td><kbd>Space</kbd></td><td><kbd>△</kbd></td></tr>
-        <tr><td>On foot: dig, pick up, put in</td><td><kbd>E</kbd></td><td><kbd>✕</kbd></td></tr>
-        <tr><td>On foot: detector or empty hands</td><td><kbd>Q</kbd></td><td><kbd>□</kbd></td></tr>
-        <tr><td>On foot: put down what you hold</td><td><kbd>G</kbd></td><td><kbd>○</kbd></td></tr>
-      </tbody>
-    </table>
-    <nav class="menu small" data-menu="controls">
+  <article class="card options">
+    <p class="kicker">Options</p>
+    <nav class="tabs" data-row id="option-tabs">
+      <button data-tab="keys" data-live>Keyboard</button>
+      <button data-tab="pad" data-live>Controller</button>
+      <button data-tab="sound" data-live>Sound</button>
+      <button data-tab="display" data-live>Display</button>
+    </nav>
+    <div class="tab" data-panel="keys">
+      <div class="pair">
+        <table>
+          <thead><tr><th>Driving</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Throttle, brake</td><td><kbd>W</kbd> <kbd>S</kbd></td></tr>
+            <tr><td>Steer</td><td><kbd>A</kbd> <kbd>D</kbd></td></tr>
+            <tr><td>Handbrake</td><td><kbd>Space</kbd></td></tr>
+            <tr><td>Gear up, down</td><td><kbd>E</kbd> <kbd>Q</kbd></td></tr>
+            <tr><td>2H, 4H, 4L</td><td><kbd>T</kbd></td></tr>
+            <tr><td>Diff locks</td><td><kbd>G</kbd></td></tr>
+            <tr><td>Air the tyres down, up</td><td><kbd>Y</kbd></td></tr>
+            <tr><td>Look round</td><td>Click, then the mouse</td></tr>
+            <tr><td>Change view</td><td><kbd>C</kbd></td></tr>
+            <tr><td>Back on the track</td><td><kbd>R</kbd></td></tr>
+            <tr><td>Pause, and the map</td><td><kbd>Esc</kbd></td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>On foot</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Get out, get in</td><td>Hold <kbd>E</kbd></td></tr>
+            <tr><td>Walk, run</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>, <kbd>Shift</kbd></td></tr>
+            <tr><td>Jump</td><td><kbd>Space</kbd></td></tr>
+            <tr><td>Dig, pick up, put in, go in a door</td><td><kbd>E</kbd></td></tr>
+            <tr><td>Detector or empty hands</td><td><kbd>Q</kbd></td></tr>
+            <tr><td>Put down what you hold</td><td><kbd>G</kbd></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab" data-panel="pad">
+      <div class="pair">
+        <table>
+          <thead><tr><th>Driving</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Throttle, brake</td><td><kbd>R2</kbd> <kbd>L2</kbd></td></tr>
+            <tr><td>Steer</td><td>Left stick</td></tr>
+            <tr><td>Handbrake</td><td><kbd>&#9675;</kbd></td></tr>
+            <tr><td>Gear up, down</td><td><kbd>R1</kbd> <kbd>L1</kbd></td></tr>
+            <tr><td>2H, 4H, 4L</td><td><kbd>&#9633;</kbd></td></tr>
+            <tr><td>Diff locks</td><td><kbd>&#10005;</kbd></td></tr>
+            <tr><td>Air the tyres down, up</td><td>D-pad up</td></tr>
+            <tr><td>Look round</td><td>Right stick</td></tr>
+            <tr><td>Change view</td><td><kbd>Share</kbd></td></tr>
+            <tr><td>Back on the track</td><td><kbd>&#9651;</kbd></td></tr>
+            <tr><td>Pause, and the map</td><td><kbd>Options</kbd></td></tr>
+          </tbody>
+        </table>
+        <table>
+          <thead><tr><th>On foot</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Get out, get in</td><td>Hold <kbd>&#10005;</kbd></td></tr>
+            <tr><td>Walk, run</td><td>Left stick, press it to run</td></tr>
+            <tr><td>Jump</td><td><kbd>&#9651;</kbd></td></tr>
+            <tr><td>Dig, pick up, put in, go in a door</td><td><kbd>&#10005;</kbd></td></tr>
+            <tr><td>Detector or empty hands</td><td><kbd>&#9633;</kbd></td></tr>
+            <tr><td>Put down what you hold</td><td><kbd>&#9675;</kbd></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab" data-panel="sound">
+      <div class="option">
+        <p><b>Volume</b><i>How loud the game is: the truck, the bush and the detector.</i></p>
+        <nav class="pips" data-row id="option-volume"></nav>
+        <output id="option-volume-says"></output>
+      </div>
+    </div>
+    <div class="tab" data-panel="display">
+      <div class="option">
+        <p><b>Window</b><i>In a window on the desktop, or filling the whole screen.</i></p>
+        <nav class="choice" data-row id="option-screen">
+          <button data-do="option:fullscreen:0">Windowed</button>
+          <button data-do="option:fullscreen:1">Full screen</button>
+        </nav>
+      </div>
+    </div>
+    <nav class="menu small row" data-row>
       <button data-close="controls"><span>Back</span></button>
     </nav>
   </article>
-  <footer class="hints"><span data-hint="back">Back</span></footer>
+  <footer class="hints"><span data-hint="accept">Select</span><span data-hint="back">Back</span></footer>
 </section>
 
 <!-- The map of where the truck is, opened from the pause menu. -->
@@ -309,14 +613,16 @@
 <!-- A map being read. -->
 <section class="screen" id="loading">
   <img class="art" id="loading-art" alt="">
-  <div class="scrim scrim-left"></div>
+  <div class="scrim scrim-loading"></div>
   <div class="column">
-    <p class="kicker" id="loading-kicker">Heading out to</p>
-    <h1 class="heading" id="loading-title"></h1>
-    <p class="facts-line" id="loading-facts"></p>
-    <div class="tread"><i></i></div>
+    <div>
+      <p class="kicker" id="loading-kicker">Heading out to</p>
+      <h1 class="heading" id="loading-title"></h1>
+      <p class="facts-line" id="loading-facts"></p>
+    </div>
     <p class="tip"><b id="loading-tip-head">Bush sense</b><span id="loading-tip"></span></p>
   </div>
+  <div class="tread"><i></i></div>
   <footer class="hints"><span class="build" id="loading-foot">Loading</span></footer>
 </section>
 
