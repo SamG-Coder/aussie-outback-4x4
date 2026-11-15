@@ -426,6 +426,11 @@ impl Play {
         } else {
             drive::Pace::RACING
         };
+        // The lowest the track goes: a car far below that has fallen out of the world.
+        let lowest = track.as_ref().map_or(f32::MIN, |track| {
+            let heights = track.samples.iter().map(|sample| sample.position.y);
+            heights.fold(f32::MAX, f32::min)
+        });
         schedule.add(TickGroup::PrePhysics, "driving", move |world| {
             // Every car's tyres are on ground as wet as the weather has made it.
             for (_, car) in world.entities.query_mut::<(Entity, &mut Car)>() {
@@ -554,8 +559,13 @@ impl Play {
             }
             // Put back on the track when the player asks, and when the car has fallen far
             // below it: off a cliff, or into the sea.
+            // (In the bush a car is wherever it has been driven, down a hill from the track
+            // as likely as not: there it is lost only if it is under all the land there is.)
             let fallen = circuit.as_ref().is_some_and(|track| {
                 world.entities.get::<&Transform>(entity).is_ok_and(|at| {
+                    if mapped {
+                        return at.translation.y < lowest - drive::FALLEN * 4.0;
+                    }
                     let place = track.locate(at.translation, last_at);
                     // Kept as the next step's hint, or every step searches the whole lap.
                     last_at = Some(place.sample);

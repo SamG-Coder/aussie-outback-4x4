@@ -36,6 +36,9 @@ const KEEP_IN: f32 = 45.0;
 /// Half the width of the track's tread, and how far out its cut and fill reach.
 pub const TREAD: f32 = 1.75;
 const BATTER: f32 = 5.5;
+/// How far from the edge of a main road its cutting and its filling have run out into the
+/// land: a road that is made is battered back gently, not cut as a track is worn.
+const ROAD_BATTER: f32 = 13.0;
 /// Metres between the track's points.
 const STEP: f32 = 1.5;
 /// Metres between the wheel ruts' middles: a four-wheel drive's track.
@@ -350,6 +353,13 @@ pub struct Trail {
     /// How many of its points are the track itself, if not all of them: those after are a
     /// road off it to the edge of the map, a line of its own (a hub's way out).
     pub main: usize,
+    /// The point of the track a road leaves it at, if one does. For a way either side of
+    /// it the track's own banks run out as far as a road's.
+    pub junction: Option<usize>,
+    /// The first of its points that are a made road, a main road to drive fast, if any are:
+    /// the road to a town, all of it, or a hub's road to the edge. Its banks run out
+    /// further into the land than a track's, so it is looked for from further off.
+    pub made: usize,
     pub length: f32,
     /// Drainage humps, by how far round the loop each is, and which way the hill falls there.
     pub bars: Vec<(f32, f32)>,
@@ -372,8 +382,9 @@ impl Trail {
         for index in 0..self.points.len() {
             let a = self.points[index].at;
             let key = ((a.x / SQUARE).floor() as i32, (a.y / SQUARE).floor() as i32);
-            for dz in -1..=1 {
-                for dx in -1..=1 {
+            let reach = if self.wide(index) { 2 } else { 1 };
+            for dz in -reach..=reach {
+                for dx in -reach..=reach {
                     self.squares
                         .entry((key.0 + dx, key.1 + dz))
                         .or_default()
@@ -383,17 +394,86 @@ impl Trail {
         }
     }
 
+    /// Whether the stretch that starts at a point has a road's banks, which run out a long
+    /// way into the land: a made road's, and the track's own for sixty metres either side
+    /// of where a road leaves it.
+    pub fn wide(&self, index: usize) -> bool {
+        if index >= self.made {
+            return true;
+        }
+        let main = self.main_points().len();
+        self.junction.is_some_and(|junction| {
+            let apart = index.abs_diff(junction);
+            index < main && apart.min(main - apart) as f32 * STEP < 60.0
+        })
+    }
+
     /// The nearest of the track to a place, if it is within about ten metres.
     pub fn near(&self, x: f32, z: f32) -> Option<Near> {
+        self.near_among(x, z, |_| true)
+    }
+
+    /// The bench at a place, of every stretch of the track and its road that is near it,
+    /// each by how much of the place is its own: how high it is, and how much the ground is
+    /// held to that, from 0 to 1. `batter` is how far from a stretch's middle its cutting has
+    /// run out into the land, by the point it starts at.
+    ///
+    /// The nearest stretch alone will not do where there are two to be near: where a road
+    /// leaves the track, or bends back beside itself, the ground between would be the one's
+    /// up to a line and the other's beyond it, with a step along the line.
+    fn bench(
+        &self,
+        x: f32,
+        z: f32,
+        tread: f32,
+        batter: impl Fn(usize) -> f32,
+    ) -> Option<(f32, f32)> {
+        let key = ((x / SQUARE).floor() as i32, (z / SQUARE).floor() as i32);
+        let stretches = self.squares.get(&key)?;
+        let p = Vec2::new(x, z);
+        let (mut level, mut weight, mut most) = (0.0_f32, 0.0_f32, 0.0_f32);
+        for &index in stretches {
+            let index = index as usize;
+            let (a, b) = (&self.points[index], &self.points[self.after(index)]);
+            let run = b.at - a.at;
+            let t = ((p - a.at).dot(run) / run.length_squared().max(1.0e-6)).clamp(0.0, 1.0);
+            let on = a.at + run * t;
+            let away = p.distance(on);
+            let ford = a.ford + (b.ford - a.ford) * t;
+            let held = (1.0 - smoothstep(tread, batter(index), away)) * (1.0 - ford);
+            if held <= 0.0 {
+                continue;
+            }
+            // (Tilted with its hillside, across its tread.)
+            let forward = (a.forward + (b.forward - a.forward) * t).normalize_or(a.forward);
+            let aside = (p - on).dot(Vec2::new(forward.y, -forward.x));
+            let high = a.height
+                + (b.height - a.height) * t
+                + aside.clamp(-tread, tread) * (a.tilt + (b.tilt - a.tilt) * t);
+            // A place on one stretch's tread is that stretch's, and hardly another's.
+            let share = held.powi(4);
+            level += high * share;
+            weight += share;
+            most = most.max(held);
+        }
+        (weight > 0.0).then(|| (level / weight, most))
+    }
+
+    /// The nearest to a place of those of its stretches that are wanted.
+    fn near_among(&self, x: f32, z: f32, wanted: impl Fn(usize) -> bool) -> Option<Near> {
         let key = ((x / SQUARE).floor() as i32, (z / SQUARE).floor() as i32);
         let stretches = self.squares.get(&key)?;
         let p = Vec2::new(x, z);
         let mut best: Option<(f32, Near)> = None;
         for &index in stretches {
             let index = index as usize;
+            if !wanted(index) {
+                continue;
+            }
             let (a, b) = (&self.points[index], &self.points[self.after(index)]);
             let run = b.at - a.at;
-            let t = ((p - a.at).dot(run) / run.length_squared().max(1.0e-6)).clamp(0.0, 1.0);
+            let along = (p - a.at).dot(run) / run.length_squared().max(1.0e-6);
+            let t = along.clamp(0.0, 1.0);
             let on = a.at + run * t;
             let distance = p.distance_squared(on);
             if best.is_none_or(|(least, _)| distance < least) {
@@ -406,7 +486,17 @@ impl Trail {
                         index,
                         t,
                         along: a.along + run.length() * t,
-                        offset: (p - on).dot(left),
+                        // (Past the end of a stretch a place is as far off as it is, not as
+                        // far to one side: the end of a road is round, and does not run on
+                        // as a bench for as far as it is looked for.)
+                        offset: {
+                            let aside = (p - on).dot(left);
+                            if (0.0..=1.0).contains(&along) {
+                                aside
+                            } else {
+                                distance.sqrt().copysign(aside)
+                            }
+                        },
                     },
                 ));
             }
@@ -708,6 +798,8 @@ impl Plan {
                 points: Vec::new(),
                 open: false,
                 main: 0,
+                junction: None,
+                made: usize::MAX,
                 length: 0.0,
                 bars: Vec::new(),
                 holes: Vec::new(),
@@ -789,6 +881,16 @@ impl Plan {
     /// How far from the track's middle its cutting has run out into the land.
     fn batter(&self) -> f32 {
         self.tread + (BATTER - TREAD)
+    }
+
+    /// The same, of the stretch of it that starts at a point: further for a main road, the
+    /// road to a town or a hub's road to the edge of its map.
+    fn batter_at(&self, index: usize) -> f32 {
+        if self.trail.wide(index) {
+            self.tread + ROAD_BATTER
+        } else {
+            self.batter()
+        }
     }
 
     /// The land's height at a place before the track is worn into it.
@@ -878,15 +980,26 @@ impl Plan {
         let wash = self.wash(s);
         // The bench: cut across the hillside but still tilted with it, eased back to the land
         // over its cut and fill, and rising and falling along its length as nothing graded does.
-        let held = (1.0 - smoothstep(self.tread, self.batter(), d.abs())) * (1.0 - ford);
-        // (The road to a town is a main road, made to be driven fast: it is smooth.)
-        let smooth = if self.country.town { 0.2 } else { 1.0 };
+        let mut held =
+            (1.0 - smoothstep(self.tread, self.batter_at(near.index), d.abs())) * (1.0 - ford);
+        // (A main road is made to be driven fast: it is smooth.)
+        let smooth = if self.hub { 0.2 } else { 1.0 };
         let swell = (0.1 * fbm(Vec3::new(s * 0.1, 0.0, 9.0), 2, 966)
             + 0.05 * fbm(Vec3::new(s * 0.33, 0.0, 9.0), 1, 967))
             * smooth;
-        let level = trail.mix(&near, |p| p.height)
+        let mut level = trail.mix(&near, |p| p.height)
             + d.clamp(-self.tread, self.tread) * trail.mix(&near, |p| p.tilt)
             + swell;
+        // By a made road the ground is all the nearby road's, not the nearest stretch's: so
+        // where a road leaves the track, or bends back beside itself, the one runs into the
+        // other with no step between them, and neither is cut through the other's bank.
+        if trail.made != usize::MAX {
+            let batter = |index: usize| self.batter_at(index);
+            match trail.bench(x, z, self.tread, batter) {
+                Some((all, most)) => (level, held) = (all + swell, most),
+                None => held = 0.0,
+            }
+        }
         let mut height = land + (level - land) * held + lumps * (1.0 - held) * self.lumpiness(x, z);
         let tread = 1.0 - smoothstep(self.tread - 0.35, self.tread + 0.55, d.abs());
         let reach = 1.0 - smoothstep(self.tread + 0.6, self.batter() * 0.85, d.abs());
@@ -1758,6 +1871,9 @@ impl Plan {
             points: Vec::with_capacity(n),
             open,
             main: 0,
+            junction: None,
+            // (A hub's road and the road to a town are made roads from end to end.)
+            made: if self.hub { 0 } else { usize::MAX },
             length: 0.0,
             bars: Vec::new(),
             holes: Vec::new(),
@@ -1848,9 +1964,9 @@ impl Plan {
                 point.erosion *= 0.2;
                 point.wear = wear.max(0.8);
             }
-            // The road to a town is better kept still: hard, level across, with no ledge
-            // of rock in it and no rut to speak of.
-            if fast {
+            // A main road is better kept still, a hub's as the road to a town: hard, level
+            // across, with no ledge of rock in it and no rut to speak of.
+            if self.hub {
                 point.mud = 0.0;
                 point.rock = 0.0;
                 point.rut = 0.006;
@@ -2027,8 +2143,8 @@ impl Plan {
             }
         }
         trail.moguls = moguls;
-        // Nothing is dug across the road to a town to turn the rain off: it is driven fast.
-        if self.country.town {
+        // Nothing is dug across a main road to turn the rain off: it is driven fast.
+        if self.hub {
             trail.bars.clear();
         }
         // The trailheads: spread evenly round the road from the camp, each at the most level
@@ -2140,11 +2256,29 @@ impl Plan {
                 }
                 let grade = (land.at(x1, z1) - land.at(x0, z0)).abs() / length;
                 let climb = ((grade - 0.05).max(0.0) / 0.11).powi(2) * 1.6;
-                let hillside = (land.slope(x1, z1) / 0.4).powi(2);
+                // (A road is made where the ground is easy: it keeps off a hillside.)
+                let hillside = (land.slope(x1, z1) / 0.2).powi(2) * 2.0;
                 let soggy = smoothstep(0.45, 0.8, wet.at(x1, z1)) * 5.0;
                 length * (1.0 + climb + hillside + soggy)
             };
-            let path = search(&side, from.at, end, &cost);
+            // To whichever place along that edge, within a hundred metres or so of the
+            // nearest, is come to over the gentlest ground.
+            let along_edge = Vec2::new(outward.y, outward.x).abs();
+            let rough = |path: &[usize]| -> f32 {
+                path.iter()
+                    .map(|&index| {
+                        let (x, z) = side.place(index);
+                        0.02 + land.slope(x, z)
+                    })
+                    .sum()
+            };
+            let (path, end) = (-4..=4)
+                .map(|k| end + along_edge * (k as f32 * 30.0))
+                .filter(|end| end.x.abs().max(end.y.abs()) <= rim + 0.5)
+                .map(|end| (search(&side, from.at, end, &cost), end))
+                .filter(|(path, _)| path.len() >= 4)
+                .min_by(|a, b| rough(&a.0).total_cmp(&rough(&b.0)))
+                .unwrap_or((Vec::new(), end));
             if path.len() < 4 {
                 println!("    no way was found from the shed to the edge of the map");
             } else {
@@ -2177,7 +2311,7 @@ impl Plan {
                 }
                 // Its height: the land's, evened out, from the road's own where it leaves it.
                 let mut high: Vec<f32> = road.iter().map(|p| land.at(p.x, p.y)).collect();
-                for _ in 0..16 {
+                for _ in 0..48 {
                     let before = high.clone();
                     for i in 0..count {
                         let (low, top) = (i.saturating_sub(4), (i + 4).min(count - 1));
@@ -2188,9 +2322,27 @@ impl Plan {
                     let eased = smoothstep(0.0, 14.0, i as f32);
                     *height = from.height + (*height - from.height) * eased;
                 }
+                // And it climbs and falls no steeper than a road does: one in eight.
+                for i in 1..count {
+                    let most = 0.125 * road[i].distance(road[i - 1]);
+                    high[i] = high[i].clamp(high[i - 1] - most, high[i - 1] + most);
+                }
+                // For as long as it runs beside the road it leaves it is as high as that road
+                // is there, whatever that road does: the two are one piece of ground until
+                // they have parted, with no bank between them.
+                for i in 0..count {
+                    let (beside, away) = (-70..=70_isize)
+                        .map(|k| wrap(junction as isize + k))
+                        .map(|j| (j, trail.points[j].at.distance(road[i])))
+                        .min_by(|a, b| a.1.total_cmp(&b.1))
+                        .unwrap_or((junction, 0.0));
+                    let with = 1.0 - smoothstep(tread * 2.0, 26.0, away);
+                    high[i] += (trail.points[beside].height - high[i]) * with;
+                }
                 // It is numbered on from the road's end, and well clear of it.
                 let mut along = trail.length + 1000.0;
                 trail.main = n;
+                trail.junction = Some(junction);
                 for i in 0..count {
                     let (before, after) = (road[i.saturating_sub(1)], road[(i + 1).min(count - 1)]);
                     let run = before.distance(after).max(1.0e-3);

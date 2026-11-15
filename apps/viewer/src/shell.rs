@@ -77,6 +77,8 @@ pub const WEATHERS: [(&str, &str, f32); 4] = [
     ("Overcast", "overcast", 0.0),
     ("Storm", "storm", 900.0),
 ];
+/// What being put back on the track costs a timed run, each time, in seconds.
+pub const PUT_BACK: f64 = 10.0;
 /// The hour of an [`Order::Load`] that leaves the clock as it is: no hour at all.
 pub const KEEP_HOUR: f32 = -1.0;
 /// How often the pages are told what the instruments read, in seconds.
@@ -94,6 +96,9 @@ pub struct Map {
     /// What kind of driving it is, and how long, in a few words each.
     pub kind: String,
     pub length: String,
+    /// How rich its ground is in gold: 1 is ordinary, and the harder a map is to get round
+    /// the richer it is (`gold MAP RICH`; `gold::chances`).
+    pub gold: f32,
 }
 
 /// One of the game's own trucks, that the player can drive in place of the truck its maps
@@ -152,6 +157,7 @@ impl World {
                         about: String::new(),
                         kind: String::new(),
                         length: String::new(),
+                        gold: 1.0,
                     });
                 }
                 "truck" => {
@@ -172,6 +178,20 @@ impl World {
                         year: number(year)?,
                         title: words.next().unwrap_or(name).trim().to_owned(),
                     });
+                }
+                "gold" => {
+                    let (name, rich) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+                    let map = world
+                        .maps
+                        .iter_mut()
+                        .find(|map| map.name == name)
+                        .ok_or_else(|| error(&format!("there is no map `{name}` yet")))?;
+                    map.gold = rich
+                        .trim()
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|rich| (0.05..=4.0).contains(rich))
+                        .ok_or_else(|| error("expected `gold MAP RICH`, from 0.05 to 4"))?;
                 }
                 "about" | "kind" | "length" => {
                     let (name, said) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
@@ -220,9 +240,15 @@ impl Place {
         self.map.strip_prefix("edge:")
     }
 
+    /// Whether it is where a truck stands to be looked at (`stand:WHAT`): nothing in the
+    /// game itself.
+    fn stand(&self) -> bool {
+        self.map.starts_with("stand:")
+    }
+
     /// Whether it is a ring a truck stops in: not a door, nor a way out at the map's edge.
     fn ring(&self) -> bool {
-        self.door().is_none() && self.edge().is_none()
+        self.door().is_none() && self.edge().is_none() && !self.stand()
     }
 
     /// What is behind it, if it is a door that is walked up to (`door:shop`, `door:used`,
@@ -461,6 +487,9 @@ pub enum Order {
 /// The map that is the showroom, if the game has one: a studio a truck is stood in to be
 /// looked at, while the pages of the yard are shown over it.
 const SHOWROOM: &str = "showroom";
+/// And the town's: the same town, with the truck stood in its yard before the building that
+/// what is dealt with is in (the auto shop, the used trucks, the bank).
+const SHOWROOM_TOWN: &str = "showroom_town";
 
 /// How far from an open door of the truck the driver has walked off, for it to be shut
 /// behind them: in metres.
@@ -614,6 +643,9 @@ pub struct Shell {
     /// Whether the game is in a browser, which reads one scene a page and has no trucks of
     /// the game's own to stand in a showroom: there it is a free drive, and no more.
     web: bool,
+    /// Where the driver has said they are going, on the map: what it is called, and where
+    /// it is. The way to it is what is pointed out, until it is come to or another is chosen.
+    waypoint: Option<(String, Vec3)>,
     /// The map that was driven out of by its edge, while the next is read: it is come into
     /// by the way that leads back there. And whether the truck has been clear of every way
     /// out since it came into this map: only then does one take it.
@@ -758,6 +790,7 @@ impl Shell {
             start_paint: None,
             start_truck: None,
             web: false,
+            waypoint: None,
             came_from: None,
             clear_of_edge: false,
             door_from: None,
@@ -801,7 +834,7 @@ impl Shell {
     /// long it has been looked at. Whoever runs the game puts the camera before it and to
     /// one side, above the ground (`PlayMode::showroom_camera`).
     pub fn showroom(&self) -> Option<(Vec3, glam::Quat, f32)> {
-        (self.screen == Screen::Yard && self.map == SHOWROOM).then_some((
+        (self.screen == Screen::Yard && self.in_showroom()).then_some((
             self.origin,
             self.turned,
             self.show_for,
@@ -866,9 +899,11 @@ impl Shell {
         }
     }
 
-    /// A timed run is over, in this many seconds: its medal, and what it pays. One on which
-    /// the truck was put back on the track has a time and nothing else.
-    fn finish(&mut self, seconds: f64, valid: bool) {
+    /// A timed run is over, in this many seconds: its medal, and what it pays. Each time the
+    /// truck was put back on the track is so many seconds on its time ([`PUT_BACK`]).
+    fn finish(&mut self, seconds: f64, valid: bool, resets: u32) {
+        let driven = seconds;
+        let seconds = seconds + PUT_BACK * f64::from(resets);
         use crate::timed::{grams, payout, Medal, Outcome};
         let Some(course) = &self.course else {
             return;
@@ -901,7 +936,11 @@ impl Shell {
             self.class + 1,
             self.map,
             solstice_game::race::format_time(seconds),
-            if valid { "" } else { " (put back: no time)" },
+            if resets == 0 {
+                String::new()
+            } else {
+                format!(" (driven in {driven:.1}, put back {resets} times)")
+            },
             won.map_or("no medal", Medal::name),
             paid.dollars
         );
@@ -911,6 +950,8 @@ impl Shell {
         self.result = Some(Outcome {
             class: self.class,
             seconds,
+            resets,
+            penalty: PUT_BACK * f64::from(resets),
             valid,
             won,
             before,
@@ -1068,11 +1109,14 @@ impl Shell {
     /// one is behind the title; after that, each is driven straight away.
     pub fn enter(&mut self, files: &[GameFile]) {
         self.places = places(files);
-        // Gold is put in the ground of the map now, where it was not before.
-        self.gold.enter(
-            files,
-            self.chance ^ u64::from(self.day).wrapping_mul(0x2545_F491_4F6C_DD1D),
-        );
+        // (Where the driver was going was somewhere on the map that has been left.)
+        self.waypoint = None;
+        // The map's gold: scattered now, if it has not been come into before or it is time
+        // it was scattered again; else as it was left. (A showroom has none.)
+        let ground = (!self.in_showroom()).then(|| self.map.clone());
+        let rich = self.world.map(&self.map).map_or(1.0, |map| map.gold);
+        self.gold
+            .enter(files, ground.as_deref(), self.day, self.chance, rich);
         self.seen.clear();
         self.carried = None;
         // The truck's holds and doors, if it is one built of pieces with a cab to put
@@ -1089,7 +1133,7 @@ impl Shell {
         };
         // (Its own kit: not that of another truck that is being looked at.)
         let driven = self.yard.driven().map(|owned| owned.truck.clone());
-        if self.story || self.map == SHOWROOM {
+        if self.story || self.in_showroom() {
             if let Some((_, kit)) = self
                 .kit
                 .as_ref()
@@ -1103,10 +1147,10 @@ impl Shell {
             Some(owned) => owned.dirt,
             None => self.free_dirt,
         };
-        if self.map != SHOWROOM {
+        if !self.in_showroom() {
             self.orders.push(Order::Dirt(dirt));
         }
-        if self.map == SHOWROOM {
+        if self.in_showroom() {
             // The trucks that stand there, and the one of them that is shown: with the kit
             // of the one that is driven, if it is among them, for the auto shop.
             let stood = crate::kit::displayed(files);
@@ -1199,7 +1243,8 @@ impl Shell {
             }
         }
         // And a driver who went in at a door of it comes out at the door, on foot.
-        if let Some((map, at)) = self.door_from.take_if(|_| self.map != SHOWROOM) {
+        let out = !self.in_showroom();
+        if let Some((map, at)) = self.door_from.take_if(|_| out) {
             if map == self.map {
                 self.orders.push(Order::Afoot(at));
             }
@@ -1238,7 +1283,7 @@ impl Shell {
         }
         self.gold.keep(&mut kept);
         // (The showroom is not a place a game is left in: the map it was come to from is.)
-        let map = match (&self.show_back, self.map == SHOWROOM) {
+        let map = match (&self.show_back, self.in_showroom()) {
             (Some(back), true) => back,
             (None, true) => &self.world.hub,
             _ => &self.map,
@@ -1278,7 +1323,7 @@ impl Shell {
         // (One that was kept and is no longer among the game's trucks is not driven.)
         let known = |name: &str| self.world.trucks.iter().any(|truck| truck.name == name);
         // In the showroom nothing is driven: the trucks that stand there are looked at.
-        if self.map == SHOWROOM {
+        if self.in_showroom() {
             return None;
         }
         if self.story {
@@ -1366,13 +1411,36 @@ impl Shell {
 
     /// The trucks the showroom is to be read with, when it is: whoever reads it asks.
     pub fn showing(&mut self) -> Vec<(String, String)> {
-        if self.map != SHOWROOM {
+        if !self.in_showroom() {
             self.stood.clear();
             return Vec::new();
         }
         let page = self.page_trucks().into_iter();
         self.stood = page.map(|(truck, build, _)| (truck, build)).collect();
         self.stood.clone()
+    }
+
+    /// Whether the map is a showroom: the one by the shed, or the town's.
+    fn in_showroom(&self) -> bool {
+        self.map == SHOWROOM || self.map == SHOWROOM_TOWN
+    }
+
+    /// The showroom the page of the yard that is shown is looked at in: the town's, for what
+    /// is done in the town, if the game has one; else the one by the shed.
+    fn showroom_for(&self) -> &'static str {
+        let town = matches!(self.yard_page, "shop" | "used" | "bank");
+        if town && self.world.map(SHOWROOM_TOWN).is_some() {
+            SHOWROOM_TOWN
+        } else {
+            SHOWROOM
+        }
+    }
+
+    /// Where in the town's showroom the trucks stand: before the building of the page that
+    /// is shown (`place stand:WHAT` of the town's places). None by the shed, where they
+    /// stand where the map's own truck does.
+    pub fn stand(&self) -> Option<&'static str> {
+        (self.map == SHOWROOM_TOWN).then_some(self.yard_page)
     }
 
     /// Shows a truck in the showroom: one of those on the page of the yard that is shown,
@@ -1384,7 +1452,8 @@ impl Shell {
         if page.is_empty() {
             return;
         }
-        let Some(scene) = self.world.map(SHOWROOM).map(|map| map.scene.clone()) else {
+        let room = self.showroom_for();
+        let Some(scene) = self.world.map(room).map(|map| map.scene.clone()) else {
             return;
         };
         let index = index.min(page.len() - 1);
@@ -1398,7 +1467,7 @@ impl Shell {
         let fitted = |stood: &(String, String), wanted: &(String, String)| {
             stood.0 == wanted.0 && (stood.1 == wanted.1 || stood.1 == "all")
         };
-        let same = self.map == SHOWROOM
+        let same = self.map == room
             && self.stood.len() == stand.len()
             && self
                 .stood
@@ -1412,14 +1481,15 @@ impl Shell {
             });
             return;
         }
-        if self.map != SHOWROOM {
+        if !self.in_showroom() {
             self.show_back = Some(self.map.clone());
-            self.map = SHOWROOM.to_owned();
         }
+        self.map = room.to_owned();
+        // (At whatever hour it has got to, and fair: a truck is looked at in the dry.)
         self.orders.push(Order::Load {
-            map: SHOWROOM.to_owned(),
+            map: room.to_owned(),
             scene,
-            sky: None,
+            sky: Some((KEEP_HOUR, "fair", 0.0)),
         });
     }
 
@@ -1615,6 +1685,31 @@ impl Shell {
                     }
                 }
             }
+            // A part tried where the truck stands, or a colour: it is seen on it, and
+            // nothing is bought. And put back as it was, when the trying is over.
+            ["try", group, choice] => {
+                if let Some(owned) = self.yard.driven() {
+                    let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
+                    let mut tried = owned.clone();
+                    let choice = Some(choice).filter(|choice| *choice != "none");
+                    tried.fitted.set(group, choice);
+                    self.orders
+                        .push(Order::Fit(tried.build_text(kit.map(|(_, kit)| kit))));
+                }
+            }
+            ["tint", colour] => {
+                if let Ok(colour) = u32::from_str_radix(colour, 16) {
+                    self.orders.push(Order::Paint(Some(colour)));
+                }
+            }
+            ["untry"] => {
+                if let Some(owned) = self.yard.driven() {
+                    let kit = self.kit.as_ref().filter(|(of, _)| *of == owned.truck);
+                    self.orders
+                        .push(Order::Fit(owned.build_text(kit.map(|(_, kit)| kit))));
+                    self.orders.push(Order::Paint(owned.paint));
+                }
+            }
             // A first truck's colour: it is shown in it, and taken in it. Nothing is paid.
             ["paint", colour] if self.yard_page == "colour" => {
                 if let Ok(colour) = u32::from_str_radix(colour, 16) {
@@ -1649,7 +1744,7 @@ impl Shell {
                 };
             }
             ["leave"] => {
-                if self.map == SHOWROOM {
+                if self.in_showroom() {
                     // Out of the showroom: back to the title, if that is where it was come
                     // to from; else in the truck that is driven.
                     self.to_title = self.yard_from == Screen::Title;
@@ -1742,7 +1837,7 @@ impl Shell {
             "page": self.yard_page,
             "from": self.yard_from.name(),
             // Whether the truck stands in the showroom behind the page, to be seen.
-            "showroom": self.map == SHOWROOM,
+            "showroom": self.in_showroom(),
             "said": self.yard_said,
             "money": self.money,
             "debt": self.yard.debt,
@@ -1881,7 +1976,7 @@ impl Shell {
     /// Whoever runs the game says what is on the truck now: it is kept with the truck that
     /// is driven, to be on it wherever it is driven next.
     pub fn see_dirt(&mut self, dirt: [f32; 3]) {
-        if self.map == SHOWROOM {
+        if self.in_showroom() {
             return;
         }
         let driving = self.yard.driving;
@@ -1958,7 +2053,7 @@ impl Shell {
         let sky = Some(if timed {
             let (_, name, soaked) = WEATHERS[self.weather];
             (TIMES[self.time].1, name, soaked)
-        } else if found.name == SHOWROOM {
+        } else if found.name == SHOWROOM || found.name == SHOWROOM_TOWN {
             (KEEP_HOUR, "fair", 0.0)
         } else {
             let (name, soaked) = self.today_sky();
@@ -2235,6 +2330,35 @@ impl Shell {
                     self.time = index;
                 }
             }
+            // Where the driver is going, chosen on the map: the place nearest where was
+            // clicked, if one is near, or just there. Chosen again, or `off`, it is nowhere.
+            ["set", "waypoint", "off"] => {
+                self.waypoint = None;
+                self.told_screen = None;
+            }
+            ["set", "waypoint", x, z] => {
+                if let (Ok(x), Ok(z)) = (x.parse::<f32>(), z.parse::<f32>()) {
+                    let there = Vec3::new(x, 0.0, z);
+                    let near = self
+                        .places
+                        .iter()
+                        .filter(|place| !place.stand())
+                        .filter(|place| flat_distance(place.at, there) < 30.0)
+                        .min_by(|a, b| {
+                            flat_distance(a.at, there).total_cmp(&flat_distance(b.at, there))
+                        });
+                    let chosen = match near {
+                        Some(place) => (self.called(place).to_owned(), place.at),
+                        None => ("Marker".to_owned(), there),
+                    };
+                    let again = self
+                        .waypoint
+                        .as_ref()
+                        .is_some_and(|(_, at)| flat_distance(*at, chosen.1) < 6.0);
+                    self.waypoint = (!again).then_some(chosen);
+                    self.told_screen = None;
+                }
+            }
             ["set", "weather", index] => {
                 if let Some(index) = index.parse().ok().filter(|&i| i < WEATHERS.len()) {
                     self.weather = index;
@@ -2419,7 +2543,7 @@ impl Shell {
                 Step::Unattended(TITLE_ORBIT * seconds)
             }
             // In the showroom the view goes round the truck that stands there.
-            Screen::Yard if self.map == SHOWROOM => {
+            Screen::Yard if self.in_showroom() => {
                 self.show_for += seconds;
                 Step::Unattended(0.0)
             }
@@ -2456,7 +2580,7 @@ impl Shell {
         (self.afoot, self.walker, self.truck) = (hud.afoot, hud.walker, at);
         self.speed = hud.velocity.length();
         // Where the truck is, to come back to.
-        if self.mode == Mode::Roam && self.map != SHOWROOM {
+        if self.mode == Mode::Roam && !self.in_showroom() {
             let yaw = (-hud.forward.x).atan2(-hud.forward.z).to_degrees();
             self.poses.insert(self.map.clone(), (at, yaw));
         }
@@ -2468,6 +2592,14 @@ impl Shell {
             .iter()
             .position(|place| place.ring() && flat_distance(place.at, at) < place.radius)
             .filter(|_| !self.afoot);
+        // Where the driver was going is come to: there is nowhere they are going now.
+        if self
+            .waypoint
+            .as_ref()
+            .is_some_and(|(_, there)| flat_distance(*there, at) < 12.0)
+        {
+            self.waypoint = None;
+        }
         // A way out at the edge of the map: a truck driven down it is in the next map, with
         // nothing asked. (One that has just come in by it is not sent straight back: not
         // until it has been clear of it.)
@@ -2581,7 +2713,7 @@ impl Shell {
                 Mode::Timed if lap.count == 0 => self.armed = true,
                 Mode::Timed => {
                     if let (true, None, Some(seconds)) = (self.armed, &self.result, lap.last) {
-                        self.finish(seconds, lap.last_valid);
+                        self.finish(seconds, lap.last_valid, lap.last_resets);
                     }
                 }
             }
@@ -2671,6 +2803,8 @@ impl Shell {
             "signal": self.detector(),
             // How far off what it hears is, to the nearest five metres.
             "gold_away": self.gold_away().map(|away| (away / 5.0).round() * 5.0),
+            // Whether there is any gold in this map's ground to look for.
+            "gold_here": self.gold.any_buried(),
             "use": match self.at_door() {
                 Some(page) => Some(match page { "shop" => "door_shop", "used" => "door_used", _ => "door_bank" }),
                 None => self.afoot.then(|| self.gold.can(&self.stands()).map(crate::gold::Use::name)).flatten(),
@@ -2769,9 +2903,14 @@ impl Shell {
         // round from north.
         if let Some((file, half)) = &self.chart {
             state["chart"] = json!({ "file": file, "half": half });
+            state["waypoint"] = match &self.waypoint {
+                Some((title, at)) => json!({ "title": title, "x": at.x, "z": at.z }),
+                None => Value::Null,
+            };
             state["places"] = self
                 .places
                 .iter()
+                .filter(|place| !place.stand())
                 .map(|place| {
                     let named = place.edge().unwrap_or(&place.map);
                     let (title, kind) = match self.world.map(named) {
@@ -2821,6 +2960,12 @@ impl Shell {
                         "best": lap.best,
                         "valid": lap.valid,
                         "last_valid": lap.last_valid,
+                        // Which section of the lap it is in, of how many; and how often the
+                        // truck has been put back on it, and what that has cost.
+                        "section": lap.sector + 1,
+                        "sections": lap.best_splits.len(),
+                        "resets": lap.resets,
+                        "penalty": PUT_BACK * f64::from(lap.resets),
                     });
                     // How the lap stands against each medal, and where the others are.
                     if let (Some(course), Some(seconds), Screen::Drive) =
@@ -2866,6 +3011,21 @@ impl Shell {
         })
     }
 
+    /// What a place is called: the map it leads to, or what is there.
+    fn called<'a>(&'a self, place: &'a Place) -> &'a str {
+        match self.world.map(place.edge().unwrap_or(&place.map)) {
+            Some(map) => map.title.as_str(),
+            None if place.map == SHED => "The Shed",
+            None if place.map == BUYER => "Gold Buyer",
+            None => match place.door() {
+                Some("shop") => "Auto shop",
+                Some("used") => "Used trucks",
+                Some(_) => "Bank",
+                None => place.map.as_str(),
+            },
+        }
+    }
+
     /// The nearest trailhead to the truck: what it leads to, how far off it is, which way
     /// from straight ahead (in degrees, to the right above zero), and whether the truck is in
     /// its ring.
@@ -2874,21 +3034,30 @@ impl Shell {
         // The place the truck is in; or the nearest trailhead, and the shed as well once
         // there is something in the truck to take back to it.
         let inside = self.inside.and_then(|index| self.places.get(index));
+        // Somewhere chosen on the map is where the way is pointed to, unless the truck is
+        // in a ring, which says what it leads to.
+        if let (None, Some((title, there))) = (inside, &self.waypoint) {
+            let to = *there - at;
+            let ahead = hud.forward;
+            let bearing = (ahead.x * to.z - ahead.z * to.x).atan2(ahead.x * to.x + ahead.z * to.z);
+            return json!({
+                "title": title,
+                "distance": flat_distance(*there, at).round(),
+                "bearing": bearing.to_degrees().round(),
+                "inside": false,
+                "hold": 0.0,
+            });
+        }
         let Some(place) = inside.or_else(|| {
             self.places
                 .iter()
-                .filter(|place| place.door().is_none())
+                .filter(|place| place.door().is_none() && !place.stand())
                 .filter(|place| (place.map != SHED && place.map != BUYER) || self.gold.tray().0 > 0)
                 .min_by(|a, b| flat_distance(a.at, at).total_cmp(&flat_distance(b.at, at)))
         }) else {
             return Value::Null;
         };
-        let title = match self.world.map(place.edge().unwrap_or(&place.map)) {
-            Some(map) => map.title.as_str(),
-            None if place.map == SHED => "The Shed",
-            None if place.map == BUYER => "Gold Buyer",
-            None => place.map.as_str(),
-        };
+        let title = self.called(place);
         let to = place.at - at;
         let ahead = hud.forward;
         let bearing = (ahead.x * to.z - ahead.z * to.x).atan2(ahead.x * to.x + ahead.z * to.z);

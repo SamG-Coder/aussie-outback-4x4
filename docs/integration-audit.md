@@ -13,6 +13,23 @@ to review it.
 each "Open" line below says what became of it. Still only by reading, tests, design maps,
 stills and page previews.
 
+**Fourth pass.** From playing: there was no gold at the Crossroads at all, by design, and
+the gates added in the second pass had switched it off on the tracks as well (a map with any
+place in it was taken for a hub). There is now gold on every map but the town's. A truck in
+free roam was put back on the track for being fourteen metres below it, which in the hills
+is anywhere down a slope; it is left where it is. A timed run lost its medal for one reset;
+it is now driven through gates in turn and a reset adds ten seconds. The driver and the
+controls were copied into every map, so changing them meant baking every map; they are in
+the shared file once.
+
+**Fifth pass: gold.** A map's gold was scattered afresh every day and every time the map
+was come into on a new day, so what had been dug came back; and a find was worth $6,500 on
+average, twenty-four of them a map: one outing paid the whole debt. It is now scattered
+when a map is first come into and kept, with what is dug staying dug, and scattered again
+only after some has been dug and more than three days have gone by. Every map has it, the
+town's included. What is dug is drawn from a table that averages $269 a find in ordinary
+ground, less by home and more on the harder tracks (docs/ui.md, Gold).
+
 ## Summary
 
 | Section | Ties to | State |
@@ -85,8 +102,16 @@ bank are doors in the town, walked up to on foot. Each opens one page in the sho
 - Open: in a free drive the doors do nothing and say nothing.
 - Open: the `.vehicle` figures are first estimates, and so are the figures above.
 
+- Third pass: what is done in the town is looked at in the town, the truck stood in the
+  yard before the building it is done in, not by the shed at the Crossroads.
+- Third pass: the auto shop's parts were rows of small buttons down the side. They are now
+  in the strip along the bottom, as trucks and colours are: its sections, and in a section
+  what there is, each put on the truck to be seen before it is bought. The bank's counter
+  is the same strip.
+
 Review: put a nugget in the tray, park in the shed, open the Garage and try to take another
-truck out. Then walk to each of the three doors in town.
+truck out. Then walk to each of the three doors in town: the truck should be standing in
+front of that building, and the auto shop's parts should be chosen along the bottom.
 
 ## 4. Gold and the detector
 
@@ -130,6 +155,13 @@ driving back out is the way back. Nothing is asked either way.
   their edges, as zones do: `place edge:MAP`, `Place::edge`, tested in
   `driving_off_the_edge_of_a_map_by_its_road_is_driving_into_the_next`.
 - Open: picking an hour for a timed track moves the day's clock to it.
+
+- Third pass, a fault fixed: where the road to the edge left the Crossroads' road there was
+  a wall of earth a metre and more high between them, and another inside the road's own
+  bend. The ground by a road was the nearest stretch's alone. It is now shared between
+  every stretch that is near (`Trail::bench`), and a made road's banks run out thirteen
+  metres. Measured on the design: the steepest step by the junction was over a metre in
+  half a metre, and is 0.45 m, which is what open ground elsewhere on the map is.
 
 Review: from the shed take the road to the edge of the map; the town loads, and the truck is
 on its road facing in. Drive to the town at speed, then back out the same road to the

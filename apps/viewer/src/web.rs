@@ -459,7 +459,7 @@ impl WebViewer {
                 }
                 let stands = play.play.car_pose();
                 if let Some((at, turned, seconds)) = shell.showroom() {
-                    let (at, turned) = stands.unwrap_or((at, turned));
+                    let (at, turned) = play.stand().unwrap_or((at, turned));
                     (camera.position, camera.yaw, camera.pitch) =
                         play.showroom_camera(at, turned, seconds);
                 }
